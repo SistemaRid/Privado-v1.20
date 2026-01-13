@@ -1042,30 +1042,6 @@ async function loadUsers() {
       document.body.appendChild(modal);
     }
 
-    async function updateMonthGoalDisplay(totalRids) {
-  if (!currentUserData?.isAdmin && !currentUserData?.isDeveloper) {
-    return; // funcionário NÃO pode acessar metas
-  }
-  const display = document.getElementById('monthGoalDisplay');
-  if (!display) return;
-
-  const now = new Date();
-  const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-
-  const doc = await db.collection('goals').doc(key).get()
-
-  if (!doc.exists) {
-    display.textContent = '';
-    return;
-  }
-
-  const target = doc.data().target;
-  const percent = Math.round((totalRids / target) * 100);
-  const remaining = Math.max(target - totalRids, 0);
-
-  display.textContent =
-    `Meta do Mês: ${totalRids}/${target} (${percent}%) • Faltam ${remaining} RIDs para conclusão`;
-}
 
     async function saveMonthlyGoal(event) {
       event.preventDefault();
@@ -1206,7 +1182,7 @@ await db.collection('goals').doc(monthYear).set({
     
       const totalRids = filteredRids.length;
       if (currentUserData?.isAdmin || currentUserData?.isDeveloper) {
-    updateMonthGoalDisplay();
+    updateGoalDisplay();
   }
       const openRids = filteredRids.filter(r => r.status === 'EM ABERTO').length;
       const overdueRids = filteredRids.filter(r => r.status === 'VENCIDO').length;
@@ -3873,32 +3849,26 @@ async function loadImageAsBase64(url) {
 
     if (currentUserData.isAdmin || currentUserData.isDeveloper) {
       await loadUsers();
+      await loadMonthlyGoal();          // 🔥 só aqui
+      window.unsubscribeRids = listenRidsRealtimeAdmin();
+      renderAdminDashboard();
+    } else {
+      renderDashboard();               // funcionário
     }
 
     startLeaderNotifications();
+    await loadNotifications();
 
-    if (currentUserData.isAdmin || currentUserData.isDeveloper) {
-      window.unsubscribeRids = listenRidsRealtimeAdmin();
-      renderAdminDashboard();
+  } else {
+    if (unsubscribeLeader) {
+      unsubscribeLeader();
+      unsubscribeLeader = null;
     }
 
-    // 🔧 Garante que RIDs antigas sem número sejam corrigidas
-
-    await loadNotifications();
-    await loadMonthlyGoal();
-
-    renderDashboard();
-} else {
-
-  if (unsubscribeLeader) {
-    unsubscribeLeader();
-    unsubscribeLeader = null;
+    currentUser = null;
+    currentUserData = null;
+    document.getElementById('app').innerHTML = renderLoginPage();
   }
-
-  currentUser = null;
-  currentUserData = null;
-  document.getElementById('app').innerHTML = renderLoginPage();
-}
 });
 
 
