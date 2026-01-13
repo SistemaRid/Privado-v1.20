@@ -3847,7 +3847,7 @@ async function loadImageAsBase64(url) {
 if (currentUserData.isAdmin || currentUserData.isDeveloper) {
   window.unsubscribeRids = listenRidsRealtimeAdmin();
 } else {
-  await loadRidsOnce();
+  await loadRids();
 }
 
     // 🔧 Garante que RIDs antigas sem número sejam corrigidas
