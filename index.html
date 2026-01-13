@@ -3846,7 +3846,9 @@ async function loadImageAsBase64(url) {
     // 🔥 Ativa atualização em tempo real das RIDs
 if (currentUserData.isAdmin || currentUserData.isDeveloper) {
   window.unsubscribeRids = listenRidsRealtimeAdmin();
+  renderAdminDashboard();   // 🔥 isso estava faltando
 }
+
 
     // 🔧 Garante que RIDs antigas sem número sejam corrigidas
     await garantirNumeracaoRids();
