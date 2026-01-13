@@ -106,14 +106,14 @@ function startLeaderNotifications() {
   const myUid = auth.currentUser.uid;
   let isInitialLoad = true; // 🔥 trava a primeira carga
 
-  unsubscribeLeader = db.collection("rids")
-    .where("responsibleLeader", "==", myUid)
-    .orderBy("createdAt", "desc")
-    .limit(1)
-    .onSnapshot(snapshot => {
+unsubscribeLeader = db.collection("rids")
+  .where("responsibleLeader", "==", myUid)
+  .orderBy("createdAt", "desc")
+  .limit(1)
+  .onSnapshot(
+    snapshot => {
 
       if (isInitialLoad) {
-        // Primeira carga = ignora
         isInitialLoad = false;
         return;
       }
@@ -123,7 +123,11 @@ function startLeaderNotifications() {
           showRidNotification(change.doc.data());
         }
       });
-    });
+    },
+    error => {
+      console.warn("🔕 Listener leader bloqueado:", error.code);
+    }
+  );
 }
 
     // 🔐 Auth secundário para cadastro de usuários (não derruba a sessão atual)
@@ -388,10 +392,20 @@ async function getNextRidNumberSafe() {
 }
 
 
-    async function handleLogout() {
-      await auth.signOut();
-      showToast('Logout realizado com sucesso!');
-    }
+async function handleLogout() {
+  if (window.unsubscribeRids) {
+    window.unsubscribeRids();
+    window.unsubscribeRids = null;
+  }
+
+  if (window.unsubscribeLeader) {
+    window.unsubscribeLeader();
+    window.unsubscribeLeader = null;
+  }
+
+  await auth.signOut();
+  showToast("Logout realizado com sucesso");
+}
 
     // RID Functions
     async function createRid(event) {
@@ -551,7 +565,6 @@ for (const key in updates) {
   // Se o erro for só da auditoria, ignoramos
   if (
     error.code === 'permission-denied' ||
-    error.message?.includes('ridHistory') ||
     error.message?.includes('Missing or insufficient permissions')
   ) {
     showToast('RID atualizada com sucesso!');
@@ -886,35 +899,56 @@ for (const key in updates) {
     }
 
     // Data Loading Functions
-  function listenRidsRealtimeAdmin() {
+function listenRidsRealtimeAdmin() {
   return db.collection('rids')
     .orderBy('createdAt', 'desc')
     .limit(200)
-    .onSnapshot(snapshot => {
-      allRids = snapshot.docs.map(doc => ({
+    .onSnapshot(
+      snapshot => {
+        allRids = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+
+        if (window.currentPage === 'dashboard') renderDashboard();
+        if (window.currentPage === 'search') renderSearchPage();
+        if (window.currentPage === 'designated') renderDesignatedPage();
+
+        if (currentUserData?.isAdmin || currentUserData?.isDeveloper) {
+          updateGoalDisplay();
+        }
+      },
+      error => {
+        console.error("🔥 Erro Firestore RIDs:", error);
+        showToast("Sem permissão para carregar RIDs", "error");
+      }
+    );
+}
+
+async function loadUsers() {
+  // Funcionário comum NÃO deve tentar carregar todos os usuários
+  if (!currentUserData?.isAdmin && !currentUserData?.isDeveloper) {
+    return [];
+  }
+
+  try {
+    const snapshot = await db.collection('users').get();
+
+    allUsers = snapshot.docs
+      .map(doc => ({
         id: doc.id,
         ...doc.data()
-      }));
+      }))
+      .filter(user => user && typeof user.name === 'string')
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
 
-      if (window.currentPage === 'dashboard') renderDashboard();
-      if (window.currentPage === 'search') renderSearchPage();
-      if (window.currentPage === 'designated') renderDesignatedPage();
-
-      updateGoalDisplay();
-    });
+    return allUsers;
+  } catch (e) {
+    console.warn("Usuário sem permissão para carregar users");
+    return [];
+  }
 }
 
-    async function loadUsers() {
-  const snapshot = await db.collection('users').get();
-
-  allUsers = snapshot.docs
-    .map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }))
-    .filter(user => user && typeof user.name === 'string')
-    .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
-}
 
 
     async function loadMonthlyGoal() {
@@ -1011,7 +1045,7 @@ for (const key in updates) {
   const now = new Date();
   const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-  const doc = await db.collection('metas').doc(key).get();
+  const doc = await db.collection('goals').doc(key).get()
 
   if (!doc.exists) {
     display.textContent = '';
@@ -1035,7 +1069,13 @@ for (const key in updates) {
         const now = new Date();
         const monthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
         
-        await db.collection('goals').doc(monthYear).set({
+       if (!currentUserData.isDeveloper) {
+        
+  showToast("Você não tem permissão para definir metas", "error");
+  return;
+}
+
+await db.collection('goals').doc(monthYear).set({
           goal: goal,
           setBy: currentUser.uid,
           setAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -1158,7 +1198,9 @@ for (const key in updates) {
  
     
       const totalRids = filteredRids.length;
-      updateMonthGoalDisplay(totalRids);
+      if (currentUserData?.isAdmin || currentUserData?.isDeveloper) {
+    updateMonthGoalDisplay();
+  }
       const openRids = filteredRids.filter(r => r.status === 'EM ABERTO').length;
       const overdueRids = filteredRids.filter(r => r.status === 'VENCIDO').length;
       const correctedRids = filteredRids.filter(r => r.status === 'CORRIGIDO').length;
@@ -3120,23 +3162,6 @@ window.devFilteredBase = base;
   !r.responsibleLeader && r.status !== 'CORRIGIDO'
    );
 
-// Se você tiver coleção ridHistory
-const deleted = window.allDeletedRids
-  ? window.allDeletedRids.length
-  : 0;
-
-  const riskList = base.filter(r => {
-  if (r.status === 'CORRIGIDO') return false;
-
-  const isHighRisk =
-    r.riskClassification === 'Alto' ||
-    r.riskClassification === 'Crítico';
-
-  const isBadOverdue =
-    r.status === 'VENCIDO' && r.riskClassification !== 'Baixo';
-
-  return isHighRisk || isBadOverdue;
-});
 
 // 📊 Ranking de setores por risco
 const sectorRisk = {};
@@ -3839,19 +3864,18 @@ async function loadImageAsBase64(url) {
     const userDoc = await db.collection('users').doc(user.uid).get();
     currentUserData = userDoc.data();
 
-    await loadUsers();
+    if (currentUserData.isAdmin || currentUserData.isDeveloper) {
+      await loadUsers();
+    }
 
     startLeaderNotifications();
 
-    // 🔥 Ativa atualização em tempo real das RIDs
-if (currentUserData.isAdmin || currentUserData.isDeveloper) {
-  window.unsubscribeRids = listenRidsRealtimeAdmin();
-  renderAdminDashboard();   // 🔥 isso estava faltando
-}
-
+    if (currentUserData.isAdmin || currentUserData.isDeveloper) {
+      window.unsubscribeRids = listenRidsRealtimeAdmin();
+      renderAdminDashboard();
+    }
 
     // 🔧 Garante que RIDs antigas sem número sejam corrigidas
-    await garantirNumeracaoRids();
 
     await loadNotifications();
     await loadMonthlyGoal();
