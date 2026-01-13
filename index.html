@@ -1,0 +1,3893 @@
+<!doctype html>
+<html lang="pt-BR" class="h-full">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sistema de Gerenciamento de RIDs</title>
+<link rel="icon" href="icon.png">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="manifest" href="manifest.json">
+
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Sistema RIDs">
+<meta name="theme-color" content="#6b9eb0">
+  <link rel="icon" href="logo.png" type="image/png">
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      box-sizing: border-box;
+    }
+    .card-hover {
+      transition: all 0.3s ease;
+    }
+    .card-hover:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    }
+    .toast {
+      animation: slideIn 0.3s ease-out;
+    }
+    @keyframes slideIn {
+      from {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+    .modal-backdrop {
+      animation: fadeIn 0.2s ease-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    .chart-bar {
+      transition: all 0.3s ease;
+    }
+    .chart-bar:hover {
+      opacity: 0.8;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: #a8d5e2;
+      box-shadow: 0 0 0 3px rgba(168, 213, 226, 0.2);
+    }
+    /* 🔒 trava swipe horizontal no iOS quando modal está aberto */
+.modal-backdrop {
+  overscroll-behavior: contain;
+  touch-action: none;
+}
+
+/* 🔓 libera scroll vertical dentro do modal */
+.modal-backdrop > div {
+  touch-action: pan-y;
+}
+/* Corrige altura do input date no iOS */
+input[type="date"] {
+  -webkit-appearance: none;
+  appearance: none;
+  min-height: 44px;
+  padding: 0.5rem 1rem;
+  line-height: 1.5;
+}
+
+
+  </style>
+  <style>@view-transition { navigation: auto; }</style>
+ </head>
+ <body class="h-full" style="background-color: #dfdfdf;">
+  <div id="app" class="h-full" style="background-color: #dfdfdf;"></div>
+  <script>
+    // Firebase Configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyDAcuwo5FZBs5013klfSMfWkQZbFjqYpbw",
+      authDomain: "novo-rid-dezembro.firebaseapp.com",
+      projectId: "novo-rid-dezembro",
+      storageBucket: "novo-rid-dezembro.firebasestorage.app",
+      messagingSenderId: "629184938088",
+      appId: "1:629184938088:web:3821e7ea07897ae655fbdd"
+    };
+
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+let unsubscribeLeader = null;
+
+function startLeaderNotifications() {
+  if (!auth.currentUser) return;
+
+  const myUid = auth.currentUser.uid;
+  let isInitialLoad = true; // 🔥 trava a primeira carga
+
+  unsubscribeLeader = db.collection("rids")
+    .where("responsibleLeader", "==", myUid)
+    .orderBy("createdAt", "desc")
+    .limit(1)
+    .onSnapshot(snapshot => {
+
+      if (isInitialLoad) {
+        // Primeira carga = ignora
+        isInitialLoad = false;
+        return;
+      }
+
+      snapshot.docChanges().forEach(change => {
+        if (change.type === "added") {
+          showRidNotification(change.doc.data());
+        }
+      });
+    });
+}
+
+    // 🔐 Auth secundário para cadastro de usuários (não derruba a sessão atual)
+    const secondaryApp = firebase.initializeApp(firebaseConfig, "Secondary");
+    const secondaryAuth = secondaryApp.auth();
+
+    // Global State
+    let currentUser = null;
+    let currentUserData = '';
+    let allRids = [];
+    let allUsers = [];
+    let userNotifications = [];
+    let monthlyGoal = null;
+
+    // Default Config
+    const defaultConfig = {
+      system_title: "Sistema de Gerenciamento de RIDs",
+      company_name: ""
+    };
+
+    // Element SDK Configuration
+    const elementConfig = {
+      defaultConfig: defaultConfig,
+      onConfigChange: async (config) => {
+        const titleElements = document.querySelectorAll('.system-title');
+        titleElements.forEach(el => {
+          el.textContent = config.system_title || defaultConfig.system_title;
+        });
+        
+        const companyElements = document.querySelectorAll('.company-name');
+        companyElements.forEach(el => {
+          el.textContent = config.company_name || defaultConfig.company_name;
+        });
+      },
+      mapToCapabilities: (config) => ({
+        recolorables: [],
+        borderables: [],
+        fontEditable: undefined,
+        fontSizeable: undefined
+      }),
+      mapToEditPanelValues: (config) => new Map([
+        ["system_title", config.system_title || defaultConfig.system_title],
+        ["company_name", config.company_name || defaultConfig.company_name]
+      ])
+    };
+
+    // Initialize Element SDK
+    if (window.elementSdk) {
+      window.elementSdk.init(elementConfig);
+    }
+
+    // Utility Functions
+    function getUserNameById(uid) {
+  const user = allUsers.find(u => u.id === uid);
+  return user ? user.name : 'Responsável';
+}
+
+async function getNextRidNumberSafe() {
+  const counterRef = db.collection("counters").doc("rids");
+
+  return db.runTransaction(async (transaction) => {
+    const doc = await transaction.get(counterRef);
+
+    if (!doc.exists) {
+      throw "Documento counters/rids não existe";
+    }
+
+    const last = doc.data().lastNumber || 0;
+    const next = last + 1;
+
+    transaction.update(counterRef, { lastNumber: next });
+
+    return String(next).padStart(5, "0");
+  });
+}
+
+
+    function formatCPF(cpf) {
+      return cpf.replace(/\D/g, '')
+        .replace(/(\d{3})(\d)/, '$1.$2')
+        .replace(/(\d{3})(\d)/, '$1.$2')
+        .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+    }
+
+    function cpfToEmail(cpf) {
+      return cpf.replace(/\D/g, '') + '@jdemito.com';
+    }
+
+    function showToast(message, type = 'success') {
+      const toast = document.createElement('div');
+      toast.className = `toast fixed top-4 right-4 px-6 py-4 rounded-lg shadow-lg text-white z-50 ${
+        type === 'success' ? 'bg-green-500' : 'bg-red-500'
+      }`;
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 3000);
+    }
+
+    function formatDate(date) {
+      if (!date) return '';
+      const d = date.toDate ? date.toDate() : new Date(date);
+      return d.toLocaleDateString('pt-BR');
+    }
+
+    function getNextRidNumber() {
+      if (allRids.length === 0) return '00001';
+      const maxNum = Math.max(...allRids.map(r => parseInt(r.ridNumber)));
+      return String(maxNum + 1).padStart(5, '0');
+    }
+
+    function getFilteredRids() {
+  const periodInput = document.getElementById('dashboardPeriod');
+  const sectorSelect = document.getElementById('dashboardSector');
+
+  let filtered = allRids;
+
+  // 🔹 FILTRO POR PERÍODO (MÊS + ANO)
+  if (periodInput && periodInput.value) {
+    const [year, month] = periodInput.value.split('-').map(Number);
+
+    filtered = filtered.filter(r => {
+      const d = r.emissionDate.toDate();
+      return (
+        d.getFullYear() === year &&
+        d.getMonth() + 1 === month
+      );
+    });
+  } else {
+    // padrão: mês atual
+    const now = new Date();
+    filtered = filtered.filter(r => {
+      const d = r.emissionDate.toDate();
+      return (
+        d.getFullYear() === now.getFullYear() &&
+        d.getMonth() + 1 === now.getMonth() + 1
+      );
+    });
+  }
+
+  // 🔹 FILTRO POR SETOR
+  if (sectorSelect && sectorSelect.value) {
+    filtered = filtered.filter(r => r.sector === sectorSelect.value);
+  }
+  return filtered;
+}
+
+
+    function filterDashboard() {
+      renderAdminDashboard();
+    }
+
+    async function garantirNumeracaoRids() {
+  const snapshot = await db.collection("rids").get();
+
+  let maiorNumero = 0;
+  const ridsSemNumero = [];
+
+  snapshot.forEach(doc => {
+    const data = doc.data();
+
+    if (data.ridNumber) {
+      const num = parseInt(data.ridNumber, 10);
+      if (!isNaN(num) && num > maiorNumero) {
+        maiorNumero = num;
+      }
+    } else {
+      ridsSemNumero.push(doc.ref);
+    }
+  });
+
+  let proximo = maiorNumero;
+
+  for (const ref of ridsSemNumero) {
+    proximo++;
+    const ridNumber = String(proximo).padStart(5, "0");
+
+    await ref.update({ ridNumber });
+  }
+
+  console.log("✅ Numeração de RIDs garantida");
+}
+
+    function clearDashboardFilters() {
+  document.getElementById('dashboardPeriod').value = '';
+  document.getElementById('dashboardSector').value = '';
+  renderAdminDashboard();
+}
+
+    function toggleFilters() {
+      const filterPanel = document.getElementById('filterPanel');
+      if (filterPanel.classList.contains('hidden')) {
+        filterPanel.classList.remove('hidden');
+      } else {
+        filterPanel.classList.add('hidden');
+      }
+    }
+
+    function isDeveloper() {
+     return currentUserData?.isDeveloper === true;
+    }
+
+    function isAdmin() {
+     return currentUserData?.isAdmin === true;
+    }
+
+
+    // Authentication Functions
+    async function handleLogin(event) {
+      event.preventDefault();
+      const cpf = document.getElementById('loginCpf').value;
+      const password = document.getElementById('loginPassword').value;
+      const button = event.target.querySelector('button[type="submit"]');
+      
+      button.disabled = true;
+      button.textContent = 'Entrando...';
+
+      try {
+        const email = cpfToEmail(cpf);
+        await auth.signInWithEmailAndPassword(email, password);
+      } catch (error) {
+        showToast('CPF ou senha incorretos', 'error');
+        button.disabled = false;
+        button.textContent = 'Entrar';
+      }
+    }
+
+    async function handleRegister(event) {
+  event.preventDefault();
+
+  const name = document.getElementById('registerName').value.toUpperCase();
+  const cpf = document.getElementById('registerCpf').value;
+  const sector = document.getElementById('registerSector').value;
+  const password = document.getElementById('registerPassword').value;
+  const button = event.target.querySelector('button[type="submit"]');
+
+  button.disabled = true;
+  button.textContent = 'Cadastrando...';
+
+  try {
+    const email = cpfToEmail(cpf);
+
+    // 🔐 usa auth secundário (correto)
+    const userCredential =
+      await secondaryAuth.createUserWithEmailAndPassword(email, password);
+
+    await db.collection('users').doc(userCredential.user.uid).set({
+      name,
+      cpf,
+      sector,
+      isAdmin: false,
+      isDeveloper: false,
+      userType: 'Funcionário',
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+
+    showToast('Cadastro realizado com sucesso!');
+  } catch (error) {
+    showToast('Erro ao cadastrar: ' + error.message, 'error');
+    button.disabled = false;
+    button.textContent = 'Cadastrar';
+  }
+}
+
+
+    async function handleLogout() {
+      await auth.signOut();
+      showToast('Logout realizado com sucesso!');
+    }
+
+    // RID Functions
+    async function createRid(event) {
+      event.preventDefault();
+      const form = event.target;
+      const button = form.querySelector('button[type="submit"]');
+      
+      button.disabled = true;
+      button.textContent = 'Enviando RID...';
+
+      try {
+        const ridNumber = await getNextRidNumberSafe();
+        const leaderId = form.responsibleLeader.value;
+        const leaderName = leaderId ? allUsers.find(u => u.id === leaderId)?.name : null;
+        
+        const ridData = {
+          ridNumber: ridNumber,
+          emitterId: currentUser.uid,
+          emitterName: form.emitterName.value,
+          emitterCpf: currentUserData.cpf,
+          contractType: form.contractType.value,
+          unit: form.unit.value,
+          sector: form.ridSector.value,
+          emissionDate: firebase.firestore.Timestamp.fromDate(new Date(form.emissionDate.value)),
+          incidentType: form.incidentType.value,
+          detectionOrigin: form.detectionOrigin.value,
+          location: form.location.value,
+          description: form.description.value,
+          riskClassification: form.riskClassification.value,
+          immediateAction: form.immediateAction.value,
+          status: form.status.value,
+          responsibleLeader: leaderId,
+          responsibleLeaderName: leaderName,
+          deadline: null,
+          conclusion: null,
+          correctiveActions: null,
+          observations: null,
+          conclusionDate: form.status.value === 'CORRIGIDO' ? firebase.firestore.FieldValue.serverTimestamp() : null,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+
+        const docRef = await db.collection('rids').add(ridData);
+        
+        // Notify all admins about new RID
+        const adminUsers = allUsers.filter(u => u.isAdmin && u.id !== currentUser.uid);
+        for (const admin of adminUsers) {
+          await createNotification(admin.id, {
+            type: 'rid_created',
+            ridId: docRef.id,
+            ridNumber: ridNumber,
+            title: 'Nova RID Criada',
+            message: `${form.emitterName.value} criou uma nova RID #${ridNumber}`,
+            ridLocation: form.location.value,
+            deadline: null
+          });
+        }
+        
+        // If a leader was designated, notify them
+        if (leaderId) {
+          await createNotification(leaderId, {
+            type: 'rid_designated',
+            ridId: docRef.id,
+            ridNumber: ridNumber,
+            title: 'Nova RID Designada',
+            message: `Você foi designado como responsável pela RID #${ridNumber}`,
+            ridLocation: form.location.value,
+            deadline: null
+          });
+        }
+        
+        showToast('RID criada com sucesso!');
+
+// 🔥 Fecha o modal
+form.closest('.modal-backdrop')?.remove();
+
+// 🔄 Atualiza somente a tela atual
+if (window.currentPage === 'dashboard') renderAdminDashboard();
+if (window.currentPage === 'search') renderSearchPage();
+if (window.currentPage === 'designated') renderDesignatedPage();
+
+      } catch (error) {
+        showToast('Erro ao criar RID: ' + error.message, 'error');
+        button.disabled = false;
+        button.textContent = 'Criar RID';
+      }
+    }
+
+    async function updateRid(ridId, updates) {
+  try {
+    // Se virou CORRIGIDO, grava data
+    if (updates.status === 'CORRIGIDO' && !updates.conclusionDate) {
+      updates.conclusionDate = firebase.firestore.FieldValue.serverTimestamp();
+    }
+
+const rid = allRids.find(r => r.id === ridId);
+
+await db.collection('rids').doc(ridId).update(updates);
+
+// 🧾 Auditoria
+const changes = {};
+
+for (const key in updates) {
+  if (rid[key] !== updates[key]) {
+    changes[key] = {
+      from: rid[key] || null,
+      to: updates[key]
+    };
+  }
+}
+
+    // 🔔 Notifica admins
+    if (updates.status) {
+      const adminUsers = allUsers.filter(u => u.isAdmin && u.id !== currentUser.uid);
+      for (const admin of adminUsers) {
+        await createNotification(admin.id, {
+          type: 'rid_status_changed',
+          ridId: ridId,
+          ridNumber: rid?.ridNumber || '',
+          title: 'Status da RID Atualizado',
+          message: `RID #${rid?.ridNumber} foi atualizada para: ${updates.status}`,
+          ridLocation: rid?.location || '',
+          deadline: null
+        });
+      }
+    }
+
+    // 🔔 Notifica responsável
+    if (
+  currentUserData.isDeveloper && // ← só dev
+  rid?.responsibleLeader &&
+  rid.responsibleLeader !== currentUser.uid
+) {
+  await createNotification(rid.responsibleLeader, {
+    type: 'rid_updated',
+    ridId: ridId,
+    ridNumber: rid?.ridNumber || '',
+    title: 'RID Atualizada',
+    message: `A RID #${rid?.ridNumber} foi atualizada por ${currentUserData.name}`,
+    ridLocation: rid?.location || '',
+    deadline: null
+  });
+}
+
+    // 🧹 Fecha o modal de detalhes
+    document.querySelectorAll('.modal-backdrop').forEach(m => m.remove());
+
+    // 🔥 NÃO usa loadRids — realtime já atualiza
+    if (window.currentPage === 'dashboard') renderAdminDashboard();
+    if (window.currentPage === 'search') renderSearchPage();
+    if (window.currentPage === 'designated') renderDesignatedPage();
+
+    showToast('RID atualizada com sucesso!');
+    return true;
+ } catch (error) {
+  console.error("Erro Firestore:", error);
+
+  // Se o erro for só da auditoria, ignoramos
+  if (
+    error.code === 'permission-denied' ||
+    error.message?.includes('ridHistory') ||
+    error.message?.includes('Missing or insufficient permissions')
+  ) {
+    showToast('RID atualizada com sucesso!');
+    return true;
+  }
+
+  // Erro real
+  showToast('Erro ao atualizar RID: ' + error.message, 'error');
+  return false;
+}
+}
+
+
+    async function designateRid(ridId, leaderId, leaderName, observations, deadline) {
+  const updates = {
+    responsibleLeader: leaderId,
+    responsibleLeaderName: leaderName,
+    deadline: deadline
+      ? firebase.firestore.Timestamp.fromDate(new Date(deadline))
+      : null,
+    observations: observations,
+    status: 'EM ABERTO'
+  };
+
+  // ✅ usa a função updateRid GLOBAL (a correta)
+  const success = await updateRid(ridId, updates);
+
+  if (success) {
+    // 🔁 garante atualização visual
+    renderDesignatedPage?.();
+    renderEmployeeDesignatedPage?.();
+    renderDashboard?.();
+  }
+}
+
+    // Direct deletion function (only for developers)
+    async function deleteRidDirectly(ridId) {
+      if (!isDeveloper()) {
+        showToast('Acesso negado', 'error');
+        return;
+      }
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overscroll-contain touch-none';
+      modal.innerHTML = `
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md">
+          <div class="border-b-2 px-6 py-4 bg-red-50" style="border-color: #ff6b6b;">
+            <h3 class="text-xl font-bold text-red-800">⚠️ Confirmar Exclusão Permanente</h3>
+          </div>
+          <div class="p-6">
+            <p class="mb-4 text-gray-700 font-semibold">Esta ação é <strong class="text-red-600">IRREVERSÍVEL</strong>!</p>
+            <p class="mb-6 text-gray-600">O RID será excluído permanentemente do sistema sem possibilidade de recuperação.</p>
+            <div class="flex space-x-4">
+              <button onclick="confirmDeleteRid('${ridId}')" class="flex-1 py-3 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-colors">
+                Confirmar Exclusão
+              </button>
+              <button onclick="this.closest('.modal-backdrop').remove()" class="flex-1 py-3 bg-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-400 transition-colors">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    async function confirmDeleteRid(ridId) {
+  try {
+    const rid = allRids.find(r => r.id === ridId);
+
+    // 🔥 Apaga o RID
+    await db.collection('rids').doc(ridId).delete();
+
+    // 🔔 Notifica admins
+    const adminUsers = allUsers.filter(u => u.isAdmin && u.id !== currentUser.uid);
+    for (const admin of adminUsers) {
+      await createNotification(admin.id, {
+        type: 'rid_deleted',
+        ridId: '',
+        ridNumber: rid?.ridNumber || '',
+        title: 'RID Excluída',
+        message: `${currentUserData.name} (Desenvolvedor) excluiu a RID #${rid?.ridNumber || ''}`,
+        ridLocation: rid?.location || '',
+        deadline: null
+      });
+    }
+
+    // 🧹 FECHA TODOS OS MODAIS (RID + confirmação)
+    document.querySelectorAll('.modal-backdrop').forEach(m => m.remove());
+
+    // 🔥 NÃO CHAMA loadRids() (listener já atualiza)
+    // Apenas atualiza a tela atual
+    if (window.currentPage === 'dashboard') renderAdminDashboard();
+    if (window.currentPage === 'search') renderSearchPage();
+    if (window.currentPage === 'designated') renderDesignatedPage();
+
+    showToast('RID excluída com sucesso!');
+  } catch (error) {
+    showToast('Erro ao excluir RID: ' + error.message, 'error');
+  }
+}
+
+    // Notification Functions
+    async function createNotification(userId, notificationData) {
+      try {
+        await db.collection('notifications').add({
+          userId: userId,
+          ...notificationData,
+          read: false,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      } catch (error) {
+        console.error('Error creating notification:', error);
+      }
+    }
+
+    async function loadNotifications() {
+      if (!currentUser) return;
+      
+      try {
+        const snapshot = await db.collection('notifications')
+          .where('userId', '==', currentUser.uid)
+          .orderBy('createdAt', 'desc')
+          .limit(50)
+          .get();
+        
+        userNotifications = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        
+        updateNotificationBadge();
+        renderNotificationsList();
+      } catch (error) {
+        console.error('Error loading notifications:', error);
+      }
+    }
+
+    function updateNotificationBadge() {
+      const badge = document.getElementById('notificationBadge');
+      if (!badge) return;
+      
+      const unreadCount = userNotifications.filter(n => !n.read).length;
+      
+      if (unreadCount > 0) {
+        badge.textContent = unreadCount > 9 ? '9+' : unreadCount;
+        badge.classList.remove('hidden');
+      } else {
+        badge.classList.add('hidden');
+      }
+    }
+
+    function renderNotificationsList() {
+      const list = document.getElementById('notificationsList');
+      if (!list) return;
+      
+      if (userNotifications.length === 0) {
+        list.innerHTML = '<p class="text-gray-500 text-center py-8 text-sm">Nenhuma notificação</p>';
+        return;
+      }
+      
+      list.innerHTML = userNotifications.map(notification => {
+        // Choose icon based on notification type
+        let iconSvg = '';
+        let iconColor = notification.read ? '#e5e7eb' : '#a8d5e2';
+        
+        switch(notification.type) {
+          case 'rid_designated':
+            iconSvg = '<path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z"/><path fill-rule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clip-rule="evenodd"/>';
+            iconColor = notification.read ? '#e5e7eb' : '#ffd9a0';
+            break;
+          case 'rid_created':
+            iconSvg = '<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clip-rule="evenodd"/>';
+            iconColor = notification.read ? '#e5e7eb' : '#b5e7a0';
+            break;
+          case 'rid_status_changed':
+          case 'rid_updated':
+            iconSvg = '<path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/>';
+            iconColor = notification.read ? '#e5e7eb' : '#a8d5e2';
+            break;
+          case 'deletion_request':
+          case 'employee_deletion_request':
+            iconSvg = '<path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/>';
+            iconColor = notification.read ? '#e5e7eb' : '#ff6b6b';
+            break;
+          case 'request_approved':
+            iconSvg = '<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>';
+            iconColor = notification.read ? '#e5e7eb' : '#4ade80';
+            break;
+          case 'request_rejected':
+            iconSvg = '<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>';
+            iconColor = notification.read ? '#e5e7eb' : '#ff6b6b';
+            break;
+          case 'rid_deleted':
+            iconSvg = '<path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/>';
+            iconColor = notification.read ? '#e5e7eb' : '#c4a8e0';
+            break;
+          case 'employee_added':
+            iconSvg = '<path d="M8 9a3 3 0 100-6 3 3 0 000 6zM8 11a6 6 0 016 6H2a6 6 0 016-6zM16 7a1 1 0 10-2 0v1h-1a1 1 0 100 2h1v1a1 1 0 102 0v-1h1a1 1 0 100-2h-1V7z"/>';
+            iconColor = notification.read ? '#e5e7eb' : '#c4a8e0';
+            break;
+          default:
+            iconSvg = '<path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z"/><path fill-rule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clip-rule="evenodd"/>';
+        }
+        
+        return `
+          <div class="p-4 hover:bg-gray-50 transition-colors cursor-pointer ${notification.read ? 'bg-white' : 'bg-blue-50'}" 
+            onclick="handleNotificationClick('${notification.id}', '${notification.ridId || ''}')">
+            <div class="flex items-start space-x-3">
+              <div class="flex-shrink-0">
+                <div class="w-10 h-10 rounded-full flex items-center justify-center" style="background-color: ${iconColor};">
+                  <svg class="w-5 h-5 ${notification.read ? 'text-gray-500' : 'text-white'}" fill="currentColor" viewBox="0 0 20 20">
+                    ${iconSvg}
+                  </svg>
+                </div>
+              </div>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-semibold text-gray-800 ${notification.read ? '' : 'font-bold'}">${notification.title}</p>
+                <p class="text-sm text-gray-600 mt-1">${notification.message}</p>
+                ${notification.ridLocation ? `<p class="text-xs text-gray-500 mt-1">Local: ${notification.ridLocation}</p>` : ''}
+                ${notification.deadline ? `<p class="text-xs text-orange-600 mt-1">Prazo: ${formatDate(firebase.firestore.Timestamp.fromDate(new Date(notification.deadline)))}</p>` : ''}
+                <p class="text-xs text-gray-400 mt-2">${notification.createdAt ? formatDate(notification.createdAt) : 'Agora'}</p>
+              </div>
+              ${!notification.read ? '<div class="w-2 h-2 bg-blue-600 rounded-full"></div>' : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function handleNotificationClick(notificationId, ridId) {
+      // Mark as read
+      await markNotificationAsRead(notificationId);
+      
+      // Close notifications panel
+      const panel = document.getElementById('notificationsPanel');
+      if (panel) panel.classList.add('hidden');
+      
+      // Show RID details
+      if (ridId) {
+        showRidDetails(ridId);
+      }
+    }
+
+    async function markNotificationAsRead(notificationId) {
+      try {
+        await db.collection('notifications').doc(notificationId).update({
+          read: true
+        });
+        
+        // Update local state
+        const notification = userNotifications.find(n => n.id === notificationId);
+        if (notification) {
+          notification.read = true;
+        }
+        
+        updateNotificationBadge();
+        renderNotificationsList();
+      } catch (error) {
+        console.error('Error marking notification as read:', error);
+      }
+    }
+
+    async function markAllAsRead() {
+      try {
+        const batch = db.batch();
+        const unreadNotifications = userNotifications.filter(n => !n.read);
+        
+        unreadNotifications.forEach(notification => {
+          const ref = db.collection('notifications').doc(notification.id);
+          batch.update(ref, { read: true });
+        });
+        
+        await batch.commit();
+        
+        // Update local state
+        userNotifications.forEach(n => n.read = true);
+        
+        updateNotificationBadge();
+        renderNotificationsList();
+        showToast('Todas as notificações foram marcadas como lidas');
+      } catch (error) {
+        console.error('Error marking all as read:', error);
+        showToast('Erro ao marcar notificações como lidas', 'error');
+      }
+    }
+
+    function toggleNotifications() {
+      const panel = document.getElementById('notificationsPanel');
+      const menu = document.getElementById('headerMenu');
+      
+      if (panel) {
+        panel.classList.toggle('hidden');
+        
+        // Close menu if open
+        if (menu && !panel.classList.contains('hidden')) {
+          menu.classList.add('hidden');
+        }
+      }
+    }
+
+    async function requestRidDeletion(ridId, reason) {
+      try {
+        const rid = allRids.find(r => r.id === ridId);
+        await db.collection('deleteRequests').add({
+          ridId: ridId,
+          requesterId: currentUser.uid,
+          requesterName: currentUserData.name,
+          reason: reason,
+          status: 'pending',
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // Notify all developers about the deletion request (only developers can approve)
+        const developerUsers = allUsers.filter(u => u.isDeveloper);
+        for (const dev of developerUsers) {
+          await createNotification(dev.id, {
+            type: 'deletion_request',
+            ridId: ridId,
+            ridNumber: rid.ridNumber,
+            title: 'Nova Solicitação de Exclusão',
+            message: `${currentUserData.name} solicitou exclusão do RID #${rid.ridNumber}`,
+            ridLocation: rid.location,
+            deadline: null
+          });
+        }
+        
+        showToast('Solicitação de exclusão enviada aos desenvolvedores!');
+      } catch (error) {
+        showToast('Erro ao solicitar exclusão: ' + error.message, 'error');
+      }
+    }
+
+    // Data Loading Functions
+  function listenRidsRealtimeAdmin() {
+  return db.collection('rids')
+    .orderBy('createdAt', 'desc')
+    .limit(200)
+    .onSnapshot(snapshot => {
+      allRids = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+
+      if (window.currentPage === 'dashboard') renderDashboard();
+      if (window.currentPage === 'search') renderSearchPage();
+      if (window.currentPage === 'designated') renderDesignatedPage();
+
+      updateGoalDisplay();
+    });
+}
+
+    async function loadUsers() {
+  const snapshot = await db.collection('users').get();
+
+  allUsers = snapshot.docs
+    .map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }))
+    .filter(user => user && typeof user.name === 'string')
+    .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+}
+
+
+    async function loadMonthlyGoal() {
+      try {
+        const now = new Date();
+        const monthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        
+        const goalDoc = await db.collection('goals').doc(monthYear).get();
+        if (goalDoc.exists) {
+          monthlyGoal = goalDoc.data().goal;
+        } else {
+          monthlyGoal = null;
+        }
+        
+        updateGoalDisplay();
+      } catch (error) {
+        console.error('Error loading monthly goal:', error);
+      }
+    }
+
+    function updateGoalDisplay() {
+      const display = document.getElementById('monthGoalDisplay');
+      if (!display) {
+        // If display element doesn't exist yet, try again in a moment
+        setTimeout(updateGoalDisplay, 100);
+        return;
+      }
+      
+      if (monthlyGoal && monthlyGoal > 0) {
+        const filteredRids = getFilteredRids();
+        const currentCount = filteredRids.length;
+        const percentage = Math.round((currentCount / monthlyGoal) * 100);
+        const remaining = Math.max(0, monthlyGoal - currentCount);
+        
+        if (currentCount >= monthlyGoal) {
+          display.textContent = `Meta do Mês: ${currentCount}/${monthlyGoal} (${percentage}%) • ✅ Meta atingida!`;
+          display.style.color = '#10b981'; // Green
+        } else {
+          display.textContent = `Meta do Mês: ${currentCount}/${monthlyGoal} (${percentage}%) • Faltam ${remaining} RID${remaining !== 1 ? 's' : ''} para conclusão`;
+          
+          if (percentage >= 80) {
+            display.style.color = '#f59e0b'; // Orange
+          } else {
+            display.style.color = '#6b7280'; // Gray
+          }
+        }
+        
+        // Make it visible and prominent
+        display.style.fontSize = '0.95rem';
+        display.style.fontWeight = '600';
+        display.style.marginTop = '0.25rem';
+      } else {
+        display.textContent = '';
+      }
+    }
+
+    function showGoalModal() {
+      const now = new Date();
+      const monthName = now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+      
+      const modal = document.createElement('div');
+      modal.className = 'modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
+      modal.innerHTML = `
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md">
+          <div class="border-b-2 px-6 py-4" style="border-color: #a8d5e2;">
+            <h3 class="text-xl font-bold text-gray-800">Definir Meta do Mês</h3>
+            <p class="text-sm text-gray-600 mt-1">${monthName.charAt(0).toUpperCase() + monthName.slice(1)}</p>
+          </div>
+          <form onsubmit="saveMonthlyGoal(event)" class="p-6">
+            <div class="mb-6">
+              <label class="block text-sm font-bold mb-2 text-gray-700">Meta de RIDs</label>
+              <input type="number" name="goal" min="0" value="${monthlyGoal || ''}" placeholder="Ex: 50" 
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg" required>
+              <p class="text-xs text-gray-500 mt-1">Defina a meta de RIDs a serem criadas este mês</p>
+            </div>
+            <div class="flex space-x-4">
+              <button type="submit" class="flex-1 py-3 text-white rounded-lg font-bold hover:opacity-90 transition-opacity" style="background-color: #a8d5e2;">
+                Salvar Meta
+              </button>
+              <button type="button" onclick="this.closest('.modal-backdrop').remove()" class="flex-1 py-3 bg-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-400 transition-colors">
+                Cancelar
+              </button>
+            </div>
+          </form>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    async function updateMonthGoalDisplay(totalRids) {
+  const display = document.getElementById('monthGoalDisplay');
+  if (!display) return;
+
+  const now = new Date();
+  const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+  const doc = await db.collection('metas').doc(key).get();
+
+  if (!doc.exists) {
+    display.textContent = '';
+    return;
+  }
+
+  const target = doc.data().target;
+  const percent = Math.round((totalRids / target) * 100);
+  const remaining = Math.max(target - totalRids, 0);
+
+  display.textContent =
+    `Meta do Mês: ${totalRids}/${target} (${percent}%) • Faltam ${remaining} RIDs para conclusão`;
+}
+
+    async function saveMonthlyGoal(event) {
+      event.preventDefault();
+      const form = event.target;
+      const goal = parseInt(form.goal.value);
+      
+      try {
+        const now = new Date();
+        const monthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        
+        await db.collection('goals').doc(monthYear).set({
+          goal: goal,
+          setBy: currentUser.uid,
+          setAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        monthlyGoal = goal;
+        updateGoalDisplay();
+        
+        showToast('Meta definida com sucesso!');
+        form.closest('.modal-backdrop').remove();
+      } catch (error) {
+        showToast('Erro ao salvar meta: ' + error.message, 'error');
+      }
+    }
+
+    // Render Functions
+    function renderLoginPage() {
+      const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
+      return `
+        <div class="h-full flex items-center justify-center" style="background-color: #dfdfdf;">
+          <div class="rounded-2xl shadow-2xl p-8 w-full max-w-md" style="background-color: #FFFFFF;">
+            <div class="text-center mb-8">
+              <img src="https://th.bing.com/th/id/R.65cf039c1a761f9ab3e86014c8428574?rik=rHlKpfKgwYkrrQ&pid=ImgRaw&r=0" alt="Logo" class="w-32 h-32 mx-auto mb-4 object-contain" onerror="this.style.display='none';">
+              <h1 class="system-title text-3xl font-bold mb-2" style="color: #6b9eb0;">${config.system_title || defaultConfig.system_title}</h1>
+              <p class="company-name text-gray-700">${config.company_name || defaultConfig.company_name}</p>
+            </div>
+            
+            <div class="mb-6">
+              <div class="flex border-b border-gray-300">
+                <button onclick="showLoginForm()" id="loginTab" class="flex-1 py-3 text-center font-semibold border-b-2" style="border-color: #a8d5e2; color: #6b9eb0;">
+                  Login
+                </button>
+                <button onclick="showRegisterForm()" id="registerTab" class="flex-1 py-3 text-center font-semibold text-gray-700">
+                  Cadastro
+                </button>
+              </div>
+            </div>
+
+            <div id="loginForm">
+              <form onsubmit="handleLogin(event)">
+                <div class="mb-4">
+                  <label class="block text-sm font-bold mb-2 text-gray-800">CPF</label>
+                  <input type="text" id="loginCpf" maxlength="14" placeholder="000.000.000-00" 
+                    class="w-full px-4 py-3 border border-gray-300 rounded-lg" required
+                    oninput="this.value = formatCPF(this.value)">
+                </div>
+                <div class="mb-6">
+                  <label class="block text-sm font-bold mb-2 text-gray-800">Senha</label>
+                  <input type="password" id="loginPassword" placeholder="••••••" 
+                    class="w-full px-4 py-3 border border-gray-300 rounded-lg" required>
+                </div>
+                <button type="submit" class="w-full text-white font-bold py-3 rounded-lg hover:opacity-90 transition-opacity" style="background-color: #a8d5e2;">
+                  Entrar
+                </button>
+              </form>
+            </div>
+
+            <div id="registerForm" class="hidden">
+              <form onsubmit="handleRegister(event)">
+                <div class="mb-4">
+                  <label class="block text-sm font-bold mb-2 text-gray-800">Nome Completo</label>
+                  <input type="text" id="registerName" placeholder="NOME COMPLETO" 
+                    class="w-full px-4 py-3 border border-gray-300 rounded-lg" required
+                    oninput="this.value = this.value.toUpperCase()">
+                </div>
+                <div class="mb-4">
+                  <label class="block text-sm font-bold mb-2 text-gray-800">CPF</label>
+                  <input type="text" id="registerCpf" maxlength="14" placeholder="000.000.000-00" 
+                    class="w-full px-4 py-3 border border-gray-300 rounded-lg" required
+                    oninput="this.value = formatCPF(this.value)">
+                </div>
+                <div class="mb-4">
+  <label class="block text-sm font-bold mb-2 text-gray-700">Setor</label>
+  <select
+    name="sector"
+    required
+    class="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white"
+  >
+    <option value="">Selecione o setor</option>
+    <option value="ADM">ADM</option>
+    <option value="M. MOVEL">M. MOVEL</option>
+    <option value="M. FIXA">M. FIXA</option>
+    <option value="M. ELÉTRICA">M. ELÉTRICA</option>
+    <option value="PRODUÇÃO">PRODUÇÃO</option>
+    <option value="MINA">MINA</option>
+  </select>
+</div>
+
+                <div class="mb-6">
+                  <label class="block text-sm font-bold mb-2 text-gray-800">Senha</label>
+                  <input type="password" id="registerPassword" placeholder="••••••••" 
+                    class="w-full px-4 py-3 border border-gray-300 rounded-lg" required minlength="6">
+                </div>
+                <button type="submit" class="w-full text-white font-bold py-3 rounded-lg hover:opacity-90 transition-opacity" style="background-color: #b5e7a0;">
+                  Cadastrar
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderDashboard() {
+      if (isAdmin()) {
+        renderAdminDashboard();
+      } else {
+        renderEmployeeDashboard();
+      }
+    }
+
+    function canOpenRid(rid) {
+  return isAdmin() || rid.responsibleLeader === currentUser.uid;
+}
+
+    function renderAdminDashboard() {
+      window.currentPage = 'dashboard';
+
+      const filteredRids = getFilteredRids();
+ 
+    
+      const totalRids = filteredRids.length;
+      updateMonthGoalDisplay(totalRids);
+      const openRids = filteredRids.filter(r => r.status === 'EM ABERTO').length;
+      const overdueRids = filteredRids.filter(r => r.status === 'VENCIDO').length;
+      const correctedRids = filteredRids.filter(r => r.status === 'CORRIGIDO').length;
+
+      const now = new Date();
+      const weekStart = new Date(now.setDate(now.getDate() - now.getDay()));
+      const weekRids = filteredRids.filter(r => {
+        const ridDate = r.emissionDate.toDate();
+        return ridDate >= weekStart;
+      });
+
+      // 📊 RIDs do MÊS por usuário
+const ridsByUser = {};
+
+filteredRids.forEach(rid => {
+  const userId = rid.emitterId || rid.emitterName;
+
+  if (!ridsByUser[userId]) {
+    ridsByUser[userId] = {
+      name: rid.emitterName,
+      count: 0
+    };
+  }
+
+  ridsByUser[userId].count++;
+});
+
+// transforma em array e ordena (maior → menor)
+const monthlyUserStats = Object.values(ridsByUser)
+  .filter(u => u && typeof u.name === 'string' && u.name.trim() !== '')
+  .sort((a, b) => b.count - a.count);
+
+
+
+      const emitterCount = {};
+      filteredRids.forEach(rid => {
+        emitterCount[rid.emitterName] = (emitterCount[rid.emitterName] || 0) + 1;
+      });
+      const topEmitters = Object.entries(emitterCount)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3);
+
+      const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
+
+      const app = document.getElementById('app');
+      app.innerHTML = `
+        <div class="h-full flex flex-col">
+          <!-- Header -->
+          <div class="px-4 md:px-8 py-4 shadow-lg" style="background-color: #808080;">
+           <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                <div>
+                <h1 class="system-title text-lg md:text-2xl font-bold text-white">${config.system_title || defaultConfig.system_title}</h1>
+                <p class="company-name text-xs md:text-sm text-gray-300">${config.company_name || defaultConfig.company_name}</p>
+                <p class="text-sm font-semibold text-white mt-1">${currentUserData.name}</p>
+                <p class="text-xs text-gray-300">${currentUserData.userType || (currentUserData.isAdmin ? 'Administrador' : 'Funcionário')}</p>
+              </div>
+              <div class="flex items-center space-x-2">
+            
+                
+                <!-- Menu Hamburguer -->
+                <div class="relative">
+                  <button onclick="toggleHeaderMenu()" class="p-2 rounded-lg hover:bg-gray-700 transition-colors">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                    </svg>
+                  </button>
+                  <div id="headerMenu" class="hidden absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl z-50 border border-gray-200">
+                    <button onclick="handleLogout()" class="w-full text-left px-4 py-3 hover:bg-gray-100 transition-colors rounded-lg flex items-center space-x-2" style="color: #f87171;">
+                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                      </svg>
+                      <span class="font-semibold">Sair</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Navigation Menu -->
+          <div class="bg-white border-b-2 border-gray-200">
+            <div class="px-2 md:px-8">
+              <nav class="flex overflow-x-auto space-x-1">
+                <button onclick="renderAdminDashboard()" class="px-3 md:px-6 py-3 font-semibold border-b-4 whitespace-nowrap text-sm md:text-base" style="border-color: #a8d5e2; color: #6b9eb0;">
+                  Dashboard
+                </button>
+                <button onclick="renderSearchPage()" class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100 transition-colors whitespace-nowrap text-sm md:text-base text-gray-700">
+                  RID's
+                </button>
+                <button onclick="renderEmployeesPage()" class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100 transition-colors whitespace-nowrap text-sm md:text-base text-gray-700">
+                  Funcionários
+                </button>
+                ${isDeveloper() ? `
+                  <button onclick="renderRequestsPage()" class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100 transition-colors whitespace-nowrap text-sm md:text-base text-gray-700 relative">
+                    Solicitações
+                    <span id="requestsBadge" class="hidden absolute top-1 right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">0</span>
+                  </button>
+                ` : ''}
+                <button onclick="renderReportsPage()" class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100 transition-colors whitespace-nowrap text-sm md:text-base text-gray-700">
+                  Relatórios
+                </button>
+                <button
+  onclick="renderDesignatedPage()"
+  class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100 transition-colors whitespace-nowrap text-sm md:text-base text-gray-700"
+>
+  ${isDeveloper() ? 'Centro de Controle' : 'Designadas'}
+</button>
+              </nav>
+            </div>
+          </div>
+
+          <!-- Main Content -->
+          <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
+            <div class="max-w-7xl mx-auto">
+              <div class="flex items-center justify-between mb-8">
+                <h1 class="text-3xl font-bold text-gray-800">Dashboard</h1>
+                
+                <!-- Botão de Filtros -->
+                <button onclick="toggleFilters()" class="flex items-center space-x-2 px-6 py-3 rounded-lg font-semibold text-white hover:opacity-90 transition-opacity" style="background-color: #c4a8e0;">
+                  <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M3 3a1 1 0 011-1h12a1 1 0 011 1v3a1 1 0 01-.293.707L12 11.414V15a1 1 0 01-.293.707l-2 2A1 1 0 018 17v-5.586L3.293 6.707A1 1 0 013 6V3z" clip-rule="evenodd"/>
+                  </svg>
+                  <span>Filtros</span>
+                </button>
+              </div>
+
+              <!-- Painel de Filtros (Oculto por padrão) -->
+              <div id="filterPanel" class="hidden mb-8 bg-white rounded-xl shadow-lg p-6 border-2" style="border-color: #c4a8e0;">
+                <div class="flex items-center justify-between mb-4">
+                  <h3 class="text-lg font-bold" style="color: #808080;">Filtrar RIDs por Período</h3>
+                  <button onclick="toggleFilters()" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                      <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                    </svg>
+                  </button>
+                </div>
+                <div class="flex items-end space-x-4">
+                  <div class="flex-1">
+  <label class="block text-sm font-semibold mb-2" style="color:#808080;">
+    Período (Mês/Ano)
+  </label>
+  <input
+    type="month"
+    id="dashboardPeriod"
+    class="w-full px-4 py-2 border rounded-lg"
+    style="border-color:#9c9494;"
+  >
+</div>
+
+<div class="flex-1">
+  <label class="block text-sm font-semibold mb-2" style="color:#808080;">
+    Setor
+  </label>
+  <select
+    id="dashboardSector"
+    class="w-full px-4 py-2 border rounded-lg"
+    style="border-color:#9c9494;"
+  >
+    <option value="">Todos os setores</option>
+    <option value="ADM">ADM</option>
+    <option value="M. MOVEL">M. MOVEL</option>
+    <option value="M. FIXA">M. FIXA</option>
+    <option value="M. ELÉTRICA">M. ELÉTRICA</option>
+    <option value="PRODUÇÃO">PRODUÇÃO</option>
+    <option value="MINA">MINA</option>
+  </select>
+</div>
+
+                  <button onclick="filterDashboard()" class="px-6 py-3 text-white rounded-lg font-bold hover:opacity-90 transition-opacity" style="background-color: #a8d5e2;">
+                    Aplicar
+                  </button>
+                  <button onclick="clearDashboardFilters()" class="px-6 py-3 border rounded-lg font-semibold hover:bg-gray-50 transition-colors" style="border-color: #9c9494; color: #808080;">
+                    Limpar
+                  </button>
+                </div>
+              </div>
+
+              <!-- Stats Cards -->
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-6 mb-8">
+                <div class="rounded-xl shadow-lg p-3 md:p-6 card-hover bg-white">
+                  <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                    <div>
+                      <p class="text-xs md:text-sm font-bold mb-1 text-gray-600">Total de RIDs</p>
+                      <p class="text-xl md:text-3xl font-bold text-gray-800">${totalRids}</p>
+                    </div>
+                    <div class="w-8 h-8 md:w-12 md:h-12 rounded-lg flex items-center justify-center" style="background-color: #a8d5e2;">
+                      <svg class="w-4 h-4 md:w-6 md:h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z"/>
+                        <path fill-rule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clip-rule="evenodd"/>
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="rounded-xl shadow-lg p-3 md:p-6 card-hover bg-white">
+                  <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+
+                    <div>
+                      <p class="text-xs md:text-sm font-bold mb-1 text-gray-600">Em Andamento</p>
+                      <p class="text-xl md:text-3xl font-bold text-orange-600">${openRids}</p>
+                    </div>
+                    <div class="w-8 h-8 md:w-12 md:h-12 rounded-lg flex items-center justify-center" style="background-color: #ffd9a0;">
+                      <svg class="w-4 h-4 md:w-6 md:h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/>
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="rounded-xl shadow-lg p-3 md:p-6 card-hover bg-white">
+                  <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                    <div>
+                      <p class="text-xs md:text-sm font-bold mb-1 text-gray-600">Vencidas</p>
+                      <p class="text-xl md:text-3xl font-bold text-red-600">${overdueRids}</p>
+                    </div>
+                    <div class="w-8 h-8 md:w-12 md:h-12 bg-red-500 rounded-lg flex items-center justify-center">
+                      <svg class="w-4 h-4 md:w-6 md:h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="rounded-xl shadow-lg p-3 md:p-6 card-hover bg-white">
+                  <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                    <div>
+                      <p class="text-xs md:text-sm font-bold mb-1 text-gray-600">Corrigidas</p>
+                      <p class="text-xl md:text-3xl font-bold text-green-600">${correctedRids}</p>
+                    </div>
+                    <div class="w-8 h-8 md:w-12 md:h-12 bg-green-500 rounded-lg flex items-center justify-center">
+                      <svg class="w-4 h-4 md:w-6 md:h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 mb-8">
+                <!-- Chart -->
+                <div class="rounded-xl shadow-lg p-4 md:p-6 bg-white relative">
+                  <div class="flex items-center justify-between mb-4 md:mb-6">
+                    <div class="flex-1">
+                      <h3 class="text-lg md:text-xl font-bold text-gray-800">Status dos RIDs</h3>
+                      <p id="monthGoalDisplay" class="text-sm font-semibold mt-1 text-gray-600"></p>
+                    </div>
+                    ${isDeveloper() ? `
+                      <button onclick="showGoalModal()" class="p-2 rounded-lg hover:bg-gray-100 transition-colors flex-shrink-0" title="Definir Meta do Mês">
+                        <svg class="w-5 h-5 text-gray-400 hover:text-gray-600" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/>
+                        </svg>
+                      </button>
+                    ` : ''}
+                  </div>
+                  <div class="space-y-6">
+                    <div class="flex items-center space-x-4">
+                      <div class="w-32 flex-shrink-0">
+                        <p class="text-sm font-bold text-gray-700">Em Aberto</p>
+                      </div>
+                      <div class="flex-1 flex items-center space-x-3">
+                        <div class="flex-1 bg-gray-200 rounded-lg h-12 relative overflow-hidden">
+                          <div class="bg-orange-500 h-full rounded-lg chart-bar transition-all duration-500" style="width: ${totalRids > 0 ? (openRids / totalRids) * 100 : 0}%"></div>
+                        </div>
+                        <div class="w-24 flex-shrink-0 text-right">
+                          <span class="text-2xl font-bold text-gray-800">${openRids}</span>
+                          <span class="text-lg font-semibold text-orange-600 ml-2">(${totalRids > 0 ? Math.round((openRids / totalRids) * 100) : 0}%)</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="flex items-center space-x-4">
+                      <div class="w-32 flex-shrink-0">
+                        <p class="text-sm font-bold text-gray-700">Vencido</p>
+                      </div>
+                      <div class="flex-1 flex items-center space-x-3">
+                        <div class="flex-1 bg-gray-200 rounded-lg h-12 relative overflow-hidden">
+                          <div class="bg-red-500 h-full rounded-lg chart-bar transition-all duration-500" style="width: ${totalRids > 0 ? (overdueRids / totalRids) * 100 : 0}%"></div>
+                        </div>
+                        <div class="w-24 flex-shrink-0 text-right">
+                          <span class="text-2xl font-bold text-gray-800">${overdueRids}</span>
+                          <span class="text-lg font-semibold text-red-600 ml-2">(${totalRids > 0 ? Math.round((overdueRids / totalRids) * 100) : 0}%)</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="flex items-center space-x-4">
+                      <div class="w-32 flex-shrink-0">
+                        <p class="text-sm font-bold text-gray-700">Corrigido</p>
+                      </div>
+                      <div class="flex-1 flex items-center space-x-3">
+                        <div class="flex-1 bg-gray-200 rounded-lg h-12 relative overflow-hidden">
+                          <div class="bg-green-500 h-full rounded-lg chart-bar transition-all duration-500" style="width: ${totalRids > 0 ? (correctedRids / totalRids) * 100 : 0}%"></div>
+                        </div>
+                        <div class="w-24 flex-shrink-0 text-right">
+                          <span class="text-2xl font-bold text-gray-800">${correctedRids}</span>
+                          <span class="text-lg font-semibold text-green-600 ml-2">(${totalRids > 0 ? Math.round((correctedRids / totalRids) * 100) : 0}%)</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Top Emitters -->
+                <div class="rounded-xl shadow-lg p-4 md:p-6 bg-white">
+                  <h3 class="text-lg md:text-xl font-bold mb-4 md:mb-6 text-gray-800">Top 3 Emissores</h3>
+                  <div class="space-y-4">
+                    ${topEmitters.length === 0 ? '<p class="text-gray-500 text-center py-8">Nenhum emissor no período</p>' : topEmitters.map(([name, count], index) => `
+                      <div class="flex items-center justify-between p-3 rounded-lg bg-gray-100">
+                        <div class="flex items-center">
+                          <span class="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold mr-3" style="background-color: #ffd9a0;">
+                            ${index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}
+                          </span>
+                          <span class="font-semibold text-gray-800">${name}</span>
+                        </div>
+                        <span class="text-xl font-bold" style="color: #6b9eb0;">${count}</span>
+                      </div>
+                    `).join('')}
+                  </div>
+                </div>
+              </div>
+
+              <div class="space-y-10">
+
+             <!-- Week  RIDs -->
+              <div class="bg-white rounded-xl shadow-lg p-6">
+                <h3 class="text-xl font-bold text-gray-800 mb-6">RIDs da Semana</h3>
+                <div class="space-y-3 max-h-[360px] overflow-y-auto pr-2">
+                  ${weekRids.length === 0 ? '<p class="text-gray-500 text-center py-8">Nenhuma RID nesta semana</p>' : weekRids.slice(0, 10).map(rid => `
+                    <div class="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow cursor-pointer p-4"onclick="showRidDetails('${rid.id}')"
+')">
+                      <div class="flex items-center justify-between w-full">
+
+  <!-- 📱 MOBILE (somente RID + Emitente) -->
+  <div class="block md:hidden">
+    <p class="text-sm font-bold text-gray-800">
+      RID #${rid.ridNumber}
+    </p>
+    <p class="text-xs text-gray-600">
+      ${rid.emitterName}
+    </p>
+  </div>
+
+  <!-- 🖥️ DESKTOP (layout completo atual) -->
+  <div class="hidden md:flex items-center space-x-6 flex-1">
+    <div class="flex items-center space-x-2">
+      <span class="text-xs font-bold text-gray-500">Nº</span>
+      <span class="px-4 py-2 text-white font-bold rounded-lg text-base" style="background-color: #a8d5e2;">
+        ${rid.ridNumber}
+      </span>
+    </div>
+
+    <div class="w-40 min-w-0">
+      <span class="text-sm font-semibold text-gray-800">
+        ${rid.emitterName}
+      </span>
+    </div>
+
+    <div class="flex-1 min-w-0">
+      <span class="text-sm text-gray-600">
+        ${rid.description.substring(0, 50)}...
+      </span>
+    </div>
+
+    <div class="w-32">
+      <span class="text-sm font-semibold text-gray-800">
+        ${rid.unit}
+      </span>
+    </div>
+
+    <div class="w-32">
+      <span class="px-3 py-1 rounded-lg font-bold text-xs ${getRiskColor(rid.riskClassification)}">
+        ${rid.riskClassification}
+      </span>
+    </div>
+
+    <div class="w-32">
+      <span class="px-3 py-1 rounded-lg font-bold text-xs ${getStatusColor(rid.status)}">
+        ${rid.status}
+      </span>
+    </div>
+  </div>
+
+</div>
+
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+
+
+              <!-- RIDs do Mês por Usuário -->
+<div class="bg-white rounded-xl shadow-lg p-6 mt-6">
+  <h3 class="text-xl font-bold text-gray-800 mb-6">
+    RIDs do Mês por Usuário
+  </h3>
+
+  <div class="space-y-3 max-h-[360px] overflow-y-auto pr-2">
+
+    ${
+      monthlyUserStats.length === 0
+        ? '<p class="text-gray-500 text-center py-8">Nenhuma RID no período</p>'
+        : monthlyUserStats.map(user => `
+          <div class="flex items-center justify-between p-4 rounded-lg bg-gray-100">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-full bg-[#a8d5e2] text-white font-bold flex items-center justify-center">
+                ${user.name?.charAt(0) || '?'}
+              </div>
+              <span class="font-semibold text-gray-800">
+                ${user.name || 'Usuário'}
+              </span>
+            </div>
+
+            <span class="text-xl font-bold text-[#6b9eb0]">
+              ${user.count}
+            </span>
+          </div>
+        `).join('')
+    }
+  </div>
+</div>
+
+
+            </div>
+          </div>
+        </div>
+      `;
+
+      if (isDeveloper()) {
+        updateRequestsBadge();
+      }
+    }
+
+    function renderSearchPage() {
+      window.currentPage = 'search';
+      const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
+      const now = new Date();
+      const currentMonth = now.getMonth() + 1;
+      const currentYear = now.getFullYear();
+      
+      // Filter RIDs for current month by default
+      const currentMonthRids = allRids.filter(r => {
+        const ridDate = r.emissionDate.toDate();
+        return ridDate.getMonth() + 1 === currentMonth && ridDate.getFullYear() === currentYear;
+      });
+      
+      const app = document.getElementById('app');
+      app.innerHTML = `
+        <div class="h-full flex flex-col">
+          ${renderHeader(config)}
+          ${renderNavigation('rids')}
+          
+          <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
+            <div class="max-w-7xl mx-auto">
+              <div class="flex items-center justify-between mb-8">
+                <h1 class="text-3xl font-bold text-gray-800">Gerenciamento de RIDs</h1>
+                <button onclick="showCreateRidModal()" class="flex items-center space-x-2 px-6 py-3 text-white rounded-lg font-bold hover:opacity-90 transition-opacity" style="background-color: #b5e7a0;">
+                  <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/>
+                  </svg>
+                  <span>Nova RID</span>
+                </button>
+              </div>
+
+              <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
+                <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+                  <div>
+                    <label class="block text-sm font-bold mb-2 text-gray-700">Buscar</label>
+                    <input type="text" id="searchText" placeholder="RID ou Emissor" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                  </div>
+                  <div>
+                    <label class="block text-sm font-bold mb-2 text-gray-700">Mês</label>
+                    <select id="searchMonth" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                      <option value="">Todos</option>
+                      <option value="1" ${currentMonth === 1 ? 'selected' : ''}>Janeiro</option>
+                      <option value="2" ${currentMonth === 2 ? 'selected' : ''}>Fevereiro</option>
+                      <option value="3" ${currentMonth === 3 ? 'selected' : ''}>Março</option>
+                      <option value="4" ${currentMonth === 4 ? 'selected' : ''}>Abril</option>
+                      <option value="5" ${currentMonth === 5 ? 'selected' : ''}>Maio</option>
+                      <option value="6" ${currentMonth === 6 ? 'selected' : ''}>Junho</option>
+                      <option value="7" ${currentMonth === 7 ? 'selected' : ''}>Julho</option>
+                      <option value="8" ${currentMonth === 8 ? 'selected' : ''}>Agosto</option>
+                      <option value="9" ${currentMonth === 9 ? 'selected' : ''}>Setembro</option>
+                      <option value="10" ${currentMonth === 10 ? 'selected' : ''}>Outubro</option>
+                      <option value="11" ${currentMonth === 11 ? 'selected' : ''}>Novembro</option>
+                      <option value="12" ${currentMonth === 12 ? 'selected' : ''}>Dezembro</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-sm font-bold mb-2 text-gray-700">Ano</label>
+                    <input type="number" id="searchYear" placeholder="Ex: 2024" min="2000" max="2100" value="${currentYear}" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                  </div>
+                  <div>
+                    <label class="block text-sm font-bold mb-2 text-gray-700">Status</label>
+                    <select id="searchStatus" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                      <option value="">Todos</option>
+                      <option value="PENDENTE">PENDENTE</option>
+                      <option value="EM ABERTO">EM ABERTO</option>
+                      <option value="VENCIDO">VENCIDO</option>
+                      <option value="CORRIGIDO">CORRIGIDO</option>
+                    </select>
+                  </div>
+                  <div class="flex items-end space-x-2">
+                    <button onclick="searchRids()" class="flex-1 px-6 py-2 text-white rounded-lg font-bold hover:opacity-90 transition-opacity" style="background-color: #a8d5e2;">
+                      Buscar
+                    </button>
+                    <button onclick="clearSearchFilters()" class="px-4 py-2 border rounded-lg font-semibold hover:bg-gray-50 transition-colors" style="border-color: #9c9494; color: #808080;" title="Limpar Filtros">
+                      <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div id="ridsListContainer" class="space-y-4">
+                ${renderRidsList(currentMonthRids)}
+              </div>
+            </div>
+            
+          </div>
+        </div>
+      `;
+    }
+
+    function isMobile() {
+  return window.innerWidth < 768;
+}
+
+function isAdminOrDev() {
+  return isAdmin() || isDeveloper();
+}
+
+
+    function renderRidsList(rids) {
+  if (rids.length === 0) {
+    return `
+      <div class="bg-white rounded-xl shadow-lg p-12 text-center">
+        <p class="text-gray-500 text-lg">Nenhuma RID encontrada</p>
+      </div>
+    `;
+  }
+
+  // 📱 MOBILE → Admin ou Dev → lista simples
+  if (isMobile() && isAdminOrDev()) {
+    return rids.map(rid => `
+      <div
+        class="bg-white rounded-lg shadow-md p-4 cursor-pointer hover:bg-gray-50"
+        onclick="showRidDetails('${rid.id}')"
+      >
+        <div class="font-bold text-gray-800 text-lg">
+          RID #${rid.ridNumber}
+        </div>
+
+        <div class="text-sm text-gray-600 mt-1">
+          ${rid.emitterName || 'Sem nome'}
+        </div>
+      </div>
+    `).join('');
+  }
+
+  // 🖥️ DESKTOP → comportamento atual (NÃO MUDA)
+  return rids.map(rid => `
+    <div class="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow cursor-pointer p-4"
+         onclick="showRidDetails('${rid.id}')">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+        <div class="flex items-center space-x-6 flex-1">
+          <div class="flex items-center space-x-2">
+            <span class="text-xs font-bold text-gray-500">Nº</span>
+            <span class="px-4 py-2 text-white font-bold rounded-lg text-base"
+                  style="background-color: #a8d5e2;">
+              ${rid.ridNumber}
+            </span>
+          </div>
+
+          <div class="w-40 min-w-0">
+            <span class="text-sm font-semibold text-gray-800">
+              ${rid.emitterName}
+            </span>
+          </div>
+
+          <div class="flex-1 min-w-0">
+            <span class="text-sm text-gray-600">
+              ${rid.description.substring(0, 50)}...
+            </span>
+          </div>
+
+          <div class="w-32">
+            <span class="text-sm font-semibold text-gray-800">
+              ${rid.unit}
+            </span>
+          </div>
+
+          <div class="w-32">
+            <span class="px-3 py-1 rounded-lg font-bold text-xs ${getRiskColor(rid.riskClassification)}">
+              ${rid.riskClassification}
+            </span>
+          </div>
+
+          <div class="w-32">
+            <span class="px-3 py-1 rounded-lg font-bold text-xs ${getStatusColor(rid.status)}">
+              ${rid.status}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+
+    function getStatusColor(status) {
+      switch(status) {
+        case 'PENDENTE': return 'bg-gray-200 text-gray-800';
+        case 'EM ABERTO': return 'bg-orange-200 text-orange-800';
+        case 'VENCIDO': return 'bg-red-200 text-red-800';
+        case 'CORRIGIDO': return 'bg-green-200 text-green-800';
+        default: return 'bg-gray-200 text-gray-800';
+      }
+    }
+
+    function getRiskColor(risk) {
+      switch(risk) {
+        case 'BAIXO': case 'Baixo': return 'bg-blue-200 text-blue-800';
+        case 'MÉDIO': case 'Médio': return 'bg-yellow-200 text-yellow-800';
+        case 'ALTO': case 'Alto': return 'bg-orange-200 text-orange-800';
+        case 'CRÍTICO': case 'Crítico': return 'bg-red-200 text-red-800';
+        default: return 'bg-gray-200 text-gray-800';
+      }
+    }
+
+    function searchRids() {
+      const searchText = document.getElementById('searchText').value.toLowerCase();
+      const month = document.getElementById('searchMonth').value;
+      const year = document.getElementById('searchYear').value;
+      const status = document.getElementById('searchStatus').value;
+
+      let filtered = allRids;
+
+      if (searchText) {
+        filtered = filtered.filter(r => 
+          r.ridNumber.toLowerCase().includes(searchText) || 
+          r.emitterName.toLowerCase().includes(searchText)
+        );
+      }
+      if (month) {
+        filtered = filtered.filter(r => {
+          const ridMonth = r.emissionDate.toDate().getMonth() + 1;
+          return ridMonth === parseInt(month);
+        });
+      }
+      if (year) {
+        filtered = filtered.filter(r => {
+          const ridYear = r.emissionDate.toDate().getFullYear();
+          return ridYear === parseInt(year);
+        });
+      }
+      if (status) {
+        filtered = filtered.filter(r => r.status === status);
+      }
+
+      document.getElementById('ridsListContainer').innerHTML = renderRidsList(filtered);
+    }
+
+    function clearSearchFilters() {
+      document.getElementById('searchText').value = '';
+      document.getElementById('searchMonth').value = '';
+      document.getElementById('searchYear').value = '';
+      document.getElementById('searchStatus').value = '';
+      
+      // Show current month RIDs by default
+      const now = new Date();
+      const currentMonth = now.getMonth() + 1;
+      const currentYear = now.getFullYear();
+      
+      const currentMonthRids = allRids.filter(r => {
+        const ridDate = r.emissionDate.toDate();
+        return ridDate.getMonth() + 1 === currentMonth && ridDate.getFullYear() === currentYear;
+      });
+      
+      document.getElementById('ridsListContainer').innerHTML = renderRidsList(currentMonthRids);
+    }
+
+    async function showCreateRidModal() {
+      await loadUsers();
+
+      document.body.style.overflow = 'hidden';
+      const modal = document.createElement('div');
+      modal.className = 'modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overscroll-contain touch-none';
+      modal.innerHTML = `
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto overscroll-contain touch-pan-y">
+          <div class="sticky top-0 bg-white border-b-2 px-8 py-6 flex items-center justify-between" style="border-color: #a8d5e2;">
+            <h2 class="text-2xl font-bold text-gray-800">Criar Nova RID</h2>
+            <button onclick="closeRidModal(this)" class="text-gray-400 hover:text-gray-600">
+              <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+              </svg>
+            </button>
+          </div>
+          
+          <form onsubmit="createRid(event)" class="p-8">
+            <div class="space-y-4 mb-6">
+              <div>
+                <label class="block text-sm font-bold mb-2 text-gray-700">1. Emitente</label>
+                <input type="text" name="emitterName" required readonly class="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed" value="${currentUserData.name}">
+              </div>
+
+              <div>
+                <label class="block text-sm font-bold mb-2 text-gray-700">2. Tipo de Contrato</label>
+                <select name="contractType" required class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                  <option value="">Selecione...</option>
+                  <option value="Funcionário">Funcionário</option>
+                  <option value="Terceiro Contratado">Terceiro Contratado</option>
+                  <option value="Terceiro Eventual">Terceiro Eventual</option>
+                  <option value="Visitante">Visitante</option>
+                </select>
+              </div>
+              
+              <div>
+  <label class="block text-sm font-bold mb-2 text-gray-700">3. Unidade</label>
+  <input
+    type="text"
+    name="unit"
+    required
+    class="w-full px-4 py-2 border border-gray-300 rounded-lg"
+    placeholder="Nome da unidade"
+    oninput="this.value = this.value.toUpperCase()"
+  >
+</div>
+
+
+              <div>
+                <label class="block text-sm font-bold mb-2 text-gray-700">4. Setor do Emitente</label>
+                <input type="text" name="ridSector" required readonly class="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed" value="${currentUserData.sector}">
+              </div>
+
+              <div>
+                <label class="block text-sm font-bold mb-2 text-gray-700">5. Data</label>
+                <input type="date" name="emissionDate" required class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+              </div>
+
+              <div>
+                <label class="block text-sm font-bold mb-2 text-gray-700">6. Incidente ou Desvios</label>
+                <select name="incidentType" required class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                  <option value="">Selecione...</option>
+                  <option value="Condição de Risco">Condição de Risco</option>
+                  <option value="Desvio Comportamental">Desvio Comportamental</option>
+                  <option value="Dano Material">Dano Material</option>
+                  <option value="Quase acidente">Quase acidente</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-sm font-bold mb-2 text-gray-700">7. Origem da Detecção</label>
+                <select name="detectionOrigin" required class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                  <option value="">Selecione...</option>
+                  <option value="CSL">CSL</option>
+                  <option value="Inspeção programada">Inspeção programada</option>
+                  <option value="Inspeção não programada">Inspeção não programada</option>
+                  <option value="Observação Comportamental">Observação Comportamental</option>
+                  <option value="Constatação espontânea">Constatação espontânea</option>
+                  <option value="Auditoria">Auditoria</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-sm font-bold mb-2 text-gray-700">8. Local da Ocorrência</label>
+                <input type="text" name="location" required class="w-full px-4 py-2 border border-gray-300 rounded-lg" placeholder="Local da ocorrência">
+              </div>
+
+              <div>
+                <label class="block text-sm font-bold mb-2 text-gray-700">9. Descrição da Ocorrência</label>
+                <textarea name="description" required rows="4" class="w-full px-4 py-2 border border-gray-300 rounded-lg" placeholder="Descreva detalhadamente a ocorrência"></textarea>
+              </div>
+
+              <div>
+                <label class="block text-sm font-bold mb-2 text-gray-700">10. Classificação de Risco</label>
+                <select name="riskClassification" required class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                  <option value="">Selecione...</option>
+                  <option value="Baixo">Baixo</option>
+                  <option value="Médio">Médio</option>
+                  <option value="Alto">Alto</option>
+                  <option value="Crítico">Crítico</option>
+                </select>
+                <p class="text-xs text-gray-500 mt-1">
+                  Baixo: Situações com baixo potencial de causar acidente.<br>
+                  Médio: Situações que podem causar acidente leve.<br>
+                  Alto: Situações com alto potencial de acidente grave.<br>
+                  Crítico: Risco iminente de acidente grave ou fatal.
+                </p>
+              </div>
+
+              <div>
+                <label class="block text-sm font-bold mb-2 text-gray-700">11. Ação Imediata</label>
+                <textarea name="immediateAction" required rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-lg" placeholder="Descreva a ação imediata tomada"></textarea>
+              </div>
+
+              <div>
+                <label class="block text-sm font-bold mb-2 text-gray-700">12. Status</label>
+                <select name="status" required class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                  <option value="">Selecione...</option>
+                  <option value="CORRIGIDO">CORRIGIDO</option>
+                  <option value="VENCIDO">VENCIDO</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-sm font-bold mb-2 text-gray-700">13. Designar para um Líder</label>
+                <select id="responsibleLeaderSelect" name="responsibleLeader" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+  <option value="">Carregando líderes...</option>
+</select>
+              </div>
+            </div>
+
+            <div class="flex space-x-4">
+              <button type="submit" class="flex-1 py-3 text-white rounded-lg font-bold hover:opacity-90 transition-opacity" style="background-color: #b5e7a0;">
+                Enviar
+              </button>
+              <button type="button" onclick="this.closest('.modal-backdrop').remove()" class="flex-1 py-3 bg-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-400 transition-colors">
+                Cancelar
+              </button>
+            </div>
+          </form>
+        </div>
+      `;
+      document.body.appendChild(modal);
+      const select = document.getElementById("responsibleLeaderSelect");
+
+select.innerHTML = `
+  <option value="">Designar depois</option>
+  ${allUsers
+    .filter(u => u.userType === 'Administrador')
+    .sort((a,b)=>a.name.localeCompare(b.name,'pt-BR'))
+    .map(u => `<option value="${u.id}">${u.name}</option>`)
+    .join("")}
+`;
+
+    }
+
+function showRidNotification(rid) {
+  // 🔊 Apenas som (sem popup visual)
+  const audio = new Audio("/notify.ogg");
+  audio.volume = 0.8;
+  audio.play().catch(() => {
+    console.log("Som bloqueado pelo navegador até o usuário interagir.");
+  });
+}
+
+    function showRidDetails(ridId) {
+         if (!isAdmin()) {
+    showToast('Você não tem permissão para visualizar esta RID', 'error');
+    return;
+  }
+      const rid = allRids.find(r => r.id === ridId);
+      if (!rid) return;
+       
+      const modal = document.createElement('div');
+      modal.className = 'modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
+      modal.innerHTML = `
+       <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto mx-2 md:mx-auto">
+          <div class="sticky top-0 bg-white border-b-2 px-4 md:px-8 py-4 md:py-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3"  style="border-color: #a8d5e2;">
+            <div class="flex items-center space-x-4">
+              <span class="px-6 py-3 text-white font-bold rounded-lg text-xl" style="background-color: #a8d5e2;">
+                #${rid.ridNumber}
+              </span>
+              <h2 class="text-2xl font-bold text-gray-800">Detalhes da RID</h2>
+            </div>
+            <button onclick="this.closest('.modal-backdrop').remove()" class="text-gray-400 hover:text-gray-600">
+              <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+              </svg>
+            </button>
+          </div>
+          
+          <form onsubmit="handleEditRid(event, '${rid.id}')" class="p-8">
+            <div class="grid grid-cols-2 gap-6 mb-8">
+              <div class="col-span-2 md:col-span-1">
+                <p class="text-sm font-bold text-gray-500 mb-1">Emissor</p>
+                <p class="text-lg font-semibold text-gray-800">${rid.emitterName}</p>
+                <p class="text-sm text-gray-500">${rid.emitterCpf}</p>
+              </div>
+              
+              <div>
+                <label class="block text-sm font-bold text-gray-500 mb-2">Data de Emissão</label>
+                <input type="date" name="emissionDate" value="${rid.emissionDate.toDate().toISOString().split('T')[0]}" 
+                  class="w-full px-4 py-2 border border-gray-300 rounded-lg" required>
+              </div>
+
+              <div>
+                <label class="block text-sm font-bold text-gray-500 mb-2">Tipo de Contrato</label>
+                <select name="contractType" class="w-full px-4 py-2 border border-gray-300 rounded-lg" required>
+                  <option value="Funcionário" ${rid.contractType === 'Funcionário' ? 'selected' : ''}>Funcionário</option>
+                  <option value="Terceiro Contratado" ${rid.contractType === 'Terceiro Contratado' ? 'selected' : ''}>Terceiro Contratado</option>
+                  <option value="Terceiro Eventual" ${rid.contractType === 'Terceiro Eventual' ? 'selected' : ''}>Terceiro Eventual</option>
+                  <option value="Visitante" ${rid.contractType === 'Visitante' ? 'selected' : ''}>Visitante</option>
+                </select>
+              </div>
+
+              <div>
+  <label class="block text-sm font-bold text-gray-500 mb-2">Unidade</label>
+  <input
+    type="text"
+    name="unit"
+    value="${rid.unit}"
+    class="w-full px-4 py-2 border border-gray-300 rounded-lg"
+    required
+    oninput="this.value = this.value.toUpperCase()"
+  >
+</div>
+
+
+              <div>
+                <label class="block text-sm font-bold text-gray-500 mb-2">Setor</label>
+                <input type="text" name="sector" value="${rid.sector}" 
+                  class="w-full px-4 py-2 border border-gray-300 rounded-lg" required>
+              </div>
+
+              <div>
+                <label class="block text-sm font-bold text-gray-500 mb-2">Local</label>
+                <input type="text" name="location" value="${rid.location}" 
+                  class="w-full px-4 py-2 border border-gray-300 rounded-lg" required>
+              </div>
+
+              <div>
+                <label class="block text-sm font-bold text-gray-500 mb-2">Tipo de Incidente</label>
+                <select name="incidentType" class="w-full px-4 py-2 border border-gray-300 rounded-lg" required>
+                  <option value="Condição de Risco" ${rid.incidentType === 'Condição de Risco' ? 'selected' : ''}>Condição de Risco</option>
+                  <option value="Desvio Comportamental" ${rid.incidentType === 'Desvio Comportamental' ? 'selected' : ''}>Desvio Comportamental</option>
+                  <option value="Dano Material" ${rid.incidentType === 'Dano Material' ? 'selected' : ''}>Dano Material</option>
+                  <option value="Quase acidente" ${rid.incidentType === 'Quase acidente' ? 'selected' : ''}>Quase acidente</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-sm font-bold text-gray-500 mb-2">Origem da Detecção</label>
+                <select name="detectionOrigin" class="w-full px-4 py-2 border border-gray-300 rounded-lg" required>
+                  <option value="CSL" ${rid.detectionOrigin === 'CSL' ? 'selected' : ''}>CSL</option>
+                  <option value="Inspeção programada" ${rid.detectionOrigin === 'Inspeção programada' ? 'selected' : ''}>Inspeção programada</option>
+                  <option value="Inspeção não programada" ${rid.detectionOrigin === 'Inspeção não programada' ? 'selected' : ''}>Inspeção não programada</option>
+                  <option value="Observação Comportamental" ${rid.detectionOrigin === 'Observação Comportamental' ? 'selected' : ''}>Observação Comportamental</option>
+                  <option value="Constatação espontânea" ${rid.detectionOrigin === 'Constatação espontânea' ? 'selected' : ''}>Constatação espontânea</option>
+                  <option value="Auditoria" ${rid.detectionOrigin === 'Auditoria' ? 'selected' : ''}>Auditoria</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-sm font-bold text-gray-500 mb-2">Classificação de Risco</label>
+                <select name="riskClassification" class="w-full px-4 py-2 border border-gray-300 rounded-lg" required>
+                  <option value="Baixo" ${rid.riskClassification === 'Baixo' || rid.riskClassification === 'BAIXO' ? 'selected' : ''}>Baixo</option>
+                  <option value="Médio" ${rid.riskClassification === 'Médio' || rid.riskClassification === 'MÉDIO' ? 'selected' : ''}>Médio</option>
+                  <option value="Alto" ${rid.riskClassification === 'Alto' || rid.riskClassification === 'ALTO' ? 'selected' : ''}>Alto</option>
+                  <option value="Crítico" ${rid.riskClassification === 'Crítico' || rid.riskClassification === 'CRÍTICO' ? 'selected' : ''}>Crítico</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-sm font-bold text-gray-500 mb-2">Status</label>
+                <select name="status" class="w-full px-4 py-2 border border-gray-300 rounded-lg" required>
+                  <option value="PENDENTE" ${rid.status === 'PENDENTE' ? 'selected' : ''}>PENDENTE</option>
+                  <option value="EM ABERTO" ${rid.status === 'EM ABERTO' ? 'selected' : ''}>EM ABERTO</option>
+                  <option value="VENCIDO" ${rid.status === 'VENCIDO' ? 'selected' : ''}>VENCIDO</option>
+                  <option value="CORRIGIDO" ${rid.status === 'CORRIGIDO' ? 'selected' : ''}>CORRIGIDO</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="mb-6">
+              <label class="block text-sm font-bold text-gray-500 mb-2">Descrição do Problema</label>
+              <textarea name="description" rows="4" class="w-full px-4 py-2 border border-gray-300 rounded-lg" required>${rid.description}</textarea>
+            </div>
+
+            <div class="mb-6">
+              <label class="block text-sm font-bold text-gray-500 mb-2">Ação Imediata</label>
+              <textarea name="immediateAction" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-lg" required>${rid.immediateAction}</textarea>
+            </div>
+
+            ${isAdmin() ? `
+              <div class="mb-6">
+                <label class="block text-sm font-bold text-gray-500 mb-2">Responsável Designado</label>
+                <select name="responsibleLeader" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                  <option value="">Nenhum responsável</option>
+                  ${allUsers.filter(u => u.isAdmin).map(u => `
+                    <option value="${u.id}" ${rid.responsibleLeader === u.id ? 'selected' : ''}>${u.name}</option>
+                  `).join('')}
+                </select>
+              </div>
+
+              <div class="mb-6">
+                <label class="block text-sm font-bold text-gray-500 mb-2">Prazo (Opcional)</label>
+                <input type="date" name="deadline" value="${rid.deadline ? rid.deadline.toDate().toISOString().split('T')[0] : ''}" 
+                  class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+              </div>
+
+              <div class="mb-6">
+                <label class="block text-sm font-bold text-gray-500 mb-2">Observações</label>
+                <textarea name="observations" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-lg">${rid.observations || ''}</textarea>
+              </div>
+            ` : rid.responsibleLeaderName ? `
+              <div class="mb-6 p-4 rounded-lg" style="background-color: #ffd9a0;">
+                <p class="text-sm font-bold mb-2" style="color: #808080;">Responsável Designado</p>
+                <p class="text-lg font-bold text-gray-800">${rid.responsibleLeaderName}</p>
+                ${rid.deadline ? `<p class="text-sm text-gray-600 mt-1">Prazo: ${formatDate(rid.deadline)}</p>` : ''}
+                ${rid.observations ? `<p class="text-sm text-gray-700 mt-2">${rid.observations}</p>` : ''}
+              </div>
+            ` : ''}
+
+            <div class="mb-6">
+              <label class="block text-sm font-bold text-gray-500 mb-2">Ações Corretivas</label>
+              <textarea name="correctiveActions" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-lg">${rid.correctiveActions || ''}</textarea>
+            </div>
+
+            <div class="mb-6">
+              <label class="block text-sm font-bold text-gray-500 mb-2">Conclusão</label>
+              <textarea name="conclusion" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-lg">${rid.conclusion || ''}</textarea>
+            </div>
+
+            <div class="flex flex-col md:flex-row gap-3">
+              <button type="submit" class="flex-1 py-3 text-white rounded-lg font-bold hover:opacity-90 transition-opacity" style="background-color: #b5e7a0;">
+                Salvar Alterações
+              </button>
+              
+              ${isDeveloper() ? `
+                <button type="button" onclick="deleteRidDirectly('${rid.id}')" class="flex-1 py-3 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-colors">
+                  Excluir RID
+                </button>
+              ` : isAdmin() && rid.status === 'PENDENTE' ? `
+                <button type="button" onclick="showDeleteRequestModal('${rid.id}')" class="flex-1 py-3 bg-red-500 text-white rounded-lg font-bold hover:bg-red-600 transition-colors">
+                  Solicitar Exclusão
+                </button>
+              ` : ''}
+              
+              <button type="button" onclick="this.closest('.modal-backdrop').remove()" class="flex-1 py-3 bg-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-400 transition-colors">
+                Cancelar
+              </button>
+            </div>
+          </form>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    function showDeleteRequestModal(ridId) {
+      const modal = document.createElement('div');
+      modal.className = 'modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
+      modal.innerHTML = `
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md">
+          <div class="border-b-2 px-6 py-4 bg-red-50" style="border-color: #ff6b6b;">
+            <h3 class="text-xl font-bold text-red-800">Solicitar Exclusão da RID</h3>
+          </div>
+          <form onsubmit="handleDeleteRequest(event, '${ridId}')" class="p-6">
+            <div class="mb-6">
+              <label class="block text-sm font-bold mb-2 text-gray-700">Motivo da Exclusão</label>
+              <textarea name="reason" required rows="4" placeholder="Explique por que esta RID deve ser excluída..." class="w-full px-4 py-2 border border-gray-300 rounded-lg"></textarea>
+            </div>
+            <div class="flex space-x-4">
+              <button type="submit" class="flex-1 py-3 bg-red-500 text-white rounded-lg font-bold hover:bg-red-600 transition-colors">
+                Enviar Solicitação
+              </button>
+              <button type="button" onclick="this.closest('.modal-backdrop').remove()" class="flex-1 py-3 bg-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-400 transition-colors">
+                Cancelar
+              </button>
+            </div>
+          </form>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    async function handleDeleteRequest(event, ridId) {
+      event.preventDefault();
+      const form = event.target;
+      const reason = form.reason.value;
+
+      await requestRidDeletion(ridId, reason);
+      form.closest('.modal-backdrop').remove();
+      const detailsModal = document.querySelector('.modal-backdrop');
+      if (detailsModal) detailsModal.remove();
+    }
+
+    async function handleEditRid(event, ridId) {
+      event.preventDefault();
+      const form = event.target;
+      const button = form.querySelector('button[type="submit"]');
+      
+      button.disabled = true;
+      button.textContent = 'Salvando...';
+
+      try {
+        const updates = {
+          emissionDate: firebase.firestore.Timestamp.fromDate(new Date(form.emissionDate.value)),
+          contractType: form.contractType.value,
+          unit: form.unit.value,
+          sector: form.sector.value,
+          location: form.location.value,
+          incidentType: form.incidentType.value,
+          detectionOrigin: form.detectionOrigin.value,
+          riskClassification: form.riskClassification.value,
+          status: form.status.value,
+          description: form.description.value,
+          immediateAction: form.immediateAction.value,
+          correctiveActions: form.correctiveActions.value,
+          conclusion: form.conclusion.value
+        };
+
+        // Admin-only fields
+        if (isAdmin()) {
+          const leaderId = form.responsibleLeader.value;
+          updates.responsibleLeader = leaderId || null;
+          updates.responsibleLeaderName = leaderId? getUserNameById(leaderId): null;
+          updates.deadline = form.deadline.value ? firebase.firestore.Timestamp.fromDate(new Date(form.deadline.value)) : null;
+          updates.observations = form.observations.value;
+        }
+
+        const success = await updateRid(ridId, updates);
+        
+        if (success) {
+          form.closest('.modal-backdrop').remove();
+          renderDashboard();
+        } else {
+          button.disabled = false;
+          button.textContent = 'Salvar Alterações';
+        }
+      } catch (error) {
+        showToast('Erro ao salvar alterações: ' + error.message, 'error');
+        button.disabled = false;
+        button.textContent = 'Salvar Alterações';
+      }
+    }
+
+    function renderEmployeesPage() {
+      const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
+      const app = document.getElementById('app');
+      app.innerHTML = `
+        <div class="h-full flex flex-col">
+          ${renderHeader(config)}
+          ${renderNavigation('employees')}
+          
+          <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
+            <div class="max-w-7xl mx-auto">
+              <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+
+  <h1 class="text-2xl md:text-3xl font-bold text-gray-800 leading-tight">
+    Gerenciamento de Funcionários
+  </h1>
+
+  ${isAdmin() ? `
+    <button 
+      onclick="showAddEmployeeModal()" 
+      class="flex items-center justify-center gap-2 w-full md:w-auto px-4 py-2 md:px-6 md:py-3 text-white rounded-lg font-bold hover:opacity-90 transition-opacity"
+      style="background-color: #c4a8e0;"
+    >
+      <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+        <path d="M8 9a3 3 0 100-6 3 3 0 000 6zM8 11a6 6 0 016 6H2a6 6 0 016-6zM16 7a1 1 0 10-2 0v1h-1a1 1 0 100 2h1v1a1 1 0 102 0v-1h1a1 1 0 100-2h-1V7z"/>
+      </svg>
+
+      <span class="hidden md:inline">Adicionar Funcionário</span>
+      <span class="md:hidden">Adicionar</span>
+    </button>
+  ` : ''}
+
+</div>
+
+
+              <div class="space-y-3">
+                ${allUsers
+  .filter(user => user && typeof user.name === 'string')
+  .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+  .map(user => `
+
+                  <div class="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow p-4">
+  <div class="flex items-center gap-4">
+
+    <!-- Nome sempre visível -->
+    <div class="flex-1 min-w-0">
+      <span class="font-semibold text-gray-800 text-base">
+        ${user.name}
+      </span>
+    </div>
+
+    <!-- CPF (somente desktop) -->
+    <div class="w-36 flex-shrink-0 hidden md:block">
+      <span class="text-sm text-gray-600">${user.cpf}</span>
+    </div>
+
+    <!-- Setor (somente desktop) -->
+    <div class="w-32 flex-shrink-0 hidden md:block">
+      <span class="text-sm text-gray-600">${user.sector}</span>
+    </div>
+
+    <!-- Tipo (somente desktop) -->
+    <div class="w-32 flex-shrink-0 hidden md:block">
+      <span class="px-3 py-1 rounded-lg text-xs font-bold ${
+        user.isDeveloper ? 'bg-purple-200 text-purple-900' :
+        user.isAdmin ? 'bg-purple-100 text-purple-800' : 
+        'bg-gray-100 text-gray-700'
+      }">
+        ${user.userType || (user.isAdmin ? 'Administrador' : 'Funcionário')}
+      </span>
+    </div>
+
+    <!-- Ações (somente desktop) -->
+    <div class="w-40 flex-shrink-0 text-right hidden md:block">
+      ${isDeveloper() && !user.isDeveloper && user.id !== currentUser.uid ? `
+        <button onclick="deleteEmployeeDirectly('${user.id}', '${user.name}')" class="px-4 py-2 bg-red-100 text-red-700 rounded-lg font-semibold hover:bg-red-200 transition-colors text-sm whitespace-nowrap">
+          Excluir
+        </button>
+      ` : isAdmin() && !user.isAdmin ? `
+        <button onclick="showDeleteEmployeeModal('${user.id}', '${user.name}')" class="px-4 py-2 bg-red-100 text-red-700 rounded-lg font-semibold hover:bg-red-200 transition-colors text-sm whitespace-nowrap">
+          Solicitar Exclusão
+        </button>
+      ` : ''}
+    </div>
+
+  </div>
+</div>
+
+                `).join('')}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function showAddEmployeeModal() {
+      const modal = document.createElement('div');
+      modal.className = 'modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
+      modal.innerHTML = `
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md">
+          <div class="border-b-2 px-6 py-4" style="border-color: #c4a8e0;">
+            <h3 class="text-xl font-bold text-gray-800">Adicionar Funcionário</h3>
+          </div>
+          <form onsubmit="handleAddEmployee(event)" class="p-6">
+            <div class="mb-4">
+              <label class="block text-sm font-bold mb-2 text-gray-700">Nome Completo</label>
+              <input type="text" name="name" required class="w-full px-4 py-2 border border-gray-300 rounded-lg" oninput="this.value = this.value.toUpperCase()">
+            </div>
+            <div class="mb-4">
+              <label class="block text-sm font-bold mb-2 text-gray-700">CPF</label>
+              <input type="text" name="cpf" required maxlength="14" class="w-full px-4 py-2 border border-gray-300 rounded-lg" oninput="this.value = formatCPF(this.value)">
+            </div>
+            <div class="mb-4">
+  <label class="block text-sm font-bold mb-2 text-gray-700">Setor</label>
+  <select
+    name="sector"
+    required
+    class="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white"
+  >
+    <option value="">Selecione o setor</option>
+    <option value="ADM">ADM</option>
+    <option value="M. MOVEL">M. MOVEL</option>
+    <option value="M. FIXA">M. FIXA</option>
+    <option value="M. ELÉTRICA">M. ELÉTRICA</option>
+    <option value="PRODUÇÃO">PRODUÇÃO</option>
+    <option value="MINA">MINA</option>
+  </select>
+</div>
+
+            <div class="mb-6">
+              <label class="block text-sm font-bold mb-2 text-gray-700">Senha Inicial</label>
+              <input type="password" name="password" required minlength="6" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+            </div>
+            <div class="flex space-x-4">
+              <button type="submit" class="flex-1 py-3 text-white rounded-lg font-bold hover:opacity-90 transition-opacity" style="background-color: #c4a8e0;">
+                Adicionar
+              </button>
+              <button type="button" onclick="this.closest('.modal-backdrop').remove()" class="flex-1 py-3 bg-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-400 transition-colors">
+                Cancelar
+              </button>
+            </div>
+          </form>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    async function handleAddEmployee(event) {
+      event.preventDefault();
+      const form = event.target;
+      const button = form.querySelector('button[type="submit"]');
+      
+      button.disabled = true;
+      button.textContent = 'Adicionando...';
+
+      try {
+        const name = form.name.value.toUpperCase();
+        const cpf = form.cpf.value;
+        const sector = form.sector.value;
+        const password = form.password.value;
+        const email = cpfToEmail(cpf);
+
+        const userCredential = await secondaryAuth.createUserWithEmailAndPassword(email, password);
+
+        
+        await db.collection('users').doc(userCredential.user.uid).set({
+  name,
+  cpf,
+  sector,
+  isAdmin: false,
+  isDeveloper: false,
+  userType: 'Funcionário',
+  createdAt: firebase.firestore.FieldValue.serverTimestamp()
+});
+
+        await db.collection('users').doc(userCredential.user.uid).set({
+  name: name,
+  cpf: cpf,
+  sector: sector,
+  isAdmin: false,
+  isDeveloper: false,
+  userType: 'Funcionário',
+  createdAt: firebase.firestore.FieldValue.serverTimestamp()
+});
+
+        
+        showToast('Funcionário adicionado com sucesso!');
+        await loadUsers();
+        form.closest('.modal-backdrop').remove();
+        renderEmployeesPage();
+      } catch (error) {
+        showToast('Erro ao adicionar funcionário: ' + error.message, 'error');
+        button.disabled = false;
+        button.textContent = 'Adicionar';
+      }
+    }
+
+    function showDeleteEmployeeModal(userId, userName) {
+      const modal = document.createElement('div');
+      modal.className = 'modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
+      modal.innerHTML = `
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md">
+          <div class="border-b-2 px-6 py-4 bg-red-50" style="border-color: #ff6b6b;">
+            <h3 class="text-xl font-bold text-red-800">Solicitar Exclusão de Funcionário</h3>
+          </div>
+          <form onsubmit="handleEmployeeDeleteRequest(event, '${userId}', '${userName}')" class="p-6">
+            <p class="mb-4 text-gray-700">Você está solicitando a exclusão de <strong>${userName}</strong>.</p>
+            <div class="mb-6">
+              <label class="block text-sm font-bold mb-2 text-gray-700">Motivo da Exclusão</label>
+              <textarea name="reason" required rows="4" placeholder="Explique por que este funcionário deve ser excluído..." class="w-full px-4 py-2 border border-gray-300 rounded-lg"></textarea>
+            </div>
+            <div class="flex space-x-4">
+              <button type="submit" class="flex-1 py-3 bg-red-500 text-white rounded-lg font-bold hover:bg-red-600 transition-colors">
+                Enviar Solicitação
+              </button>
+              <button type="button" onclick="this.closest('.modal-backdrop').remove()" class="flex-1 py-3 bg-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-400 transition-colors">
+                Cancelar
+              </button>
+            </div>
+          </form>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    async function handleEmployeeDeleteRequest(event, userId, userName) {
+      event.preventDefault();
+      const form = event.target;
+      const reason = form.reason.value;
+
+      try {
+        await db.collection('employeeDeleteRequests').add({
+          userId: userId,
+          userName: userName,
+          requesterId: currentUser.uid,
+          requesterName: currentUserData.name,
+          reason: reason,
+          status: 'pending',
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        const developerUsers = allUsers.filter(u => u.isDeveloper);
+        for (const dev of developerUsers) {
+          await createNotification(dev.id, {
+            type: 'employee_deletion_request',
+            userId: userId,
+            userName: userName,
+            title: 'Solicitação de Exclusão de Funcionário',
+            message: `${currentUserData.name} solicitou exclusão de ${userName}`,
+            ridLocation: null,
+            deadline: null
+          });
+        }
+
+        showToast('Solicitação de exclusão enviada aos desenvolvedores!');
+        form.closest('.modal-backdrop').remove();
+      } catch (error) {
+        showToast('Erro ao solicitar exclusão: ' + error.message, 'error');
+      }
+    }
+
+    function deleteEmployeeDirectly(userId, userName) {
+      if (!isDeveloper()) {
+        showToast('Acesso negado', 'error');
+        return;
+      }
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
+      modal.innerHTML = `
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md">
+          <div class="border-b-2 px-6 py-4 bg-red-50" style="border-color: #ff6b6b;">
+            <h3 class="text-xl font-bold text-red-800">⚠️ Confirmar Exclusão Permanente</h3>
+          </div>
+          <div class="p-6">
+            <p class="mb-4 text-gray-700 font-semibold">Esta ação é <strong class="text-red-600">IRREVERSÍVEL</strong>!</p>
+            <p class="mb-6 text-gray-600">O funcionário <strong>${userName}</strong> será excluído permanentemente do sistema sem possibilidade de recuperação.</p>
+            <div class="flex space-x-4">
+              <button onclick="confirmDeleteEmployee('${userId}', '${userName}')" class="flex-1 py-3 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-colors">
+                Confirmar Exclusão
+              </button>
+              <button onclick="this.closest('.modal-backdrop').remove()" class="flex-1 py-3 bg-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-400 transition-colors">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    function closeRidModal(el) {
+  document.body.style.overflow = '';
+  el.closest('.modal-backdrop').remove();
+}
+
+    async function confirmDeleteEmployee(userId, userName) {
+      try {
+        // Delete the user
+        await db.collection('users').doc(userId).delete();
+        
+        // Notify all admins about deletion
+        const adminUsers = allUsers.filter(u => u.isAdmin && u.id !== currentUser.uid);
+        for (const admin of adminUsers) {
+          await createNotification(admin.id, {
+            type: 'employee_added',
+            userId: '',
+            userName: userName,
+            title: 'Funcionário Excluído',
+            message: `${currentUserData.name} (Desenvolvedor) excluiu o funcionário ${userName}`,
+            ridLocation: null,
+            deadline: null
+          });
+        }
+        
+        showToast('Funcionário excluído com sucesso!');
+        await loadUsers();
+        
+        // Close modal
+        document.querySelectorAll('.modal-backdrop').forEach(m => m.remove());
+        renderEmployeesPage();
+      } catch (error) {
+        showToast('Erro ao excluir funcionário: ' + error.message, 'error');
+      }
+    }
+
+    async function renderRequestsPage() {
+      if (!isDeveloper()) {
+        showToast('Acesso negado', 'error');
+        renderAdminDashboard();
+        return;
+      }
+
+      const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
+      
+      const ridRequestsSnapshot = await db.collection('deleteRequests')
+        .where('status', '==', 'pending')
+        .get();
+      const ridRequests = ridRequestsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+      const empRequestsSnapshot = await db.collection('employeeDeleteRequests')
+        .where('status', '==', 'pending')
+        .get();
+      const empRequests = empRequestsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+      const app = document.getElementById('app');
+      app.innerHTML = `
+        <div class="h-full flex flex-col">
+          ${renderHeader(config)}
+          ${renderNavigation('requests')}
+          
+          <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
+            <div class="max-w-7xl mx-auto">
+              <h1 class="text-3xl font-bold text-gray-800 mb-8">Solicitações Pendentes</h1>
+
+            
+
+              <div>
+                <h2 class="text-2xl font-bold text-gray-800 mb-4">Exclusões de Funcionários</h2>
+                ${empRequests.length === 0 ?
+                  '<div class="bg-white rounded-xl shadow-lg p-8 text-center"><p class="text-gray-500">Nenhuma solicitação pendente</p></div>' :
+                  empRequests.map(req => `
+                    <div class="bg-white rounded-xl shadow-lg p-6 mb-4">
+                      <div class="flex items-start justify-between">
+                        <div class="flex-1">
+                          <div class="flex items-center space-x-3 mb-3">
+                            <div class="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold" style="background-color: #c4a8e0;">
+                              ${req.userName.charAt(0)}
+                            </div>
+                            <div>
+                              <p class="font-bold text-gray-800">${req.userName}</p>
+                              <span class="text-sm text-gray-500">${formatDate(req.createdAt)}</span>
+                            </div>
+                          </div>
+                          <p class="text-gray-700 mb-2"><strong>Solicitante:</strong> ${req.requesterName}</p>
+                          <p class="text-gray-700"><strong>Motivo:</strong> ${req.reason}</p>
+                        </div>
+                        <div class="flex space-x-2">
+                          <button onclick="approveEmployeeDeletion('${req.id}', '${req.userId}', '${req.requesterId}')" class="px-4 py-2 bg-green-500 text-white rounded-lg font-bold hover:bg-green-600 transition-colors">
+                            Aprovar
+                          </button>
+                          <button onclick="rejectEmployeeDeletion('${req.id}', '${req.requesterId}')" class="px-4 py-2 bg-red-500 text-white rounded-lg font-bold hover:bg-red-600 transition-colors">
+                            Rejeitar
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  `).join('')
+                }
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      updateRequestsBadge();
+    }
+
+    async function approveRidDeletion(requestId, ridId, requesterId) {
+      try {
+        const rid = allRids.find(r => r.id === ridId);
+        
+        await db.collection('rids').doc(ridId).delete();
+        await db.collection('deleteRequests').doc(requestId).update({ status: 'approved' });
+        
+        await createNotification(requesterId, {
+          type: 'request_approved',
+          ridId: '',
+          ridNumber: rid?.ridNumber || '',
+          title: 'Solicitação Aprovada',
+          message: `Sua solicitação de exclusão da RID #${rid?.ridNumber || 'N/A'} foi aprovada`,
+          ridLocation: null,
+          deadline: null
+        });
+
+        showToast('RID excluída com sucesso!');
+        await loadRids();
+        renderRequestsPage();
+      } catch (error) {
+        showToast('Erro ao excluir RID: ' + error.message, 'error');
+      }
+    }
+
+    async function rejectRidDeletion(requestId, requesterId) {
+      try {
+        await db.collection('deleteRequests').doc(requestId).update({ status: 'rejected' });
+        
+        await createNotification(requesterId, {
+          type: 'request_rejected',
+          ridId: '',
+          ridNumber: '',
+          title: 'Solicitação Rejeitada',
+          message: 'Sua solicitação de exclusão da RID foi rejeitada',
+          ridLocation: null,
+          deadline: null
+        });
+
+        showToast('Solicitação rejeitada');
+        renderRequestsPage();
+      } catch (error) {
+        showToast('Erro ao rejeitar solicitação: ' + error.message, 'error');
+      }
+    }
+
+    async function approveEmployeeDeletion(requestId, userId, requesterId) {
+      try {
+        const user = allUsers.find(u => u.id === userId);
+        
+        await db.collection('users').doc(userId).delete();
+        await db.collection('employeeDeleteRequests').doc(requestId).update({ status: 'approved' });
+        
+        await createNotification(requesterId, {
+          type: 'request_approved',
+          ridId: '',
+          ridNumber: '',
+          title: 'Solicitação Aprovada',
+          message: `Sua solicitação de exclusão de ${user?.name || 'funcionário'} foi aprovada`,
+          ridLocation: null,
+          deadline: null
+        });
+
+        showToast('Funcionário excluído com sucesso!');
+        await loadUsers();
+        renderRequestsPage();
+      } catch (error) {
+        showToast('Erro ao excluir funcionário: ' + error.message, 'error');
+      }
+    }
+
+    async function rejectEmployeeDeletion(requestId, requesterId) {
+      try {
+        await db.collection('employeeDeleteRequests').doc(requestId).update({ status: 'rejected' });
+        
+        await createNotification(requesterId, {
+          type: 'request_rejected',
+          ridId: '',
+          ridNumber: '',
+          title: 'Solicitação Rejeitada',
+          message: 'Sua solicitação de exclusão do funcionário foi rejeitada',
+          ridLocation: null,
+          deadline: null
+        });
+
+        showToast('Solicitação rejeitada');
+        renderRequestsPage();
+      } catch (error) {
+        showToast('Erro ao rejeitar solicitação: ' + error.message, 'error');
+      }
+    }
+
+    function renderReportsPage() {
+      const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
+      const now = new Date();
+      const currentMonth = now.getMonth() + 1;
+      const currentYear = now.getFullYear();
+      
+      // Filter RIDs for current month by default
+      const currentMonthRids = allRids.filter(r => {
+        const ridDate = r.emissionDate.toDate();
+        return ridDate.getMonth() + 1 === currentMonth && ridDate.getFullYear() === currentYear;
+      });
+      
+      const app = document.getElementById('app');
+      app.innerHTML = `
+        <div class="h-full flex flex-col">
+          ${renderHeader(config)}
+          ${renderNavigation('reports')}
+          
+          <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
+            <div class="max-w-full mx-auto px-4">
+              <div class="flex items-center justify-between mb-6">
+                <h1 class="text-3xl font-bold text-gray-800">Relatório de RIDs</h1>
+                <button onclick="exportToExcel()" class="flex items-center space-x-2 px-6 py-3 text-white rounded-lg font-bold hover:opacity-90 transition-opacity" style="background-color: #b5e7a0;">
+                  <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                  </svg>
+                  <span>Exportar Excel</span>
+                </button>
+              </div>
+
+              <!-- Filtros -->
+              <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                <h3 class="text-lg font-bold text-gray-800 mb-4">Filtrar Período</h3>
+                <div class="grid grid-cols-2 gap-4 md:flex md:items-end md:space-x-4">
+                  <div class="flex-1">
+                    <label class="block text-sm font-semibold mb-2 text-gray-700">Mês</label>
+                    <select id="reportMonth" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                      <option value="">Todos os meses</option>
+                      <option value="1" ${currentMonth === 1 ? 'selected' : ''}>Janeiro</option>
+                      <option value="2" ${currentMonth === 2 ? 'selected' : ''}>Fevereiro</option>
+                      <option value="3" ${currentMonth === 3 ? 'selected' : ''}>Março</option>
+                      <option value="4" ${currentMonth === 4 ? 'selected' : ''}>Abril</option>
+                      <option value="5" ${currentMonth === 5 ? 'selected' : ''}>Maio</option>
+                      <option value="6" ${currentMonth === 6 ? 'selected' : ''}>Junho</option>
+                      <option value="7" ${currentMonth === 7 ? 'selected' : ''}>Julho</option>
+                      <option value="8" ${currentMonth === 8 ? 'selected' : ''}>Agosto</option>
+                      <option value="9" ${currentMonth === 9 ? 'selected' : ''}>Setembro</option>
+                      <option value="10" ${currentMonth === 10 ? 'selected' : ''}>Outubro</option>
+                      <option value="11" ${currentMonth === 11 ? 'selected' : ''}>Novembro</option>
+                      <option value="12" ${currentMonth === 12 ? 'selected' : ''}>Dezembro</option>
+                    </select>
+                  </div>
+                  <div class="flex-1">
+                    <label class="block text-sm font-semibold mb-2 text-gray-700">Ano</label>
+                    <input type="number" id="reportYear" placeholder="Ex: 2024" min="2000" max="2100" value="${currentYear}" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                  </div>
+                  <button onclick="filterReports()" class="col-span-2 md:col-auto w-full md:w-auto px-6 py-3 text-white rounded-lg font-bold hover:opacity-90 transition-opacity" style="background-color: #a8d5e2;">
+                    Aplicar
+                  </button>
+                  <button onclick="clearReportFilters()" class="col-span-2 md:col-auto w-full md:w-auto px-6 py-3 border rounded-lg font-semibold hover:bg-gray-50 transition-colors" style="border-color: #9c9494; color: #808080;">
+                    Limpar
+                  </button>
+                </div>
+              </div>
+
+              <!-- Tabela de Relatório -->
+              <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+                <div class="overflow-x-auto">
+                  <table class="w-full" id="reportTable">
+                    <thead style="background-color: #a8d5e2;">
+                      <tr>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap">Unidade</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap">RID Nº</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap">Data Emissão</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap">Emitente</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap">Tipo</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap">Setor</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap">Local do Incidente</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap">Gênese do Incidente</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap">Origem da Detecção</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap">Descrição</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap">Classificação de Risco</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap">Ação Imediata</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap">Ações Corretivas</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap">Responsável</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap">Prazo</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap">Data Conclusão</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody id="reportTableBody" class="bg-white divide-y divide-gray-200">
+                      ${renderReportRows(currentMonthRids)}
+                    </tbody>
+                  </table>
+                </div>
+                ${currentMonthRids.length === 0 ? '<div class="p-8 text-center text-gray-500">Nenhuma RID encontrada no período selecionado</div>' : ''}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderReportRows(rids) {
+      if (rids.length === 0) return '';
+      
+      return rids.map(rid => `
+        <tr class="hover:bg-gray-50 cursor-pointer" onclick="showRidDetails('${rid.id}')">
+          <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.unit || '-'}</td>
+          <td class="px-4 py-3 text-sm font-bold text-gray-800 whitespace-nowrap">${rid.ridNumber}</td>
+          <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${formatDate(rid.emissionDate)}</td>
+          <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.emitterName}</td>
+          <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.contractType || '-'}</td>
+          <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.sector || '-'}</td>
+          <td class="px-4 py-3 text-sm text-gray-800 max-w-xs truncate">${rid.location || '-'}</td>
+          <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.incidentType || '-'}</td>
+          <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.detectionOrigin || '-'}</td>
+          <td class="px-4 py-3 text-sm text-gray-800 max-w-xs truncate">${rid.description || '-'}</td>
+          <td class="px-4 py-3 text-sm whitespace-nowrap">
+            <span class="px-2 py-1 rounded-lg text-xs font-bold ${getRiskColor(rid.riskClassification)}">
+              ${rid.riskClassification || '-'}
+            </span>
+          </td>
+          <td class="px-4 py-3 text-sm text-gray-800 max-w-xs truncate">${rid.immediateAction || '-'}</td>
+          <td class="px-4 py-3 text-sm text-gray-800 max-w-xs truncate">${rid.correctiveActions || '-'}</td>
+          <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.responsibleLeaderName || '-'}</td>
+          <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.deadline ? formatDate(rid.deadline) : '-'}</td>
+          <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.conclusionDate ? formatDate(rid.conclusionDate) : '-'}</td>
+          <td class="px-4 py-3 text-sm whitespace-nowrap">
+            <span class="px-2 py-1 rounded-lg text-xs font-bold ${getStatusColor(rid.status)}">
+              ${rid.status}
+            </span>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function filterReports() {
+      const month = document.getElementById('reportMonth').value;
+      const year = document.getElementById('reportYear').value;
+      
+      let filtered = allRids;
+      
+      // If no filters, show current month
+      if (!month && !year) {
+        const now = new Date();
+        const currentMonth = now.getMonth() + 1;
+        const currentYear = now.getFullYear();
+        
+        filtered = allRids.filter(r => {
+          const ridDate = r.emissionDate.toDate();
+          return ridDate.getMonth() + 1 === currentMonth && ridDate.getFullYear() === currentYear;
+        });
+      } else {
+        if (month) {
+          filtered = filtered.filter(r => {
+            const ridMonth = r.emissionDate.toDate().getMonth() + 1;
+            return ridMonth === parseInt(month);
+          });
+        }
+        
+        if (year) {
+          filtered = filtered.filter(r => {
+            const ridYear = r.emissionDate.toDate().getFullYear();
+            return ridYear === parseInt(year);
+          });
+        }
+      }
+      
+      document.getElementById('reportTableBody').innerHTML = renderReportRows(filtered);
+    }
+
+    function clearReportFilters() {
+      document.getElementById('reportMonth').value = '';
+      document.getElementById('reportYear').value = '';
+      
+      // Show current month by default
+      const now = new Date();
+      const currentMonth = now.getMonth() + 1;
+      const currentYear = now.getFullYear();
+      
+      const currentMonthRids = allRids.filter(r => {
+        const ridDate = r.emissionDate.toDate();
+        return ridDate.getMonth() + 1 === currentMonth && ridDate.getFullYear() === currentYear;
+      });
+      
+      document.getElementById('reportTableBody').innerHTML = renderReportRows(currentMonthRids);
+    }
+
+    function exportToExcel() {
+      const month = document.getElementById('reportMonth').value;
+      const year = document.getElementById('reportYear').value;
+      
+      let filtered = allRids;
+      
+      // Apply same filters as display
+      if (!month && !year) {
+        const now = new Date();
+        const currentMonth = now.getMonth() + 1;
+        const currentYear = now.getFullYear();
+        
+        filtered = allRids.filter(r => {
+          const ridDate = r.emissionDate.toDate();
+          return ridDate.getMonth() + 1 === currentMonth && ridDate.getFullYear() === currentYear;
+        });
+      } else {
+        if (month) {
+          filtered = filtered.filter(r => {
+            const ridMonth = r.emissionDate.toDate().getMonth() + 1;
+            return ridMonth === parseInt(month);
+          });
+        }
+        
+        if (year) {
+          filtered = filtered.filter(r => {
+            const ridYear = r.emissionDate.toDate().getFullYear();
+            return ridYear === parseInt(year);
+          });
+        }
+      }
+      
+      // Create CSV content
+      let csv = 'Unidade,RID Nº,Data Emissão,Emitente,Funcionário/Terceiro/Visitante,Setor/Empresa,Local do Incidente,Gênese do Incidente,Origem da Detecção,Descrição,Classificação de Risco,Ação Imediata,Ações Corretivas,Responsável pelas Ações,Prazo para Conclusão,Data de Conclusão,Status\n';
+      
+      filtered.forEach(rid => {
+        const row = [
+          rid.unit || '',
+          rid.ridNumber,
+          formatDate(rid.emissionDate),
+          rid.emitterName,
+          rid.contractType || '',
+          rid.sector || '',
+          rid.location || '',
+          rid.incidentType || '',
+          rid.detectionOrigin || '',
+          (rid.description || '').replace(/,/g, ';').replace(/\n/g, ' '),
+          rid.riskClassification || '',
+          (rid.immediateAction || '').replace(/,/g, ';').replace(/\n/g, ' '),
+          (rid.correctiveActions || '').replace(/,/g, ';').replace(/\n/g, ' '),
+          rid.responsibleLeaderName || '',
+          rid.deadline ? formatDate(rid.deadline) : '',
+          rid.conclusionDate ? formatDate(rid.conclusionDate) : '',
+          rid.status
+        ].map(field => `"${field}"`).join(',');
+        
+        csv += row + '\n';
+      });
+      
+      // Create download
+      const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      
+      const periodText = month && year ? `_${year}_${month.padStart(2, '0')}` : 
+                        year ? `_${year}` : 
+                        month ? `_mes_${month.padStart(2, '0')}` : 
+                        `_${new Date().getFullYear()}_${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+      
+      link.setAttribute('href', url);
+      link.setAttribute('download', `relatorio_rids${periodText}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      showToast('Relatório exportado com sucesso!');
+    }
+
+    function renderDesignatedPage() {
+  window.currentPage = 'designated';
+
+  // 🔥 DEV vê outro painel
+  if (isDeveloper()) {
+    renderDevControlCenter();
+    return;
+  }
+
+  // 🔹 ADMIN continua vendo as designadas normais
+  const myDesignatedRids = allRids.filter(
+    r => r.responsibleLeader === currentUser.uid && r.status !== 'CORRIGIDO'
+  );
+
+  const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
+  const app = document.getElementById('app');
+
+  app.innerHTML = `
+    <div class="h-full flex flex-col">
+      ${renderHeader(config)}
+      ${renderNavigation('designated')}
+      
+      <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
+        <div class="max-w-7xl mx-auto">
+          <h1 class="text-3xl font-bold text-gray-800 mb-8">Meus RIDs Designados</h1>
+
+          ${myDesignatedRids.length === 0 ? 
+            '<div class="bg-white rounded-xl shadow-lg p-12 text-center"><p class="text-gray-500 text-lg">Você não possui RIDs designados no momento</p></div>' :
+            `<div class="space-y-4">${renderRidsList(myDesignatedRids)}</div>`
+          }
+        </div>
+      </div>
+    </div>
+  `;
+}
+  
+       function renderDevControlCenter() {
+  const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
+  const app = document.getElementById('app');
+  let base = allRids;
+
+  // 🏷️ Filtro por setor
+const sector = document.getElementById('devSector')?.value;
+if (sector) {
+  base = base.filter(r => r.sector === sector);
+}
+
+// 📅 Filtro por período
+const month = document.getElementById('devMonth')?.value;
+const year = document.getElementById('devYear')?.value;
+
+if (year) {
+  base = base.filter(r => {
+    const d = r.emissionDate?.toDate();
+    if (!d) return false;
+
+    const sameYear = d.getFullYear() == year;
+    const sameMonth = !month || d.getMonth() + 1 == month;
+
+    return sameYear && sameMonth;
+  });
+}
+window.devFilteredBase = base;
+
+
+      const critical = base.filter(r =>
+         r.riskClassification === 'Alto' || r.riskClassification === 'Crítico'
+         );
+
+  const overdue = base.filter(r => r.status === 'VENCIDO');
+
+  const noLeader = base.filter(r =>
+  !r.responsibleLeader && r.status !== 'CORRIGIDO'
+   );
+
+// Se você tiver coleção ridHistory
+const deleted = window.allDeletedRids
+  ? window.allDeletedRids.length
+  : 0;
+
+  const riskList = base.filter(r => {
+  if (r.status === 'CORRIGIDO') return false;
+
+  const isHighRisk =
+    r.riskClassification === 'Alto' ||
+    r.riskClassification === 'Crítico';
+
+  const isBadOverdue =
+    r.status === 'VENCIDO' && r.riskClassification !== 'Baixo';
+
+  return isHighRisk || isBadOverdue;
+});
+
+// 📊 Ranking de setores por risco
+const sectorRisk = {};
+
+base.forEach(r => {
+  if (!['Médio', 'Alto', 'Crítico'].includes(r.riskClassification)) return;
+
+  const sector = r.sector || 'SEM SETOR';
+
+  if (!sectorRisk[sector]) sectorRisk[sector] = 0;
+  sectorRisk[sector]++;
+});
+
+// Converte em array ordenado
+const sectorRanking = Object.entries(sectorRisk)
+  .sort((a, b) => b[1] - a[1]);
+
+
+  app.innerHTML = `
+    <div class="h-full flex flex-col">
+      ${renderHeader(config)}
+      ${renderNavigation('designated')}
+
+  <div class="flex-1 bg-[#dfdfdf] overflow-auto">
+  <div class="max-w-7xl mx-auto px-8 py-8 space-y-8">
+
+    <!-- Título da página -->
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-3xl font-bold text-gray-800">
+  Centro de Controle
+</h1>
+
+
+</div> 
+<div class="flex justify-end mb-6 space-x-4">
+  <button onclick="toggleDevFilters()" class="flex items-center space-x-2 px-6 py-3 rounded-lg font-semibold text-white hover:opacity-90" style="background-color:#c4a8e0;">
+    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+      <path fill-rule="evenodd" d="M3 3h14l-5 6v6l-4-2v-4L3 3z"/>
+    </svg>
+    <span>Filtros</span>
+  </button>
+
+  <button onclick="generateRiskReportPDF()" class="flex items-center space-x-2 px-6 py-3 rounded-lg font-semibold text-white hover:opacity-90" style="background-color:#6b9eb0;">
+    📄 <span>Gerar Relatório</span>
+  </button>
+</div>
+
+
+<div id="devFilterPanel" class="hidden mb-8 bg-white rounded-xl shadow-lg p-6 border-2" style="border-color:#c4a8e0;">
+  <div class="flex items-end space-x-4">
+
+    <div class="flex-1">
+      <label class="block text-sm font-semibold mb-2" style="color:#808080;">Período (Mês/Ano)</label>
+      <div class="flex space-x-2">
+  <select id="devMonth" class="w-full px-4 py-3 border rounded-lg bg-white">
+  <option value="">Todos os meses</option>
+  <option value="1">Jan</option>
+  <option value="2">Fev</option>
+  <option value="3">Mar</option>
+  <option value="4">Abr</option>
+  <option value="5">Mai</option>
+  <option value="6">Jun</option>
+  <option value="7">Jul</option>
+  <option value="8">Ago</option>
+  <option value="9">Set</option>
+  <option value="10">Out</option>
+  <option value="11">Nov</option>
+  <option value="12">Dez</option>
+</select>
+
+  <input
+    id="devYear"
+    type="number"
+    placeholder="Ano"
+    class="w-full px-4 py-3 border rounded-lg bg-white">
+</div>
+    </div>
+
+    <div class="flex-1">
+      <label class="block text-sm font-semibold mb-2" style="color:#808080;">Setor</label>
+      <select id="devSector" class="w-full px-4 py-2 border rounded-lg">
+        <option value="">Todos</option>
+        <option value="ADM">ADM</option>
+        <option value="M. MOVEL">M. MOVEL</option>
+        <option value="M. FIXA">M. FIXA</option>
+        <option value="M. ELÉTRICA">M. ELÉTRICA</option>
+        <option value="PRODUÇÃO">PRODUÇÃO</option>
+        <option value="MINA">MINA</option>
+      </select>
+    </div>
+
+    <button onclick="renderDevControlCenter()" class="px-6 py-2 bg-[#a8d5e2] text-white rounded-lg font-bold">Aplicar</button>
+    <button onclick="clearDevFilters()" class="px-6 py-2 border rounded-lg">Limpar</button>
+
+  </div>
+</div>
+
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
+
+  <div class="bg-red-100 rounded-xl p-8 shadow-md flex flex-col justify-between">
+    <p class="text-sm font-bold text-red-700">RIDs Críticas</p>
+    <p class="text-4xl font-bold text-red-900">${critical.length}</p>
+  </div>
+
+  <div class="bg-orange-100 rounded-xl p-6 shadow">
+    <p class="text-sm font-bold text-orange-700">RIDs Vencidas</p>
+    <p class="text-4xl font-bold text-orange-900">${overdue.length}</p>
+  </div>
+
+  <div class="bg-yellow-100 rounded-xl p-6 shadow">
+    <p class="text-sm font-bold text-yellow-700">Sem Responsável</p>
+    <p class="text-4xl font-bold text-yellow-900">${noLeader.length}</p>
+  </div>
+
+  <div class="bg-gray-200 rounded-xl p-6 shadow">
+    <p class="text-sm font-bold text-gray-700">RIDs Excluídas</p>
+    <p class="text-4xl font-bold text-gray-900">${deleted}</p>
+  </div>
+
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+
+  <!-- GRÁFICO -->
+  <div class="bg-white rounded-xl shadow-lg p-6">
+    <h2 class="text-xl font-bold text-gray-800 mb-4">
+      Distribuição de Risco
+    </h2>
+  <div class="relative h-[280px]">
+  <canvas id="devRiskChart"></canvas>
+</div>
+  </div>
+
+  <!-- RANKING -->
+  <div class="bg-white rounded-xl shadow-lg p-6">
+    <h2 class="text-xl font-bold text-gray-800 mb-4">
+      Setores mais críticos
+    </h2>
+
+    <div class="space-y-3">
+      ${
+        sectorRanking.length === 0
+        ? `<p class="text-gray-500">Nenhum risco no período</p>`
+        : sectorRanking.map(([sector, total]) => `
+          <div>
+            <div class="flex justify-between text-sm font-semibold text-gray-700">
+              <span>${sector}</span>
+              <span>${total}</span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2 mt-1">
+              <div 
+                class="bg-red-500 h-2 rounded-full"
+                style="width: ${Math.min(total * 10, 100)}%">
+              </div>
+            </div>
+          </div>
+        `).join('')
+      }
+    </div>
+  </div>
+
+</div>
+
+
+
+<div class="bg-white rounded-xl shadow-lg p-6">
+  <h2 class="text-xl font-bold text-gray-800 mb-4">
+    Lista de Risco Operacional
+  </h2>
+
+  ${riskList.length === 0
+    ? `<p class="text-gray-500">Nenhuma RID crítica no momento 🎉</p>`
+    : `
+      <div class="max-h-[600px] overflow-y-auto space-y-4 pr-2">
+        ${renderRidsList(riskList)}
+      </div>
+    `
+  }
+</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+setTimeout(() => {
+  renderDevRiskChart(base);
+}, 100);
+
+}
+
+function renderDevRiskChart(base) {
+  const canvas = document.getElementById('devRiskChart');
+  if (!canvas) return;
+
+  const ctx = canvas.getContext('2d');
+
+  // 🔥 Se existir um gráfico antigo válido, destrói
+  if (window.devRiskChart && typeof window.devRiskChart.destroy === 'function') {
+    window.devRiskChart.destroy();
+  }
+
+  const critical = base.filter(r => r.riskClassification === 'Crítico').length;
+  const high = base.filter(r => r.riskClassification === 'Alto').length;
+  const medium = base.filter(r => r.riskClassification === 'Médio').length;
+
+  window.devRiskChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Crítico', 'Alto', 'Médio'],
+      datasets: [{
+        data: [critical, high, medium],
+        backgroundColor: ['#dc2626', '#f59e0b', '#10b981']
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'right',
+          labels: {
+            usePointStyle: true,
+            padding: 20
+          }
+        }
+      }
+    }
+  });
+}
+
+
+    function toggleDevFilters() {
+  document.getElementById('devFilterPanel')?.classList.toggle('hidden');
+}
+
+function clearDevFilters() {
+  document.getElementById('devMonth').value = '';
+  document.getElementById('devYear').value = '';
+  document.getElementById('devSector').value = '';
+  renderDevControlCenter();
+}
+
+async function generateRiskReportPDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+
+  const logo = await loadImageAsBase64('logo.png');
+  const now = new Date().toLocaleString();
+
+  let base = window.devFilteredBase || allRids;
+
+  base = base.filter(r => ['Médio', 'Alto', 'Crítico'].includes(r.riskClassification));
+
+  const month = document.getElementById('devMonth')?.value || 'Todos';
+  const year = document.getElementById('devYear')?.value || new Date().getFullYear();
+
+  // Agrupar por setor
+  const sectors = {};
+  base.forEach(r => {
+    const s = r.sector || 'SEM SETOR';
+    if (!sectors[s]) sectors[s] = [];
+    sectors[s].push(r);
+  });
+
+  const totalCritical = base.filter(r => r.riskClassification === 'Crítico').length;
+  const totalHigh = base.filter(r => r.riskClassification === 'Alto').length;
+  const totalMedium = base.filter(r => r.riskClassification === 'Médio').length;
+  const total = totalCritical + totalHigh + totalMedium;
+
+  const pctCritical = ((totalCritical / total) * 100).toFixed(1);
+  const pctHigh = ((totalHigh / total) * 100).toFixed(1);
+  const pctMedium = ((totalMedium / total) * 100).toFixed(1);
+
+  // Ranking
+  const ranking = Object.entries(sectors)
+    .map(([sector, data]) => ({
+      sector,
+      critical: data.filter(r => r.riskClassification === 'Crítico').length
+    }))
+    .sort((a, b) => b.critical - a.critical);
+
+  // ===== Pizza real =====
+  function drawPie(doc, cx, cy, r, values, colors) {
+    const sum = values.reduce((a, b) => a + b, 0);
+    let start = -Math.PI / 2;
+
+    values.forEach((v, i) => {
+      const angle = (v / sum) * Math.PI * 2;
+      const end = start + angle;
+
+      const points = [[cx, cy]];
+      for (let a = start; a <= end; a += 0.05) {
+        points.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+      }
+      points.push([cx + r * Math.cos(end), cy + r * Math.sin(end)]);
+
+      doc.setFillColor(...colors[i]);
+      doc.path(points, 'F');
+
+      start = end;
+    });
+  }
+
+  // ==================== PÁGINA EXECUTIVA ====================
+  doc.addImage(logo, 'PNG', 14, 10, 30, 20);
+  doc.setFontSize(18);
+  doc.text('Relatório Executivo de Gestão de Risco', 50, 20);
+  doc.setFontSize(10);
+  doc.text(`Gerado em: ${now}`, 50, 28);
+  doc.text(`Período: ${month}/${year}`, 14, 40);
+
+  doc.setFontSize(13);
+  doc.text('Distribuição de Risco', 14, 55);
+
+  // Barras
+  doc.setFillColor(220,80,80); doc.rect(60, 60, pctCritical, 8, 'F');
+  doc.setFillColor(240,160,50); doc.rect(60, 75, pctHigh, 8, 'F');
+  doc.setFillColor(80,180,120); doc.rect(60, 90, pctMedium, 8, 'F');
+
+  doc.setDrawColor(200);
+  doc.rect(60, 60, 100, 8);
+  doc.rect(60, 75, 100, 8);
+  doc.rect(60, 90, 100, 8);
+
+  doc.text(`Crítico (${pctCritical}%)`, 14, 66);
+  doc.text(`Alto (${pctHigh}%)`, 14, 81);
+  doc.text(`Médio (${pctMedium}%)`, 14, 96);
+
+  // Pizza
+  drawPie(doc, 150, 80, 20, [totalCritical, totalHigh, totalMedium], [
+    [220,80,80],
+    [240,160,50],
+    [80,180,120]
+  ]);
+
+  // Ranking
+  doc.setFontSize(13);
+  doc.text('Setores mais críticos', 14, 130);
+
+  doc.autoTable({
+    startY: 135,
+    head: [['Posição', 'Setor', 'RIDs Críticas']],
+    body: ranking.map((r, i) => [i + 1, r.sector, r.critical]),
+    headStyles: { fillColor: [200,80,80], textColor: 255 }
+  });
+
+  // ==================== POR SETOR ====================
+  for (const sector in sectors) {
+    const data = sectors[sector];
+    doc.addPage();
+
+    doc.addImage(logo, 'PNG', 14, 10, 30, 20);
+    doc.setFontSize(16);
+    doc.text('Relatório de Gestão de Risco', 50, 20);
+    doc.setFontSize(10);
+    doc.text(`Gerado em: ${now}`, 50, 28);
+
+    doc.setFontSize(14);
+    doc.text(`SETOR: ${sector}`, 14, 40);
+
+    const critical = data.filter(r => r.riskClassification === 'Crítico');
+    const high = data.filter(r => r.riskClassification === 'Alto');
+    const medium = data.filter(r => r.riskClassification === 'Médio');
+
+    doc.autoTable({
+      startY: 50,
+      head: [['Indicador', 'Qtd']],
+      body: [
+        ['Críticas', critical.length],
+        ['Altas', high.length],
+        ['Médias', medium.length],
+        ['Total', data.length]
+      ],
+      headStyles: { fillColor: [100,150,180], textColor: 255 }
+    });
+
+    doc.autoTable({
+      startY: doc.lastAutoTable.finalY + 8,
+      head: [['RID', 'Emitente', 'Risco', 'Status']],
+      body: data.map(r => [
+        `#${r.ridNumber}`,
+        r.emitterName || '',
+        r.riskClassification,
+        r.status
+      ]),
+      alternateRowStyles: { fillColor: [245,248,250] },
+      headStyles: { fillColor: [50,100,160], textColor: 255 }
+    });
+  }
+
+  doc.save(`Relatorio_Gestao_Risco_${month}_${year}.pdf`);
+}
+
+
+
+async function loadImageAsBase64(url) {
+  const res = await fetch(url);
+  const blob = await res.blob();
+
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.readAsDataURL(blob);
+  });
+}
+
+
+    function renderEmployeeDesignatedPage() {
+      const myDesignatedRids = allRids.filter(r =>r.responsibleLeader === currentUser.uid &&r.status !== 'CORRIGIDO');
+      const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
+      
+      const app = document.getElementById('app');
+      app.innerHTML = `
+        <div class="h-full flex flex-col">
+          <!-- Header Simplificado para Funcionários -->
+          <div class="px-4 md:px-8 py-4 shadow-lg" style="background-color: #808080;">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+               <img
+    src="https://www.jdemito.com.br/wp-content/themes/jdemito/img/logo.png"
+    alt="Logo JDemito"
+    class="w-12 h-12 object-contain bg-white rounded-md p-1"
+  
+                <h1 class="system-title text-lg md:text-2xl font-bold text-white">${config.system_title || defaultConfig.system_title}</h1>
+                <p class="company-name text-xs md:text-sm text-gray-300">${config.company_name || defaultConfig.company_name}</p>
+                <p class="text-sm font-semibold text-white mt-1">${currentUserData.name}</p>
+                <p class="text-xs text-gray-300">${currentUserData.userType || 'Funcionário'}</p>
+              </div>
+              <div class="flex items-center space-x-2">
+              
+                <!-- Logout Button -->
+                <button onclick="handleLogout()" class="p-2 rounded-lg hover:bg-gray-700 transition-colors" title="Sair">
+                  <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <div class="bg-white border-b-2 border-gray-200">
+            <div class="px-2 md:px-8">
+              <nav class="flex overflow-x-auto space-x-1">
+                <button onclick="renderEmployeeDashboard()" class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100 transition-colors whitespace-nowrap text-sm md:text-base text-gray-700">
+                  Minhas RIDs
+                </button>
+                <button onclick="renderEmployeeDesignatedPage()" class="px-3 md:px-6 py-3 font-semibold border-b-4 whitespace-nowrap text-sm md:text-base" style="border-color: #a8d5e2; color: #6b9eb0;">
+                  Designadas
+                </button>
+              </nav>
+            </div>
+          </div>
+
+          <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
+            <div class="max-w-7xl mx-auto">
+              <h1 class="text-3xl font-bold text-gray-800 mb-8">Minhas RIDs Designadas</h1>
+
+              ${myDesignatedRids.length === 0 ? 
+                '<div class="bg-white rounded-xl shadow-lg p-12 text-center"><p class="text-gray-500 text-lg">Você não possui RIDs designadas no momento</p></div>' :
+                `<div class="space-y-4">${renderRidsList(myDesignatedRids)}</div>`
+              }
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderEmployeeDashboard() {
+      const myRids = allRids.filter(r => r.emitterId === currentUser.uid);
+      const myDesignated = allRids.filter(r => r.responsibleLeader === currentUser.uid);
+      const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
+
+      const app = document.getElementById('app');
+      app.innerHTML = `
+        <div class="h-full flex flex-col">
+          <!-- Header Simplificado para Funcionários -->
+          <div class="px-4 md:px-8 py-4 shadow-lg" style="background-color: #808080;">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+              <div>
+                <h1 class="system-title text-lg md:text-2xl font-bold text-white">${config.system_title || defaultConfig.system_title}</h1>
+                <p class="company-name text-xs md:text-sm text-gray-300">${config.company_name || defaultConfig.company_name}</p>
+                <p class="text-sm font-semibold text-white mt-1">${currentUserData.name}</p>
+                <p class="text-xs text-gray-300">${currentUserData.userType || 'Funcionário'}</p>
+              </div>
+              <div class="flex items-center space-x-2">
+              
+                
+                <!-- Logout Button -->
+                <button onclick="handleLogout()" class="p-2 rounded-lg hover:bg-gray-700 transition-colors" title="Sair">
+                  <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <div class="bg-white border-b-2 border-gray-200">
+            <div class="px-2 md:px-8">
+              <nav class="flex overflow-x-auto space-x-1">
+                <button onclick="renderEmployeeDashboard()" class="px-3 md:px-6 py-3 font-semibold border-b-4 whitespace-nowrap text-sm md:text-base" style="border-color: #a8d5e2; color: #6b9eb0;">
+                  Minhas RIDs
+                </button>
+              </nav>
+            </div>
+          </div>
+
+          <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
+            <div class="max-w-7xl mx-auto">
+              <div class="flex items-center justify-between mb-8">
+                <h1 class="text-3xl font-bold text-gray-800">Meus RIDs</h1>
+                <button onclick="showCreateRidModal()" class="flex items-center space-x-2 px-6 py-3 text-white rounded-lg font-bold hover:opacity-90 transition-opacity" style="background-color: #b5e7a0;">
+                  <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/>
+                  </svg>
+                  <span>Nova RID</span>
+                </button>
+              </div>
+
+        
+
+              ${myRids.length === 0
+  ? `
+    <div class="bg-white rounded-xl shadow-lg p-12 text-center">
+      <p class="text-gray-500 text-lg">Você ainda não criou nenhuma RID</p>
+    </div>
+  `
+  : `
+    <div class="space-y-4">
+      ${myRids.map(rid => `
+        <div class="bg-white rounded-xl shadow-md p-4 hover:shadow-lg transition">
+
+          <!-- Linha 1 -->
+          <div class="flex justify-between items-center">
+            <span class="text-[#6b9eb0] font-bold text-lg">
+              #${rid.ridNumber}
+            </span>
+            <span class="font-semibold text-gray-800">
+              ${rid.emitterName}
+            </span>
+          </div>
+
+          <!-- Linha 2 -->
+          <div class="mt-2 text-gray-700 text-sm">
+            ${rid.description}
+          </div>
+
+          <!-- Linha 3 -->
+          <div class="mt-3">
+            <span class="px-3 py-1 rounded-lg text-xs font-bold ${getStatusColor(rid.status)}">
+              ${rid.status}
+            </span>
+          </div>
+
+        </div>
+      `).join('')}
+    </div>
+  `
+}
+
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderHeader(config) {
+      return `
+        <div class="px-4 md:px-8 py-4 shadow-lg" style="background-color: #808080;">
+          <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+            <div>
+              <h1 class="system-title text-lg md:text-2xl font-bold text-white">${config.system_title || defaultConfig.system_title}</h1>
+              <p class="company-name text-xs md:text-sm text-gray-300">${config.company_name || defaultConfig.company_name}</p>
+              <p class="text-sm font-semibold text-white mt-1">${currentUserData.name}</p>
+              <p class="text-xs text-gray-300">${currentUserData.userType || (currentUserData.isAdmin ? 'Administrador' : 'Funcionário')}</p>
+            </div>
+            <div class="flex items-center space-x-2">
+
+              <div class="relative">
+                <button onclick="toggleHeaderMenu()" class="p-2 rounded-lg hover:bg-gray-700 transition-colors">
+                  <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                  </svg>
+                </button>
+                <div id="headerMenu" class="hidden absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl z-50 border border-gray-200">
+                  <button onclick="handleLogout()" class="w-full text-left px-4 py-3 hover:bg-gray-100 transition-colors rounded-lg flex items-center space-x-2" style="color: #f87171;">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                    </svg>
+                    <span class="font-semibold">Sair</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderNavigation(active) {
+      return `
+        <div class="bg-white border-b-2 border-gray-200">
+          <div class="px-2 md:px-8">
+            <nav class="flex overflow-x-auto space-x-1">
+              <button onclick="renderDashboard()" class="px-3 md:px-6 py-3 font-semibold ${active === 'dashboard' ? 'border-b-4' : 'hover:bg-gray-100'} whitespace-nowrap text-sm md:text-base ${active === 'dashboard' ? '' : 'text-gray-700'}" ${active === 'dashboard' ? 'style="border-color: #a8d5e2; color: #6b9eb0;"' : ''}>
+                Dashboard
+              </button>
+              <button onclick="renderSearchPage()" class="px-3 md:px-6 py-3 font-semibold ${active === 'rids' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors whitespace-nowrap text-sm md:text-base ${active === 'rids' ? '' : 'text-gray-700'}" ${active === 'rids' ? 'style="border-color: #a8d5e2; color: #6b9eb0;"' : ''}>
+                RID's
+              </button>
+              <button onclick="renderEmployeesPage()" class="px-3 md:px-6 py-3 font-semibold ${active === 'employees' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors whitespace-nowrap text-sm md:text-base ${active === 'employees' ? '' : 'text-gray-700'}" ${active === 'employees' ? 'style="border-color: #a8d5e2; color: #6b9eb0;"' : ''}>
+                Funcionários
+              </button>
+              ${isDeveloper() ? `
+                <button onclick="renderRequestsPage()" class="px-3 md:px-6 py-3 font-semibold ${active === 'requests' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors whitespace-nowrap text-sm md:text-base ${active === 'requests' ? '' : 'text-gray-700'} relative" ${active === 'requests' ? 'style="border-color: #a8d5e2; color: #6b9eb0;"' : ''}>
+                  Solicitações
+                  <span id="requestsBadge" class="hidden absolute top-1 right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">0</span>
+                </button>
+              ` : ''}
+              <button onclick="renderReportsPage()" class="px-3 md:px-6 py-3 font-semibold ${active === 'reports' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors whitespace-nowrap text-sm md:text-base ${active === 'reports' ? '' : 'text-gray-700'}" ${active === 'reports' ? 'style="border-color: #a8d5e2; color: #6b9eb0;"' : ''}>
+                Relatórios
+              </button>
+              <button onclick="renderDesignatedPage()" class="px-3 md:px-6 py-3 font-semibold ${active === 'designated' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors whitespace-nowrap text-sm md:text-base ${active === 'designated' ? '' : 'text-gray-700'}" ${active === 'designated' ? 'style="border-color: #a8d5e2; color: #6b9eb0;"' : ''}>
+  ${isDeveloper() ? 'Centro de Controle' : 'Designadas'}
+</button>
+              </button>
+            </nav>
+          </div>
+        </div>
+      `;
+    }
+
+
+    async function updateRequestsBadge() {
+      if (!isDeveloper()) return;
+      
+      const badge = document.getElementById('requestsBadge');
+      if (!badge) return;
+
+      try {
+        const ridRequestsSnapshot = await db.collection('deleteRequests')
+          .where('status', '==', 'pending')
+          .get();
+        const ridCount = ridRequestsSnapshot.docs.length;
+
+        const empRequestsSnapshot = await db.collection('employeeDeleteRequests')
+          .where('status', '==', 'pending')
+          .get();
+        const empCount = empRequestsSnapshot.docs.length;
+
+        const totalCount = ridCount + empCount;
+
+        if (totalCount > 0) {
+          badge.textContent = totalCount > 9 ? '9+' : totalCount;
+          badge.classList.remove('hidden');
+        } else {
+          badge.classList.add('hidden');
+        }
+      } catch (error) {
+        console.error('Error updating requests badge:', error);
+      }
+    }
+
+    function toggleHeaderMenu() {
+      const menu = document.getElementById('headerMenu');
+      const panel = document.getElementById('notificationsPanel');
+      
+      if (menu) {
+        menu.classList.toggle('hidden');
+        
+        // Close notifications if open
+        if (panel && !menu.classList.contains('hidden')) {
+          panel.classList.add('hidden');
+        }
+      }
+    }
+
+    function showLoginForm() {
+      document.getElementById('loginForm').classList.remove('hidden');
+      document.getElementById('registerForm').classList.add('hidden');
+      document.getElementById('loginTab').style.borderColor = '#a8d5e2';
+      document.getElementById('loginTab').style.color = '#6b9eb0';
+      document.getElementById('registerTab').style.borderColor = 'transparent';
+      document.getElementById('registerTab').style.color = '#6b7280';
+    }
+
+    function showRegisterForm() {
+      document.getElementById('loginForm').classList.add('hidden');
+      document.getElementById('registerForm').classList.remove('hidden');
+      document.getElementById('registerTab').style.borderColor = '#a8d5e2';
+      document.getElementById('registerTab').style.color = '#6b9eb0';
+      document.getElementById('loginTab').style.borderColor = 'transparent';
+      document.getElementById('loginTab').style.color = '#6b7280';
+    }
+
+   auth.onAuthStateChanged(async (user) => {
+  if (user) {
+    currentUser = user;
+
+    const userDoc = await db.collection('users').doc(user.uid).get();
+    currentUserData = userDoc.data();
+
+    await loadUsers();
+
+    startLeaderNotifications();
+
+    // 🔥 Ativa atualização em tempo real das RIDs
+if (currentUserData.isAdmin || currentUserData.isDeveloper) {
+  window.unsubscribeRids = listenRidsRealtimeAdmin();
+} else {
+  await loadRidsOnce();
+}
+
+    // 🔧 Garante que RIDs antigas sem número sejam corrigidas
+    await garantirNumeracaoRids();
+
+    await loadNotifications();
+    await loadMonthlyGoal();
+
+    renderDashboard();
+} else {
+
+  if (unsubscribeLeader) {
+    unsubscribeLeader();
+    unsubscribeLeader = null;
+  }
+
+  currentUser = null;
+  currentUserData = null;
+  document.getElementById('app').innerHTML = renderLoginPage();
+}
+});
+
+
+
+  </script>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9b7b0bbed6eaf200',t:'MTc2NzM2NTE4Ni4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script>
+  <!-- FOOTER GLOBAL -->
+  <footer class="fixed bottom-0 left-0 w-full h-6 bg-gray-200 flex items-center justify-center text-[11px] text-gray-600 z-40 relative">
+  <span class="text-center">
+    © J. DEMITO | Todos os direitos reservados. Desenvolvido por Juan Carlos
+  </span>
+
+  <span class="absolute right-3 text-[10px] text-gray-400">
+    v1.1.8
+  </span>
+</footer>
+</body>
+</html>
