@@ -3158,15 +3158,21 @@ if (year) {
 window.devFilteredBase = base;
 
 
-      const critical = base.filter(r =>
-         r.riskClassification === 'Alto' || r.riskClassification === 'Crítico'
-         );
+const riskList = base.filter(r =>
+  r.riskClassification === 'Alto' || r.riskClassification === 'Crítico'
+);
 
-  const overdue = base.filter(r => r.status === 'VENCIDO');
+const critical = riskList;   // usa a mesma base
 
-  const noLeader = base.filter(r =>
+const overdue = base.filter(r => r.status === 'VENCIDO');
+
+const noLeader = base.filter(r =>
   !r.responsibleLeader && r.status !== 'CORRIGIDO'
-   );
+);
+
+const deleted = base.filter(r =>
+  r.status === 'EXCLUIDO' || r.status === 'EXCLUÍDO'
+).length;
 
 
 // 📊 Ranking de setores por risco
