@@ -103,17 +103,24 @@ let unsubscribeLeader = null;
 
 function listenRidsRealtimeEmployee() {
   return db.collection("rids")
-    .where("emitterId", "==", auth.currentUser.uid)
+    .where("emitterCpf", "==", currentUserData.cpf)
     .orderBy("createdAt", "desc")
-    .onSnapshot(snapshot => {
-      allRids = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+    .onSnapshot(
+      snapshot => {
+        allRids = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
 
-      renderEmployeeDashboard();
-    });
+        renderEmployeeDashboard();
+      },
+      error => {
+        console.error("Erro ao carregar RIDs do funcionário:", error);
+        showToast("Erro ao carregar suas RIDs", "error");
+      }
+    );
 }
+
 
 
 function startLeaderNotifications() {
