@@ -96,9 +96,25 @@ input[type="date"] {
     // Initialize Firebase
     firebase.initializeApp(firebaseConfig);
     const auth = firebase.auth();
+    auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
     const db = firebase.firestore();
 
 let unsubscribeLeader = null;
+
+function listenRidsRealtimeEmployee() {
+  return db.collection("rids")
+    .where("emitterId", "==", auth.currentUser.uid)
+    .orderBy("createdAt", "desc")
+    .onSnapshot(snapshot => {
+      allRids = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+
+      renderEmployeeDashboard();
+    });
+}
+
 
 function startLeaderNotifications() {
   if (!auth.currentUser) return;
@@ -3847,14 +3863,18 @@ async function loadImageAsBase64(url) {
     const userDoc = await db.collection('users').doc(user.uid).get();
     currentUserData = userDoc.data();
 
-    if (currentUserData.isAdmin || currentUserData.isDeveloper) {
-      await loadUsers();
-      await loadMonthlyGoal();          // 🔥 só aqui
-      window.unsubscribeRids = listenRidsRealtimeAdmin();
-      renderAdminDashboard();
-    } else {
-      renderDashboard();               // funcionário
-    }
+// 🔥 Ativa o listener correto para cada tipo de usuário
+if (currentUserData.isAdmin || currentUserData.isDeveloper) {
+  await loadUsers();
+  await loadMonthlyGoal();
+  window.unsubscribeRids = listenRidsRealtimeAdmin();
+} else {
+  window.unsubscribeRids = listenRidsRealtimeEmployee();
+}
+
+// 🔥 Renderiza a tela certa
+renderDashboard();
+
 
     startLeaderNotifications();
     await loadNotifications();
