@@ -227,6 +227,25 @@ async function getNextRidNumberSafe() {
   });
 }
 
+async function loadLeadersForRid() {
+  try {
+    const snapshot = await db
+      .collection('leaders_public')
+      .get();
+
+    return snapshot.docs
+      .map(doc => ({
+        id: doc.id,
+        name: doc.data().name
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+
+  } catch (e) {
+    console.warn("Erro ao carregar líderes:", e);
+    return [];
+  }
+}
+
 
     function formatCPF(cpf) {
       return cpf.replace(/\D/g, '')
@@ -1889,11 +1908,13 @@ function isAdminOrDev() {
       document.getElementById('ridsListContainer').innerHTML = renderRidsList(currentMonthRids);
     }
 
-    async function showCreateRidModal() {
-      await loadUsers();
+   async function showCreateRidModal() {
+  document.body.style.overflow = 'hidden';
 
-      document.body.style.overflow = 'hidden';
-      const modal = document.createElement('div');
+  const leaders = await loadLeadersForRid();
+  console.log("LEADERS CARREGADOS:", leaders);
+
+  const modal = document.createElement('div');
       modal.className = 'modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overscroll-contain touch-none';
       modal.innerHTML = `
         <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto overscroll-contain touch-pan-y">
@@ -2032,17 +2053,14 @@ function isAdminOrDev() {
         </div>
       `;
       document.body.appendChild(modal);
-      const select = document.getElementById("responsibleLeaderSelect");
+const select = document.getElementById("responsibleLeaderSelect");
 
 select.innerHTML = `
   <option value="">Designar depois</option>
-  ${allUsers
-    .filter(u => u.userType === 'Administrador')
-    .sort((a,b)=>a.name.localeCompare(b.name,'pt-BR'))
-    .map(u => `<option value="${u.id}">${u.name}</option>`)
+  ${leaders
+    .map(l => `<option value="${l.id}">${l.name}</option>`)
     .join("")}
 `;
-
     }
 
 function showRidNotification(rid) {
