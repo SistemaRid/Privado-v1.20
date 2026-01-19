@@ -1904,14 +1904,16 @@ function isAdminOrDev() {
 
     async function showCreateRidModal() {
 
-  let leaders = [];
+let leaders = [];
 
-  if (isAdmin() || isDeveloper()) {
-    await loadUsers();
-    leaders = allUsers.filter(u => u.isAdmin === true || u.isDeveloper === true);
-  } else {
-    leaders = await loadLeadersPublic();
-  }
+if (isAdmin() || isDeveloper()) {
+  await loadUsers();
+  leaders = allUsers.filter(u => u.isAdmin || u.isDeveloper);
+} else {
+  const snap = await db.collection('leaders_public').get();
+  leaders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
 
   document.body.style.overflow = 'hidden';
       const modal = document.createElement('div');
@@ -2057,17 +2059,15 @@ function isAdminOrDev() {
 
 select.innerHTML = `
   <option value="">Designar depois</option>
-  ${allUsers
-    .filter(u => u.isAdmin === true || u.isDeveloper === true)
+  ${leaders
     .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
-    .map(u => `<option value="${u.id}">${u.name}</option>`)
+    .map(l => `<option value="${l.id}">${l.name}</option>`)
     .join("")}
 `;
+
 if (select.options.length === 1) {
   select.innerHTML = `<option value="">Nenhum líder disponível</option>`;
 }
-
-
     }
 
 function showRidNotification(rid) {
