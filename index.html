@@ -1890,7 +1890,10 @@ function isAdminOrDev() {
     }
 
     async function showCreateRidModal() {
-      await loadUsers();
+
+  if (isAdmin() || isDeveloper()) {
+    await loadUsers();
+  }
 
       document.body.style.overflow = 'hidden';
       const modal = document.createElement('div');
@@ -2037,11 +2040,15 @@ function isAdminOrDev() {
 select.innerHTML = `
   <option value="">Designar depois</option>
   ${allUsers
-    .filter(u => u.userType === 'Administrador')
-    .sort((a,b)=>a.name.localeCompare(b.name,'pt-BR'))
+    .filter(u => u.isAdmin === true || u.isDeveloper === true)
+    .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
     .map(u => `<option value="${u.id}">${u.name}</option>`)
     .join("")}
 `;
+if (select.options.length === 1) {
+  select.innerHTML = `<option value="">Nenhum líder disponível</option>`;
+}
+
 
     }
 
