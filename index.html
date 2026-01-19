@@ -2060,6 +2060,12 @@ if (isAdmin() || isDeveloper()) {
 select.innerHTML = `
   <option value="">Designar depois</option>
   ${leaders
+    .filter(l =>
+      l.isAdmin === true &&                    // ✅ só admins
+      l.isDeveloper !== true &&                // ❌ exclui devs
+      !['Cesar Costa', 'Juan Francisco']       // ❌ exclui nomes
+        .includes(l.name?.trim())
+    )
     .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
     .map(l => `<option value="${l.id}">${l.name}</option>`)
     .join("")}
