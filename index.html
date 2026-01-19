@@ -442,7 +442,22 @@ async function handleLogout() {
       try {
         const ridNumber = await getNextRidNumberSafe();
         const leaderId = form.responsibleLeader.value;
-        const leaderName = leaderId ? allUsers.find(u => u.id === leaderId)?.name : null;
+
+let leaderName = null;
+
+if (leaderId) {
+  // tenta buscar em allUsers (admin/dev)
+  const found = allUsers.find(u => u.id === leaderId);
+
+  if (found && found.name) {
+    leaderName = found.name;
+  } else {
+    // fallback seguro para funcionário / celular
+    const leaderDoc = await db.collection('leaders_public').doc(leaderId).get();
+    leaderName = leaderDoc.exists ? leaderDoc.data().name : null;
+  }
+}
+
         
         const ridData = {
           ridNumber: ridNumber,
