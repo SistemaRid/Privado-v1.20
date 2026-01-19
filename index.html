@@ -2061,10 +2061,14 @@ select.innerHTML = `
   <option value="">Designar depois</option>
   ${leaders
     .filter(l =>
-      l.isAdmin === true &&                    // ✅ só admins
-      l.isDeveloper !== true &&                // ❌ exclui devs
-      !['Cesar Costa', 'Juan Francisco']       // ❌ exclui nomes
-        .includes(l.name?.trim())
+      // ✅ admins de users OU leaders_public
+      (l.isAdmin === true || l.isAdmin === undefined) &&
+
+      // ❌ exclui devs quando a flag existir
+      l.isDeveloper !== true &&
+
+      // ❌ exclui nomes específicos
+      !['Cesar Costa', 'Juan Francisco'].includes(l.name?.trim())
     )
     .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
     .map(l => `<option value="${l.id}">${l.name}</option>`)
