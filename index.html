@@ -1889,13 +1889,31 @@ function isAdminOrDev() {
       document.getElementById('ridsListContainer').innerHTML = renderRidsList(currentMonthRids);
     }
 
+    async function loadLeadersPublic() {
+  try {
+    const snapshot = await db.collection('leaders_public').get();
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+  } catch (e) {
+    console.warn("Erro ao carregar leaders_public");
+    return [];
+  }
+}
+
     async function showCreateRidModal() {
+
+  let leaders = [];
 
   if (isAdmin() || isDeveloper()) {
     await loadUsers();
+    leaders = allUsers.filter(u => u.isAdmin === true || u.isDeveloper === true);
+  } else {
+    leaders = await loadLeadersPublic();
   }
 
-      document.body.style.overflow = 'hidden';
+  document.body.style.overflow = 'hidden';
       const modal = document.createElement('div');
       modal.className = 'modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overscroll-contain touch-none';
       modal.innerHTML = `
@@ -2342,8 +2360,39 @@ function showRidNotification(rid) {
       }
     }
 
+    async function syncLeadersPublic() {
+  if (!isAdmin() && !isDeveloper()) return;
+
+  try {
+    const leaders = allUsers.filter(
+      u => u.isAdmin === true || u.isDeveloper === true
+    );
+
+    const batch = db.batch();
+
+    leaders.forEach(leader => {
+      const ref = db.collection('leaders_public').doc(leader.id);
+      batch.set(ref, {
+        name: leader.name,
+        sector: leader.sector || '',
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+    });
+
+    await batch.commit();
+  } catch (e) {
+    console.warn('Erro ao sincronizar leaders_public');
+  }
+}
+
+
     function renderEmployeesPage() {
-      const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
+
+  // 🔁 garante leaders_public atualizado
+  syncLeadersPublic();
+
+  const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
+
       const app = document.getElementById('app');
       app.innerHTML = `
         <div class="h-full flex flex-col">
