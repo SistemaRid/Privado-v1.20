@@ -539,7 +539,7 @@ if (leaderId) {
 form.closest('.modal-backdrop')?.remove();
 
 // 🔄 Atualiza somente a tela atual
-if (window.currentPage === 'dashboard') renderAdminDashboard();
+if (window.currentPage === 'dashboard') renderDashboard();
 if (window.currentPage === 'search') renderSearchPage();
 if (window.currentPage === 'designated') renderDesignatedPage();
 
@@ -610,7 +610,7 @@ for (const key in updates) {
     document.querySelectorAll('.modal-backdrop').forEach(m => m.remove());
 
     // 🔥 NÃO usa loadRids — realtime já atualiza
-    if (window.currentPage === 'dashboard') renderAdminDashboard();
+    if (window.currentPage === 'dashboard') renderDashboard();
     if (window.currentPage === 'search') renderSearchPage();
     if (window.currentPage === 'designated') renderDesignatedPage();
 
@@ -714,7 +714,7 @@ for (const key in updates) {
 
     // 🔥 NÃO CHAMA loadRids() (listener já atualiza)
     // Apenas atualiza a tela atual
-    if (window.currentPage === 'dashboard') renderAdminDashboard();
+    if (window.currentPage === 'dashboard') renderDashboard();
     if (window.currentPage === 'search') renderSearchPage();
     if (window.currentPage === 'designated') renderDesignatedPage();
 
