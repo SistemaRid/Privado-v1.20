@@ -302,6 +302,25 @@ async function getNextRidNumberSafe() {
       renderAdminDashboard();
     }
 
+    function clearSearchFilters() {
+  // limpa os campos do filtro da tela de RIDs
+  const searchText = document.getElementById('searchText');
+  const searchMonth = document.getElementById('searchMonth');
+  const searchYear = document.getElementById('searchYear');
+  const searchSector = document.getElementById('searchSector');
+  const searchStatus = document.getElementById('searchStatus');
+
+  if (searchText) searchText.value = '';
+  if (searchMonth) searchMonth.value = '';
+  if (searchYear) searchYear.value = '';
+  if (searchSector) searchSector.value = '';
+  if (searchStatus) searchStatus.value = '';
+
+  // volta a lista para o padrão (mês atual)
+  renderSearchPage();
+}
+
+
     async function garantirNumeracaoRids() {
   const snapshot = await db.collection("rids").get();
 
@@ -494,8 +513,8 @@ if (leaderId) {
             type: 'rid_created',
             ridId: docRef.id,
             ridNumber: ridNumber,
-            title: 'Nova RID Criada',
-            message: `${form.emitterName.value} criou uma nova RID #${ridNumber}`,
+            title: 'Novo RID Criada',
+            message: `${form.emitterName.value} criou um novo RID #${ridNumber}`,
             ridLocation: form.location.value,
             deadline: null
           });
@@ -507,8 +526,8 @@ if (leaderId) {
             type: 'rid_designated',
             ridId: docRef.id,
             ridNumber: ridNumber,
-            title: 'Nova RID Designada',
-            message: `Você foi designado como responsável pela RID #${ridNumber}`,
+            title: 'Novo RID Designada',
+            message: `Você foi designado como responsável pelo RID #${ridNumber}`,
             ridLocation: form.location.value,
             deadline: null
           });
@@ -624,7 +643,7 @@ for (const key in updates) {
       ? firebase.firestore.Timestamp.fromDate(new Date(deadline))
       : null,
     observations: observations,
-    status: 'EM ABERTO'
+    status: 'EM ANDAMENTO'
   };
 
   // ✅ usa a função updateRid GLOBAL (a correta)
@@ -1210,19 +1229,74 @@ await db.collection('goals').doc(monthYear).set({
 
     function canOpenRid(rid) {
   return isAdmin() || rid.responsibleLeader === currentUser.uid;
+}  
+    
+    function getEmployeesWithoutRidsThisMonth(allUsers, filteredRids) {
+  const now = new Date();
+
+  // setor selecionado no filtro da dashboard
+  const sectorSelect = document.getElementById('dashboardSector');
+  const selectedSector = sectorSelect?.value || '';
+
+  // quem emitiu RID no mês (já respeita mês + setor)
+  const emittersThisMonth = new Set(
+    filteredRids
+      .map(r => r.emitterId)
+      .filter(Boolean)
+  );
+
+  return allUsers
+    // somente funcionários
+    .filter(u => !u.isAdmin && !u.isDeveloper)
+
+    // 🔥 FILTRO POR SETOR (AQUI ESTAVA FALTANDO)
+    .filter(u => !selectedSector || u.sector === selectedSector)
+
+    // 🔥 remove quem emitiu RID no mês
+    .filter(u => !emittersThisMonth.has(u.id))
+
+    .map(u => {
+      // última RID do funcionário (se existir)
+      const lastRid = allRids
+        .filter(r => r.emitterId === u.id && r.emissionDate)
+        .sort(
+          (a, b) =>
+            b.emissionDate.toDate() - a.emissionDate.toDate()
+        )[0];
+
+      let lastDate = null;
+      let daysWithout = null;
+
+      if (lastRid) {
+        lastDate = lastRid.emissionDate.toDate();
+        daysWithout = Math.floor(
+          (now - lastDate) / (1000 * 60 * 60 * 24)
+        );
+      }
+
+      return {
+        id: u.id,
+        name: u.name,
+        lastDate,      // null → nunca emitiu
+        daysWithout    // null → nunca emitiu
+      };
+    });
 }
 
     function renderAdminDashboard() {
       window.currentPage = 'dashboard';
 
       const filteredRids = getFilteredRids();
- 
-    
+
+      const employeesWithoutRids =
+      getEmployeesWithoutRidsThisMonth(allUsers, filteredRids);
+
+
       const totalRids = filteredRids.length;
       if (currentUserData?.isAdmin || currentUserData?.isDeveloper) {
     updateGoalDisplay();
   }
-      const openRids = filteredRids.filter(r => r.status === 'EM ABERTO').length;
+      const openRids = filteredRids.filter(r => r.status === 'EM ANDAMENTO').length;
       const overdueRids = filteredRids.filter(r => r.status === 'VENCIDO').length;
       const correctedRids = filteredRids.filter(r => r.status === 'CORRIGIDO').length;
 
@@ -1479,7 +1553,7 @@ const monthlyUserStats = Object.values(ridsByUser)
                   <div class="space-y-6">
                     <div class="flex items-center space-x-4">
                       <div class="w-32 flex-shrink-0">
-                        <p class="text-sm font-bold text-gray-700">Em Aberto</p>
+                        <p class="text-sm font-bold text-gray-700">Em Andamento</p>
                       </div>
                       <div class="flex-1 flex items-center space-x-3">
                         <div class="flex-1 bg-gray-200 rounded-lg h-12 relative overflow-hidden">
@@ -1643,6 +1717,49 @@ const monthlyUserStats = Object.values(ridsByUser)
   </div>
 </div>
 
+<!-- 🚫 Funcionários sem RID no mês -->
+<div class="bg-white rounded-xl shadow-lg p-6 mt-6">
+  <h3 class="text-xl font-bold text-gray-800 mb-6">
+    Funcionários sem RID no mês
+  </h3>
+
+  ${
+    employeesWithoutRids.length === 0
+      ? `
+        <p class="text-sm font-semibold text-green-600 text-center py-6">
+          🎉 Todos os funcionários emitiram RID este mês!
+        </p>
+      `
+      : `
+        <div class="space-y-3 max-h-[360px] overflow-y-auto pr-2">
+          ${employeesWithoutRids.map(u => `
+            <div class="flex items-center justify-between p-4 rounded-lg bg-red-50">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-full bg-red-500 text-white font-bold flex items-center justify-center">
+                  ${u.name?.charAt(0) || '?'}
+                </div>
+                <div>
+                  <p class="font-semibold text-gray-800">${u.name}</p>
+                  <p class="text-xs text-gray-500">
+                    ${
+                      u.lastDate
+                        ? `Última RID em ${u.lastDate.toLocaleDateString('pt-BR')}`
+                        : 'Nunca emitiu RID'
+                    }
+                  </p>
+                </div>
+              </div>
+
+              <span class="text-sm font-bold text-red-600">
+                ${u.daysWithout !== null ? `${u.daysWithout} dias` : '—'}
+              </span>
+            </div>
+          `).join('')}
+        </div>
+      `
+  }
+</div>
+
 
             </div>
           </div>
@@ -1681,63 +1798,119 @@ const monthlyUserStats = Object.values(ridsByUser)
                   <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                     <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/>
                   </svg>
-                  <span>Nova RID</span>
+                  <span>Novo RID</span>
                 </button>
               </div>
 
               <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
-                <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
-                  <div>
-                    <label class="block text-sm font-bold mb-2 text-gray-700">Buscar</label>
-                    <input type="text" id="searchText" placeholder="RID ou Emissor" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
-                  </div>
-                  <div>
-                    <label class="block text-sm font-bold mb-2 text-gray-700">Mês</label>
-                    <select id="searchMonth" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
-                      <option value="">Todos</option>
-                      <option value="1" ${currentMonth === 1 ? 'selected' : ''}>Janeiro</option>
-                      <option value="2" ${currentMonth === 2 ? 'selected' : ''}>Fevereiro</option>
-                      <option value="3" ${currentMonth === 3 ? 'selected' : ''}>Março</option>
-                      <option value="4" ${currentMonth === 4 ? 'selected' : ''}>Abril</option>
-                      <option value="5" ${currentMonth === 5 ? 'selected' : ''}>Maio</option>
-                      <option value="6" ${currentMonth === 6 ? 'selected' : ''}>Junho</option>
-                      <option value="7" ${currentMonth === 7 ? 'selected' : ''}>Julho</option>
-                      <option value="8" ${currentMonth === 8 ? 'selected' : ''}>Agosto</option>
-                      <option value="9" ${currentMonth === 9 ? 'selected' : ''}>Setembro</option>
-                      <option value="10" ${currentMonth === 10 ? 'selected' : ''}>Outubro</option>
-                      <option value="11" ${currentMonth === 11 ? 'selected' : ''}>Novembro</option>
-                      <option value="12" ${currentMonth === 12 ? 'selected' : ''}>Dezembro</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label class="block text-sm font-bold mb-2 text-gray-700">Ano</label>
-                    <input type="number" id="searchYear" placeholder="Ex: 2024" min="2000" max="2100" value="${currentYear}" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
-                  </div>
-                  <div>
-                    <label class="block text-sm font-bold mb-2 text-gray-700">Status</label>
-                    <select id="searchStatus" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
-                      <option value="">Todos</option>
-                      <option value="PENDENTE">PENDENTE</option>
-                      <option value="EM ABERTO">EM ABERTO</option>
-                      <option value="VENCIDO">VENCIDO</option>
-                      <option value="CORRIGIDO">CORRIGIDO</option>
-                    </select>
-                  </div>
-                  <div class="flex items-end space-x-2">
-                    <button onclick="searchRids()" class="flex-1 px-6 py-2 text-white rounded-lg font-bold hover:opacity-90 transition-opacity" style="background-color: #a8d5e2;">
-                      Buscar
-                    </button>
-                    <button onclick="clearSearchFilters()" class="px-4 py-2 border rounded-lg font-semibold hover:bg-gray-50 transition-colors" style="border-color: #9c9494; color: #808080;" title="Limpar Filtros">
-                      <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                        <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              </div>
+  <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
 
-              <div id="ridsListContainer" class="space-y-4">
-                ${renderRidsList(currentMonthRids)}
+    <!-- 🔎 BUSCAR -->
+    <div>
+      <label class="block text-sm font-bold mb-2 text-gray-700">Buscar</label>
+      <input
+        type="text"
+        id="searchText"
+        placeholder="RID, emissor ou local"
+        class="w-full px-4 py-2 border border-gray-300 rounded-lg"
+      >
+    </div>
+
+    <!-- 📅 MÊS / ANO -->
+    <div>
+      <label class="block text-sm font-bold mb-2 text-gray-700">Mês / Ano</label>
+
+<div class="flex space-x-2">
+  <select
+    id="searchMonth"
+    class="w-1/2 px-4 py-2 border border-gray-300 rounded-lg"
+  >
+    <option value="">Mês</option>
+    <option value="1">Janeiro</option>
+    <option value="2">Fevereiro</option>
+    <option value="3">Março</option>
+    <option value="4">Abril</option>
+    <option value="5">Maio</option>
+    <option value="6">Junho</option>
+    <option value="7">Julho</option>
+    <option value="8">Agosto</option>
+    <option value="9">Setembro</option>
+    <option value="10">Outubro</option>
+    <option value="11">Novembro</option>
+    <option value="12">Dezembro</option>
+  </select>
+
+  <input
+  type="number"
+  id="searchYear"
+  placeholder="Ano"
+  min="2000"
+  max="2100"
+  class="w-1/2 px-4 py-2 border border-gray-300 rounded-lg"
+>
+
+</div>
+
+    </div>
+
+    <!-- 🏭 SETOR -->
+    <div>
+      <label class="block text-sm font-bold mb-2 text-gray-700">Setor</label>
+      <select
+        id="searchSector"
+        class="w-full px-4 py-2 border border-gray-300 rounded-lg"
+      >
+        <option value="">Todos</option>
+        <option value="ADM">ADM</option>
+        <option value="M. MOVEL">M. MOVEL</option>
+        <option value="M. FIXA">M. FIXA</option>
+        <option value="M. ELÉTRICA">M. ELÉTRICA</option>
+        <option value="PRODUÇÃO">PRODUÇÃO</option>
+        <option value="MINA">MINA</option>
+      </select>
+    </div>
+
+    <!-- 📌 STATUS -->
+    <div>
+      <label class="block text-sm font-bold mb-2 text-gray-700">Status</label>
+      <select
+        id="searchStatus"
+        class="w-full px-4 py-2 border border-gray-300 rounded-lg"
+      >
+        <option value="">Todos</option>
+        <option value="SEM_LIDER">SEM LIDER DESIGNADO</option>
+        <option value="EM ANDAMENTO">EM ANDAMENTO</option>
+        <option value="VENCIDO">VENCIDO</option>
+        <option value="CORRIGIDO">CORRIGIDO</option>
+      </select>
+    </div>
+
+    <!-- 🎯 BOTÕES -->
+    <div class="flex items-end space-x-2">
+      <button
+        onclick="searchRids()"
+        class="flex-1 px-6 py-2 text-white rounded-lg font-bold hover:opacity-90 transition-opacity"
+        style="background-color: #a8d5e2;"
+      >
+        Aplicar
+      </button>
+
+      <button
+        onclick="clearSearchFilters()"
+        class="px-4 py-2 border rounded-lg font-semibold hover:bg-gray-50 transition-colors"
+        style="border-color: #9c9494; color: #808080;"
+        title="Limpar Filtros"
+      >
+        ✕
+      </button>
+    </div>
+
+  </div>
+</div>
+
+                <div id="ridsListContainer" class="space-y-4">
+  ${renderRidsList(currentMonthRids)}
+</div>
               </div>
             </div>
             
@@ -1835,7 +2008,7 @@ function isAdminOrDev() {
     function getStatusColor(status) {
       switch(status) {
         case 'PENDENTE': return 'bg-gray-200 text-gray-800';
-        case 'EM ABERTO': return 'bg-orange-200 text-orange-800';
+        case 'EM ANDAMENTO': return 'bg-orange-200 text-orange-800';
         case 'VENCIDO': return 'bg-red-200 text-red-800';
         case 'CORRIGIDO': return 'bg-green-200 text-green-800';
         default: return 'bg-gray-200 text-gray-800';
@@ -1853,56 +2026,59 @@ function isAdminOrDev() {
     }
 
     function searchRids() {
-      const searchText = document.getElementById('searchText').value.toLowerCase();
-      const month = document.getElementById('searchMonth').value;
-      const year = document.getElementById('searchYear').value;
-      const status = document.getElementById('searchStatus').value;
+      const text = document.getElementById('searchText')?.value.toLowerCase() || '';
+const month = document.getElementById('searchMonth')?.value;
+const year = document.getElementById('searchYear')?.value;
+const sector = document.getElementById('searchSector')?.value;
+const status = document.getElementById('searchStatus')?.value;
 
-      let filtered = allRids;
+let filtered = allRids;
 
-      if (searchText) {
-        filtered = filtered.filter(r => 
-          r.ridNumber.toLowerCase().includes(searchText) || 
-          r.emitterName.toLowerCase().includes(searchText)
-        );
-      }
-      if (month) {
-        filtered = filtered.filter(r => {
-          const ridMonth = r.emissionDate.toDate().getMonth() + 1;
-          return ridMonth === parseInt(month);
-        });
-      }
-      if (year) {
-        filtered = filtered.filter(r => {
-          const ridYear = r.emissionDate.toDate().getFullYear();
-          return ridYear === parseInt(year);
-        });
-      }
-      if (status) {
-        filtered = filtered.filter(r => r.status === status);
-      }
+// 🔎 BUSCA POR TEXTO
+if (text) {
+  filtered = filtered.filter(r =>
+    r.ridNumber?.toLowerCase().includes(text) ||
+    r.emitterName?.toLowerCase().includes(text) ||
+    r.location?.toLowerCase().includes(text) ||
+    r.description?.toLowerCase().includes(text)
+  );
+}
 
-      document.getElementById('ridsListContainer').innerHTML = renderRidsList(filtered);
-    }
+// 📅 FILTRO MÊS + ANO
+if (month || year) {
+  filtered = filtered.filter(r => {
+    if (!r.emissionDate) return false;
+    const d = r.emissionDate.toDate();
 
-    function clearSearchFilters() {
-      document.getElementById('searchText').value = '';
-      document.getElementById('searchMonth').value = '';
-      document.getElementById('searchYear').value = '';
-      document.getElementById('searchStatus').value = '';
-      
-      // Show current month RIDs by default
-      const now = new Date();
-      const currentMonth = now.getMonth() + 1;
-      const currentYear = now.getFullYear();
-      
-      const currentMonthRids = allRids.filter(r => {
-        const ridDate = r.emissionDate.toDate();
-        return ridDate.getMonth() + 1 === currentMonth && ridDate.getFullYear() === currentYear;
-      });
-      
-      document.getElementById('ridsListContainer').innerHTML = renderRidsList(currentMonthRids);
-    }
+    if (month && d.getMonth() + 1 !== Number(month)) return false;
+    if (year && d.getFullYear() !== Number(year)) return false;
+
+    return true;
+  });
+}
+
+// 🏭 SETOR
+if (sector) {
+  filtered = filtered.filter(r => r.sector === sector);
+}
+
+// 📌 STATUS
+if (status === 'SEM_LIDER') {
+  // 🔥 ignora status real, mostra TODOS sem líder
+  filtered = filtered.filter(r =>
+    !r.responsibleLeader || r.responsibleLeader === ''
+  );
+} else if (status) {
+  // status normal (EM ANDAMENTO, VENCIDO, CORRIGIDO)
+  filtered = filtered.filter(r => r.status === status);
+}
+
+
+// 🔄 ATUALIZA A LISTA
+document.getElementById('ridsListContainer').innerHTML =
+  renderRidsList(filtered);
+
+ }
 
     async function loadLeadersPublic() {
   try {
@@ -1936,7 +2112,7 @@ if (isAdmin() || isDeveloper()) {
       modal.innerHTML = `
         <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto overscroll-contain touch-pan-y">
           <div class="sticky top-0 bg-white border-b-2 px-8 py-6 flex items-center justify-between" style="border-color: #a8d5e2;">
-            <h2 class="text-2xl font-bold text-gray-800">Criar Nova RID</h2>
+            <h2 class="text-2xl font-bold text-gray-800">Criar Novo RID</h2>
             <button onclick="closeRidModal(this)" class="text-gray-400 hover:text-gray-600">
               <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
                 <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
@@ -2215,7 +2391,7 @@ function showRidNotification(rid) {
                 <label class="block text-sm font-bold text-gray-500 mb-2">Status</label>
                 <select name="status" class="w-full px-4 py-2 border border-gray-300 rounded-lg" required>
                   <option value="PENDENTE" ${rid.status === 'PENDENTE' ? 'selected' : ''}>PENDENTE</option>
-                  <option value="EM ABERTO" ${rid.status === 'EM ABERTO' ? 'selected' : ''}>EM ABERTO</option>
+                  <option value="EM ANDAMENTO" ${rid.status === 'EM ANDAMENTO' ? 'selected' : ''}>EM ANDAMENTO</option>
                   <option value="VENCIDO" ${rid.status === 'VENCIDO' ? 'selected' : ''}>VENCIDO</option>
                   <option value="CORRIGIDO" ${rid.status === 'CORRIGIDO' ? 'selected' : ''}>CORRIGIDO</option>
                 </select>
@@ -3770,7 +3946,7 @@ async function loadImageAsBase64(url) {
                   <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                     <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/>
                   </svg>
-                  <span>Nova RID</span>
+                  <span>Novo RID</span>
                 </button>
               </div>
 
@@ -3994,6 +4170,11 @@ renderDashboard();
     document.getElementById('app').innerHTML = renderLoginPage();
   }
 });
+
+    // 🔗 expõe funções para o HTML (onclick)
+window.searchRids = searchRids;
+window.clearSearchFilters = clearSearchFilters;
+
   </script>
  <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9b7b0bbed6eaf200',t:'MTc2NzM2NTE4Ni4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script>
   <!-- FOOTER GLOBAL -->
