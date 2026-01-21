@@ -487,10 +487,17 @@ function spawnConfetti(card) {
 }
 
     function clearDashboardFilters() {
-  document.getElementById('dashboardPeriod').value = '';
-  document.getElementById('dashboardSector').value = '';
+  const month = document.getElementById('dashboardMonth');
+  const year = document.getElementById('dashboardYear');
+  const sector = document.getElementById('dashboardSector');
+
+  if (month) month.value = '';
+  if (year) year.value = '';
+  if (sector) sector.value = '';
+
   renderAdminDashboard();
 }
+
 
     function toggleFilters() {
       const filterPanel = document.getElementById('filterPanel');
@@ -1546,7 +1553,7 @@ const monthlyUserStats = Object.values(ridsByUser)
       app.innerHTML = `
         <div class="h-full flex flex-col">
           <!-- Header -->
-          <div class="px-4 md:px-8 py-4 shadow-lg" style="background-color: #808080;">
+          <div class="px-4 md:px-8 py-3 shadow-md" style="background-color: #808080;">
            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                 <div>
                 <h1 class="system-title text-lg md:text-2xl font-bold text-white">${config.system_title || defaultConfig.system_title}</h1>
@@ -1616,7 +1623,7 @@ const monthlyUserStats = Object.values(ridsByUser)
                 <h1 class="text-3xl font-bold text-gray-800">Dashboard</h1>
                 
                 <!-- Botão de Filtros -->
-                <button onclick="toggleFilters()" class="flex items-center space-x-2 px-6 py-3 rounded-lg font-semibold text-white hover:opacity-90 transition-opacity" style="background-color: #c4a8e0;">
+                <button onclick="toggleFilters()" class="flex items-center space-x-2 px-4 py-2 rounded-lg font-semibold text-white hover:opacity-90 transition-opacity text-sm" style="background-color: #b9a2d8;">
                   <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                     <path fill-rule="evenodd" d="M3 3a1 1 0 011-1h12a1 1 0 011 1v3a1 1 0 01-.293.707L12 11.414V15a1 1 0 01-.293.707l-2 2A1 1 0 018 17v-5.586L3.293 6.707A1 1 0 013 6V3z" clip-rule="evenodd"/>
                   </svg>
@@ -1625,7 +1632,7 @@ const monthlyUserStats = Object.values(ridsByUser)
               </div>
 
               <!-- Painel de Filtros (Oculto por padrão) -->
-              <div id="filterPanel" class="hidden mb-8 bg-white rounded-xl shadow-lg p-6 border-2" style="border-color: #c4a8e0;">
+              <div id="filterPanel" class="hidden mb-6 bg-white rounded-lg shadow-md p-5 border" style="border-color: #e5e7eb;">
                 <div class="flex items-center justify-between mb-4">
                   <h3 class="text-lg font-bold" style="color: #808080;">Filtrar RIDs por Período</h3>
                   <button onclick="toggleFilters()" class="text-gray-400 hover:text-gray-600">
@@ -1634,56 +1641,92 @@ const monthlyUserStats = Object.values(ridsByUser)
                     </svg>
                   </button>
                 </div>
-                <div class="flex items-end space-x-4">
-                  <div class="flex-1">
-  <label class="block text-sm font-semibold mb-2" style="color:#808080;">
-    Período (Mês/Ano)
-  </label>
-  <input
-    type="month"
-    id="dashboardPeriod"
-    class="w-full px-4 py-2 border rounded-lg"
-    style="border-color:#9c9494;"
-  >
-</div>
+                <div class="flex flex-col md:flex-row md:items-end gap-4">
+                  <div class="flex flex-col md:flex-row md:items-end gap-4">
 
-<div class="flex-1">
-  <label class="block text-sm font-semibold mb-2" style="color:#808080;">
-    Setor
-  </label>
-  <select
-    id="dashboardSector"
-    class="w-full px-4 py-2 border rounded-lg"
-    style="border-color:#9c9494;"
-  >
-    <option value="">Todos os setores</option>
-    <option value="ADM">ADM</option>
-    <option value="M. MOVEL">M. MOVEL</option>
-    <option value="M. FIXA">M. FIXA</option>
-    <option value="M. ELÉTRICA">M. ELÉTRICA</option>
-    <option value="PRODUÇÃO">PRODUÇÃO</option>
-    <option value="MINA">MINA</option>
-  </select>
-</div>
+  <!-- MÊS -->
+  <div class="flex-1">
+    <label class="block text-sm font-semibold mb-2" style="color:#808080;">
+      Mês
+    </label>
+    <select
+      id="dashboardMonth"
+      class="w-full px-4 py-2 border rounded-lg bg-white"
+      style="border-color:#9c9494;"
+    >
+      <option value="">Mês atual</option>
+      <option value="1">Janeiro</option>
+      <option value="2">Fevereiro</option>
+      <option value="3">Março</option>
+      <option value="4">Abril</option>
+      <option value="5">Maio</option>
+      <option value="6">Junho</option>
+      <option value="7">Julho</option>
+      <option value="8">Agosto</option>
+      <option value="9">Setembro</option>
+      <option value="10">Outubro</option>
+      <option value="11">Novembro</option>
+      <option value="12">Dezembro</option>
+    </select>
+  </div>
 
+  <!-- ANO -->
+  <div class="flex-1">
+    <label class="block text-sm font-semibold mb-2" style="color:#808080;">
+      Ano
+    </label>
+    <input
+      type="number"
+      id="dashboardYear"
+      placeholder="Ex: 2026"
+      min="2020"
+      max="2100"
+      class="w-full px-4 py-2 border rounded-lg"
+      style="border-color:#9c9494;"
+    >
+  </div>
+
+  <!-- SETOR -->
+  <div class="flex-1">
+    <label class="block text-sm font-semibold mb-2" style="color:#808080;">
+      Setor
+    </label>
+    <select
+      id="dashboardSector"
+      class="w-full px-4 py-2 border rounded-lg bg-white"
+      style="border-color:#9c9494;"
+    >
+      <option value="">Todos os setores</option>
+      <option value="ADM">ADM</option>
+      <option value="M. MOVEL">M. MOVEL</option>
+      <option value="M. FIXA">M. FIXA</option>
+      <option value="M. ELÉTRICA">M. ELÉTRICA</option>
+      <option value="PRODUÇÃO">PRODUÇÃO</option>
+      <option value="MINA">MINA</option>
+    </select>
+  </div>
+  </div>
                   <button onclick="filterDashboard()" class="px-6 py-3 text-white rounded-lg font-bold hover:opacity-90 transition-opacity" style="background-color: #a8d5e2;">
                     Aplicar
                   </button>
-                  <button onclick="clearDashboardFilters()" class="px-6 py-3 border rounded-lg font-semibold hover:bg-gray-50 transition-colors" style="border-color: #9c9494; color: #808080;">
-                    Limpar
-                  </button>
+                  <button
+        onclick="clearDashboardFilters()"
+        class="px-6 py-2 border rounded-lg font-semibold text-gray-600"
+      >
+        Limpar
+      </button>
                 </div>
               </div>
 
               <!-- Stats Cards -->
-              <div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-6 mb-8">
+              <div class="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-5 mb-6">
                 <div class="rounded-xl shadow-lg p-3 md:p-6 card-hover bg-white">
                   <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                     <div>
                       <p class="text-xs md:text-sm font-bold mb-1 text-gray-600">Total de RIDs</p>
                       <p class="text-xl md:text-3xl font-bold text-gray-800">${totalRids}</p>
                     </div>
-                    <div class="w-8 h-8 md:w-12 md:h-12 rounded-lg flex items-center justify-center" style="background-color: #a8d5e2;">
+                    <div class="w-8 h-8 md:w-10 md:h-10 rounded-lg flex items-center justify-center"style="background-color: #a8d5e2;">
                       <svg class="w-4 h-4 md:w-6 md:h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
                         <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z"/>
                         <path fill-rule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clip-rule="evenodd"/>
