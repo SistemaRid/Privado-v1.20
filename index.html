@@ -1124,7 +1124,7 @@ if (!currentUserData?.isAdmin && !currentUserData?.isDeveloper) {
 function listenRidsRealtimeAdmin() {
   return db.collection('rids')
     .orderBy('createdAt', 'desc')
-    .limit(200)
+    .limit(1000)
     .onSnapshot(
       snapshot => {
         allRids = snapshot.docs.map(doc => ({
