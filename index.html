@@ -477,32 +477,51 @@ if (leaderId) {
   }
 }
 
+const initialStatus =
+  form.status?.value === "CORRIGIDO"
+    ? "CORRIGIDO"
+    : "VENCIDO";
+
+
         
         const ridData = {
-          ridNumber: ridNumber,
-          emitterId: currentUser.uid,
-          emitterName: form.emitterName.value,
-          emitterCpf: currentUserData.cpf,
-          contractType: form.contractType.value,
-          unit: form.unit.value,
-          sector: form.ridSector.value,
-          emissionDate: firebase.firestore.Timestamp.fromDate(new Date(form.emissionDate.value)),
-          incidentType: form.incidentType.value,
-          detectionOrigin: form.detectionOrigin.value,
-          location: form.location.value,
-          description: form.description.value,
-          riskClassification: form.riskClassification.value,
-          immediateAction: form.immediateAction.value,
-          status: form.status.value,
-          responsibleLeader: leaderId,
-          responsibleLeaderName: leaderName,
-          deadline: null,
-          conclusion: null,
-          correctiveActions: null,
-          observations: null,
-          conclusionDate: form.status.value === 'CORRIGIDO' ? firebase.firestore.FieldValue.serverTimestamp() : null,
-          createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        };
+  ridNumber: ridNumber,
+  emitterId: currentUser.uid,
+  emitterName: form.emitterName.value,
+  emitterCpf: currentUserData.cpf,
+  contractType: form.contractType.value,
+  unit: form.unit.value,
+  sector: form.ridSector.value,
+  emissionDate: firebase.firestore.Timestamp.fromDate(new Date(form.emissionDate.value)),
+  incidentType: form.incidentType.value,
+  detectionOrigin: form.detectionOrigin.value,
+  location: form.location.value,
+  description: form.description.value,
+  riskClassification: form.riskClassification.value,
+  immediateAction: form.immediateAction.value,
+
+  status: initialStatus,
+
+
+  responsibleLeader: leaderId,
+  responsibleLeaderName: leaderName,
+
+  // 🔥 ESSENCIAL PARA O WORKER
+  emailSent: false,
+  emailSentAt: null,
+  lastNotifiedLeader: null,
+
+  deadline: null,
+  conclusion: null,
+  correctiveActions: null,
+  observations: null,
+  conclusionDate: form.status.value === 'CORRIGIDO'
+    ? firebase.firestore.FieldValue.serverTimestamp()
+    : null,
+
+  createdAt: firebase.firestore.FieldValue.serverTimestamp()
+};
+
 
         const docRef = await db.collection('rids').add(ridData);
         
@@ -538,10 +557,17 @@ if (leaderId) {
 // 🔥 Fecha o modal
 form.closest('.modal-backdrop')?.remove();
 
-// 🔄 Atualiza somente a tela atual
-if (window.currentPage === 'dashboard') renderDashboard();
+// 🔒 FUNCIONÁRIO nunca pode cair em dashboard admin
+if (!currentUserData?.isAdmin && !currentUserData?.isDeveloper) {
+  renderEmployeeDashboard();
+  return;
+}
+
+// 🔓 Admin / Dev
+if (window.currentPage === 'dashboard') renderAdminDashboard();
 if (window.currentPage === 'search') renderSearchPage();
 if (window.currentPage === 'designated') renderDesignatedPage();
+
 
       } catch (error) {
         showToast('Erro ao criar RID: ' + error.message, 'error');
@@ -610,7 +636,12 @@ for (const key in updates) {
     document.querySelectorAll('.modal-backdrop').forEach(m => m.remove());
 
     // 🔥 NÃO usa loadRids — realtime já atualiza
-    if (window.currentPage === 'dashboard') renderDashboard();
+    // 🔒 Proteção de role
+if (!currentUserData?.isAdmin && !currentUserData?.isDeveloper) {
+  renderEmployeeDashboard();
+} else {
+  renderAdminDashboard();
+}
     if (window.currentPage === 'search') renderSearchPage();
     if (window.currentPage === 'designated') renderDesignatedPage();
 
@@ -1220,12 +1251,15 @@ await db.collection('goals').doc(monthYear).set({
     }
 
     function renderDashboard() {
-      if (isAdmin()) {
-        renderAdminDashboard();
-      } else {
-        renderEmployeeDashboard();
-      }
-    }
+  if (!currentUserData) return;
+
+  if (currentUserData.isAdmin || currentUserData.isDeveloper) {
+    renderAdminDashboard();
+  } else {
+    renderEmployeeDashboard();
+  }
+}
+
 
     function canOpenRid(rid) {
   return isAdmin() || rid.responsibleLeader === currentUser.uid;
@@ -1284,28 +1318,36 @@ await db.collection('goals').doc(monthYear).set({
 }
 
     function renderAdminDashboard() {
-      window.currentPage = 'dashboard';
+  // 🔒 TRAVA ABSOLUTA DE ROLE
+  if (!currentUserData?.isAdmin && !currentUserData?.isDeveloper) {
+    console.warn("⛔ Acesso negado à dashboard admin");
+    renderEmployeeDashboard();
+    return;
+  }
 
-      const filteredRids = getFilteredRids();
+  window.currentPage = 'dashboard';
 
-      const employeesWithoutRids =
-      getEmployeesWithoutRidsThisMonth(allUsers, filteredRids);
+  const filteredRids = getFilteredRids();
 
+  const employeesWithoutRids =
+    getEmployeesWithoutRidsThisMonth(allUsers, filteredRids);
 
-      const totalRids = filteredRids.length;
-      if (currentUserData?.isAdmin || currentUserData?.isDeveloper) {
+  const totalRids = filteredRids.length;
+
+  if (currentUserData?.isAdmin || currentUserData?.isDeveloper) {
     updateGoalDisplay();
   }
-      const openRids = filteredRids.filter(r => r.status === 'EM ANDAMENTO').length;
-      const overdueRids = filteredRids.filter(r => r.status === 'VENCIDO').length;
-      const correctedRids = filteredRids.filter(r => r.status === 'CORRIGIDO').length;
 
-      const now = new Date();
-      const weekStart = new Date(now.setDate(now.getDate() - now.getDay()));
-      const weekRids = filteredRids.filter(r => {
-        const ridDate = r.emissionDate.toDate();
-        return ridDate >= weekStart;
-      });
+  const openRids = filteredRids.filter(r => r.status === 'EM ANDAMENTO').length;
+  const overdueRids = filteredRids.filter(r => r.status === 'VENCIDO').length;
+  const correctedRids = filteredRids.filter(r => r.status === 'CORRIGIDO').length;
+
+  const now = new Date();
+  const weekStart = new Date(now.setDate(now.getDate() - now.getDay()));
+  const weekRids = filteredRids.filter(r => {
+    const ridDate = r.emissionDate.toDate();
+    return ridDate >= weekStart;
+  });
 
       // 📊 RIDs do MÊS por usuário
 const ridsByUser = {};
@@ -1568,7 +1610,7 @@ const monthlyUserStats = Object.values(ridsByUser)
 
                     <div class="flex items-center space-x-4">
                       <div class="w-32 flex-shrink-0">
-                        <p class="text-sm font-bold text-gray-700">Vencido</p>
+                        <p class="text-sm font-bold text-gray-700">VENCIDO</p>
                       </div>
                       <div class="flex-1 flex items-center space-x-3">
                         <div class="flex-1 bg-gray-200 rounded-lg h-12 relative overflow-hidden">
@@ -1583,7 +1625,7 @@ const monthlyUserStats = Object.values(ridsByUser)
 
                     <div class="flex items-center space-x-4">
                       <div class="w-32 flex-shrink-0">
-                        <p class="text-sm font-bold text-gray-700">Corrigido</p>
+                        <p class="text-sm font-bold text-gray-700">CORRIGIDO</p>
                       </div>
                       <div class="flex-1 flex items-center space-x-3">
                         <div class="flex-1 bg-gray-200 rounded-lg h-12 relative overflow-hidden">
@@ -2006,14 +2048,17 @@ function isAdminOrDev() {
 
 
     function getStatusColor(status) {
-      switch(status) {
-        case 'PENDENTE': return 'bg-gray-200 text-gray-800';
-        case 'EM ANDAMENTO': return 'bg-orange-200 text-orange-800';
-        case 'VENCIDO': return 'bg-red-200 text-red-800';
-        case 'CORRIGIDO': return 'bg-green-200 text-green-800';
-        default: return 'bg-gray-200 text-gray-800';
-      }
-    }
+  switch (status) {
+    case 'CORRIGIDO':
+      return 'bg-green-100 text-green-700';
+    case 'VENCIDO':
+      return 'bg-red-100 text-red-700';
+    case 'EM ANDAMENTO':
+      return 'bg-yellow-100 text-yellow-700';
+    default:
+      return 'bg-gray-100 text-gray-700';
+  }
+}
 
     function getRiskColor(risk) {
       switch(risk) {
@@ -3964,14 +4009,15 @@ async function loadImageAsBase64(url) {
         <div class="bg-white rounded-xl shadow-md p-4 hover:shadow-lg transition">
 
           <!-- Linha 1 -->
-          <div class="flex justify-between items-center">
-            <span class="text-[#6b9eb0] font-bold text-lg">
-              #${rid.ridNumber}
-            </span>
-            <span class="font-semibold text-gray-800">
-              ${rid.emitterName}
-            </span>
-          </div>
+          <div class="flex items-center gap-2">
+  <span class="text-[#6b9eb0] font-bold text-lg">
+    #${rid.ridNumber}
+  </span>
+  <span class="text-gray-700 font-semibold">
+    · ${rid.emitterName}
+  </span>
+</div>
+
 
           <!-- Linha 2 -->
 <div class="mt-2 text-gray-700 text-sm">
@@ -3980,7 +4026,7 @@ async function loadImageAsBase64(url) {
 
 <!-- 🔧 Ação corretiva -->
 ${
-  rid.correctiveActions
+  rid.status === 'CORRIGIDO' && rid.correctiveActions
     ? `<div class="mt-2 text-sm text-green-700 bg-green-50 p-2 rounded-lg">
          <strong>Ação corretiva:</strong> ${rid.correctiveActions}
        </div>`
@@ -4143,18 +4189,22 @@ ${
     const userDoc = await db.collection('users').doc(user.uid).get();
     currentUserData = userDoc.data();
 
-// 🔥 Ativa o listener correto para cada tipo de usuário
-if (currentUserData.isAdmin || currentUserData.isDeveloper) {
-  await loadUsers();
-  await loadMonthlyGoal();
-  window.unsubscribeRids = listenRidsRealtimeAdmin();
-} else {
-  window.unsubscribeRids = listenRidsRealtimeEmployee();
-}
+    // 🔥 Cancela listener antigo
+    if (window.unsubscribeRids) {
+      window.unsubscribeRids();
+      window.unsubscribeRids = null;
+    }
 
-// 🔥 Renderiza a tela certa
-renderDashboard();
-
+    // 🔥 Ativa o listener correto e renderiza a tela certa
+    if (currentUserData.isAdmin || currentUserData.isDeveloper) {
+      await loadUsers();
+      await loadMonthlyGoal();
+      window.unsubscribeRids = listenRidsRealtimeAdmin();
+      renderAdminDashboard();
+    } else {
+      window.unsubscribeRids = listenRidsRealtimeEmployee();
+      renderEmployeeDashboard();
+    }
 
     startLeaderNotifications();
     await loadNotifications();
@@ -4170,6 +4220,7 @@ renderDashboard();
     document.getElementById('app').innerHTML = renderLoginPage();
   }
 });
+
 
     // 🔗 expõe funções para o HTML (onclick)
 window.searchRids = searchRids;
