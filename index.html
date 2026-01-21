@@ -77,6 +77,79 @@ input[type="date"] {
   line-height: 1.5;
 }
 
+/* 🎉 Animação meta atingida */
+.goal-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  background-color: #10b981;
+  color: white;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  animation: popIn 0.4s ease-out, pulse 1.6s ease-in-out infinite;
+  box-shadow: 0 0 0 rgba(16,185,129,0.6);
+}
+
+@keyframes popIn {
+  from {
+    transform: scale(0);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16,185,129,0.6);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(16,185,129,0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(16,185,129,0);
+  }
+}
+
+/* 🎊 Confetes sutis dentro do card */
+.confetti-container {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 10;
+}
+
+.confetti {
+  position: absolute;
+  top: -20px;
+  width: 6px;
+  height: 10px;
+  opacity: 0.9;
+  border-radius: 2px;
+  animation: confetti-fall linear forwards;
+}
+
+@keyframes confetti-fall {
+  from {
+    top: -20px;
+    transform: rotate(0deg);
+    opacity: 1;
+  }
+  to {
+    top: 100%;
+    transform: rotate(360deg);
+    opacity: 0;
+  }
+}
+
 
   </style>
   <style>@view-transition { navigation: auto; }</style>
@@ -120,6 +193,36 @@ function listenRidsRealtimeEmployee() {
         showToast("Erro ao carregar suas RIDs", "error");
       }
     );
+}
+
+function spawnConfetti(card) {
+  if (!card) return;
+
+  // evita duplicar
+  if (card.querySelector('.confetti-container')) return;
+
+  const container = document.createElement('div');
+  container.className = 'confetti-container';
+  card.appendChild(container);
+
+  const colors = ['#10b981', '#a8d5e2', '#ffd9a0', '#c4a8e0'];
+
+  for (let i = 0; i < 25; i++) {
+    const confetti = document.createElement('div');
+    confetti.className = 'confetti';
+    confetti.style.left = Math.random() * 100 + '%';
+    confetti.style.backgroundColor =
+      colors[Math.floor(Math.random() * colors.length)];
+    confetti.style.animationDuration =
+      2 + Math.random() * 2 + 's';
+    confetti.style.animationDelay =
+      Math.random() * 2 + 's';
+
+    container.appendChild(confetti);
+  }
+
+  // remove depois de alguns segundos
+  setTimeout(() => container.remove(), 6000);
 }
 
 
@@ -226,6 +329,36 @@ async function getNextRidNumberSafe() {
 
     return String(next).padStart(5, "0");
   });
+}
+
+function spawnConfetti(card) {
+  if (!card) return;
+
+  // evita duplicar
+  if (card.querySelector('.confetti-container')) return;
+
+  const container = document.createElement('div');
+  container.className = 'confetti-container';
+  card.appendChild(container);
+
+  const colors = ['#10b981', '#a8d5e2', '#ffd9a0', '#c4a8e0'];
+
+  for (let i = 0; i < 25; i++) {
+    const confetti = document.createElement('div');
+    confetti.className = 'confetti';
+    confetti.style.left = Math.random() * 100 + '%';
+    confetti.style.backgroundColor =
+      colors[Math.floor(Math.random() * colors.length)];
+    confetti.style.animationDuration =
+      2 + Math.random() * 2 + 's';
+    confetti.style.animationDelay =
+      Math.random() * 2 + 's';
+
+    container.appendChild(confetti);
+  }
+
+  // remove depois de alguns segundos
+  setTimeout(() => container.remove(), 6000);
 }
 
 
@@ -1071,31 +1204,57 @@ async function loadUsers() {
       }
       
       if (monthlyGoal && monthlyGoal > 0) {
-        const filteredRids = getFilteredRids();
-        const currentCount = filteredRids.length;
-        const percentage = Math.round((currentCount / monthlyGoal) * 100);
-        const remaining = Math.max(0, monthlyGoal - currentCount);
-        
-        if (currentCount >= monthlyGoal) {
-          display.textContent = `Meta do Mês: ${currentCount}/${monthlyGoal} (${percentage}%) • ✅ Meta atingida!`;
-          display.style.color = '#10b981'; // Green
-        } else {
-          display.textContent = `Meta do Mês: ${currentCount}/${monthlyGoal} (${percentage}%) • Faltam ${remaining} RID${remaining !== 1 ? 's' : ''} para conclusão`;
-          
-          if (percentage >= 80) {
-            display.style.color = '#f59e0b'; // Orange
-          } else {
-            display.style.color = '#6b7280'; // Gray
-          }
-        }
-        
-        // Make it visible and prominent
-        display.style.fontSize = '0.95rem';
-        display.style.fontWeight = '600';
-        display.style.marginTop = '0.25rem';
-      } else {
-        display.textContent = '';
-      }
+  const filteredRids = getFilteredRids();
+  const currentCount = filteredRids.length;
+  const percentage = Math.round((currentCount / monthlyGoal) * 100);
+  const remaining = Math.max(0, monthlyGoal - currentCount);
+
+  // card pai (onde está o gráfico / meta)
+  const card = document.getElementById('statusRidsCard');
+
+
+  // remove selo se existir (evita duplicar / mantém correto)
+  if (card) {
+    const oldBadge = card.querySelector('.goal-badge');
+    if (oldBadge) oldBadge.remove();
+  }
+
+  if (currentCount >= monthlyGoal) {
+    console.log('CONFETE DISPARADO', card);
+    display.textContent =
+      `Meta do Mês: ${currentCount}/${monthlyGoal} (${percentage}%) • Meta atingida!`;
+    display.style.color = '#10b981'; // Green
+
+    // 🎉 adiciona selo animado
+    if (card) {
+      const badge = document.createElement('div');
+      badge.className = 'goal-badge';
+      badge.innerHTML = '✓';
+      card.appendChild(badge);
+    }
+
+    // 🎊 confetes sutis
+    spawnConfetti(card);
+
+  } else {
+    display.textContent =
+      `Meta do Mês: ${currentCount}/${monthlyGoal} (${percentage}%) • Faltam ${remaining} RID${remaining !== 1 ? 's' : ''} para conclusão`;
+
+    if (percentage >= 80) {
+      display.style.color = '#f59e0b'; // Orange
+    } else {
+      display.style.color = '#6b7280'; // Gray
+    }
+  }
+
+  // estilo fixo
+  display.style.fontSize = '0.95rem';
+  display.style.fontWeight = '600';
+  display.style.marginTop = '0.25rem';
+
+} else {
+  display.textContent = '';
+}
     }
 
     function showGoalModal() {
@@ -1579,7 +1738,9 @@ const monthlyUserStats = Object.values(ridsByUser)
 
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 mb-8">
                 <!-- Chart -->
-                <div class="rounded-xl shadow-lg p-4 md:p-6 bg-white relative">
+                <div 
+                 id="statusRidsCard"
+                class="bg-white rounded-xl shadow-lg p-6 relative overflow-hidden">
                   <div class="flex items-center justify-between mb-4 md:mb-6">
                     <div class="flex-1">
                       <h3 class="text-lg md:text-xl font-bold text-gray-800">Status dos RIDs</h3>
