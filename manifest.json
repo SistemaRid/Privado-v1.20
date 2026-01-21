@@ -1,10 +1,11 @@
 {
   "name": "Sistema de Gerenciamento de RIDs",
   "short_name": "RIDs",
-  "start_url": "/",
+  "start_url": "/Privado-v1.20/",
+  "scope": "/Privado-v1.20/",
   "display": "standalone",
-  "theme_color": "#808080",
   "background_color": "#dfdfdf",
+  "theme_color": "#808080",
   "icons": [
     {
       "src": "icon-192.png",
@@ -12,7 +13,7 @@
       "type": "image/png"
     },
     {
-      "src": "icon-512.png",
+      "src": "icon.png",
       "sizes": "512x512",
       "type": "image/png"
     }
