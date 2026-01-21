@@ -1785,7 +1785,7 @@ const monthlyUserStats = Object.values(ridsByUser)
                   <p class="text-xs text-gray-500">
                     ${
                       u.lastDate
-                        ? `Última RID em ${u.lastDate.toLocaleDateString('pt-BR')}`
+                        ? `Último RID em ${u.lastDate.toLocaleDateString('pt-BR')}`
                         : 'Nunca emitiu RID'
                     }
                   </p>
@@ -3783,7 +3783,7 @@ async function generateRiskReportPDF() {
   // ==================== PÁGINA EXECUTIVA ====================
   doc.addImage(logo, 'PNG', 14, 10, 30, 20);
   doc.setFontSize(18);
-  doc.text('Relatório Executivo de Gestão de Risco', 50, 20);
+  doc.text('Relatório de Gestão de Risco', 50, 20);
   doc.setFontSize(10);
   doc.text(`Gerado em: ${now}`, 50, 28);
   doc.text(`Período: ${month}/${year}`, 14, 40);
