@@ -149,6 +149,10 @@ input[type="date"] {
     opacity: 0;
   }
 }
+/* Evita caret piscando em textos não editáveis */
+p, span, h1, h2, h3, h4 {
+  caret-color: transparent;
+}
 
 
   </style>
@@ -1629,25 +1633,29 @@ const monthlyUserStats = Object.values(ridsByUser)
                 <h1 class="text-3xl font-bold text-gray-800">Dashboard</h1>
                 
                 <!-- Botão de Filtros -->
-                <button onclick="toggleFilters()" class="flex items-center space-x-2 px-4 py-2 rounded-lg font-semibold text-white hover:opacity-90 transition-opacity text-sm" style="background-color: #b9a2d8;">
-                  <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M3 3a1 1 0 011-1h12a1 1 0 011 1v3a1 1 0 01-.293.707L12 11.414V15a1 1 0 01-.293.707l-2 2A1 1 0 018 17v-5.586L3.293 6.707A1 1 0 013 6V3z" clip-rule="evenodd"/>
-                  </svg>
-                  <span>Filtros</span>
-                </button>
+                <button
+  onclick="toggleDevFilters()"
+  class="flex items-center space-x-2 px-6 py-3 rounded-lg font-semibold text-white hover:opacity-90"
+  style="background-color:#c4a8e0;"
+>
+  <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+    <path fill-rule="evenodd" d="M3 3h14l-5 6v6l-4-2v-4L3 3z"/>
+  </svg>
+  <span>Filtros</span>
+</button>
               </div>
 
               <!-- Painel de Filtros (Oculto por padrão) -->
-              <div id="filterPanel" class="hidden mb-6 bg-white rounded-lg shadow-md p-5 border" style="border-color: #e5e7eb;">
+              <div id="devFilterPanel" class="hidden mb-8 bg-white rounded-xl shadow-lg p-6 border-2">
                 <div class="flex items-center justify-between mb-4">
                   <h3 class="text-lg font-bold" style="color: #808080;">Filtrar RIDs por Período</h3>
-                  <button onclick="toggleFilters()" class="text-gray-400 hover:text-gray-600">
+                  <button onclick="toggleDevFilters()" class="text-gray-400 hover:text-gray-600">
                     <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
                       <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
                     </svg>
                   </button>
                 </div>
-                <div class="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto] gap-4 items-end">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
 
   <!-- MÊS -->
   <div>
@@ -1712,7 +1720,8 @@ const monthlyUserStats = Object.values(ridsByUser)
   </div>
 
   <!-- BOTÕES -->
-  <div class="flex gap-2">
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full">
+
     <button
       onclick="filterDashboard()"
       class="h-11 px-6 rounded-lg font-semibold text-white"
@@ -3916,54 +3925,82 @@ const sectorRanking = Object.entries(sectorRisk)
 
 
 </div> 
+<!-- Botões -->
 <div class="flex justify-end mb-6 space-x-4">
-  <button onclick="toggleDevFilters()" class="flex items-center space-x-2 px-6 py-3 rounded-lg font-semibold text-white hover:opacity-90" style="background-color:#c4a8e0;">
+  <button
+    onclick="toggleDevFilters()"
+    class="flex items-center space-x-2 px-4 py-2 rounded-lg font-semibold text-white hover:opacity-90 transition-opacity text-sm"
+    style="background-color:#b9a2d8;"
+  >
     <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-      <path fill-rule="evenodd" d="M3 3h14l-5 6v6l-4-2v-4L3 3z"/>
+      <path fill-rule="evenodd" d="M3 3a1 1 0 011-1h12a1 1 0 011 1v3a1 1 0 01-.293.707L12 11.414V15a1 1 0 01-.293.707l-2 2A1 1 0 018 17v-5.586L3.293 6.707A1 1 0 013 6V3z"/>
     </svg>
     <span>Filtros</span>
   </button>
 
-  <button onclick="generateRiskReportPDF()" class="flex items-center space-x-2 px-6 py-3 rounded-lg font-semibold text-white hover:opacity-90" style="background-color:#6b9eb0;">
+  <button
+    onclick="generateRiskReportPDF()"
+    class="flex items-center space-x-2 px-4 py-2 rounded-lg font-semibold text-white hover:opacity-90 transition-opacity text-sm"
+    style="background-color:#6b9eb0;"
+  >
     📄 <span>Gerar Relatório</span>
   </button>
 </div>
 
+<!-- Painel de Filtros -->
+<div
+  <div
+  id="devFilterPanel"
+  class="hidden mb-8 bg-white rounded-lg shadow-md p-5 border"
+  style="border-color:#e5e7eb;"
+>
+  <div class="flex items-center justify-between mb-4">
+    <h3 class="text-lg font-bold text-gray-600">
+      Filtrar RIDs – Centro de Controle
+    </h3>
+   <button onclick="toggleDevFilters()" class="text-gray-400 hover:text-gray-600">
+      ✕
+    </button>
+  </div>
 
-<div id="devFilterPanel" class="hidden mb-8 bg-white rounded-xl shadow-lg p-6 border-2" style="border-color:#c4a8e0;">
-  <div class="flex items-end space-x-4">
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
 
-    <div class="flex-1">
-      <label class="block text-sm font-semibold mb-2" style="color:#808080;">Período (Mês/Ano)</label>
-      <div class="flex space-x-2">
-  <select id="devMonth" class="w-full px-4 py-3 border rounded-lg bg-white">
-  <option value="">Todos os meses</option>
-  <option value="1">Jan</option>
-  <option value="2">Fev</option>
-  <option value="3">Mar</option>
-  <option value="4">Abr</option>
-  <option value="5">Mai</option>
-  <option value="6">Jun</option>
-  <option value="7">Jul</option>
-  <option value="8">Ago</option>
-  <option value="9">Set</option>
-  <option value="10">Out</option>
-  <option value="11">Nov</option>
-  <option value="12">Dez</option>
-</select>
-
-  <input
-    id="devYear"
-    type="number"
-    placeholder="Ano"
-    class="w-full px-4 py-3 border rounded-lg bg-white">
-</div>
+    <!-- MÊS -->
+    <div>
+      <label class="block text-sm font-semibold mb-1 text-gray-600">Mês</label>
+      <select id="devMonth" class="w-full h-11 px-4 border rounded-lg bg-white">
+        <option value="">Mês atual</option>
+        <option value="1">Janeiro</option>
+        <option value="2">Fevereiro</option>
+        <option value="3">Março</option>
+        <option value="4">Abril</option>
+        <option value="5">Maio</option>
+        <option value="6">Junho</option>
+        <option value="7">Julho</option>
+        <option value="8">Agosto</option>
+        <option value="9">Setembro</option>
+        <option value="10">Outubro</option>
+        <option value="11">Novembro</option>
+        <option value="12">Dezembro</option>
+      </select>
     </div>
 
-    <div class="flex-1">
-      <label class="block text-sm font-semibold mb-2" style="color:#808080;">Setor</label>
-      <select id="devSector" class="w-full px-4 py-2 border rounded-lg">
-        <option value="">Todos</option>
+    <!-- ANO -->
+    <div>
+      <label class="block text-sm font-semibold mb-1 text-gray-600">Ano</label>
+      <input
+        id="devYear"
+        type="number"
+        placeholder="Ex: 2026"
+        class="w-full h-11 px-4 border rounded-lg bg-white"
+      >
+    </div>
+
+    <!-- SETOR -->
+    <div>
+      <label class="block text-sm font-semibold mb-1 text-gray-600">Setor</label>
+      <select id="devSector" class="w-full h-11 px-4 border rounded-lg bg-white">
+        <option value="">Todos os setores</option>
         <option value="ADM">ADM</option>
         <option value="M. MOVEL">M. MOVEL</option>
         <option value="M. FIXA">M. FIXA</option>
@@ -3973,10 +4010,26 @@ const sectorRanking = Object.entries(sectorRisk)
       </select>
     </div>
 
-    <button onclick="renderDevControlCenter()" class="px-6 py-2 bg-[#a8d5e2] text-white rounded-lg font-bold">Aplicar</button>
-    <button onclick="clearDevFilters()" class="px-6 py-2 border rounded-lg">Limpar</button>
+    <!-- BOTÕES -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full md:col-span-3">
+      <button
+        onclick="renderDevControlCenter()"
+        class="h-11 w-full rounded-lg font-semibold text-white"
+        style="background-color:#a8d5e2;"
+      >
+        Aplicar
+      </button>
+
+      <button
+        onclick="clearDevFilters()"
+        class="h-11 w-full rounded-lg font-semibold border text-gray-600"
+      >
+        Limpar
+      </button>
+    </div>
 
   </div>
+
 </div>
 
 
