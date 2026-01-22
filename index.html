@@ -1591,7 +1591,7 @@ const monthlyUserStats = Object.values(ridsByUser)
           <!-- Navigation Menu -->
           <div class="bg-white border-b-2 border-gray-200">
             <div class="px-2 md:px-8">
-              <nav class="flex overflow-x-auto space-x-1">
+              <nav class="flex overflow-x-auto space-x-1 whitespace-nowrap">
                 <button onclick="renderAdminDashboard()" class="px-3 md:px-6 py-3 font-semibold border-b-4 whitespace-nowrap text-sm md:text-base" style="border-color: #a8d5e2; color: #6b9eb0;">
                   Dashboard
                 </button>
@@ -1600,9 +1600,11 @@ const monthlyUserStats = Object.values(ridsByUser)
                 </button>
                 ${(isAdmin() || isDeveloper()) ? `
     <button onclick="renderMyRidsPage()"
-      class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100 transition-colors whitespace-nowrap text-sm md:text-base text-gray-700">
-      Meus RIDs
-    </button>
+  class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100 transition-colors
+         whitespace-nowrap
+         text-sm md:text-base text-gray-700">
+  Meus RIDs
+</button>
   ` : ''}
                 <button onclick="renderEmployeesPage()" class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100 transition-colors whitespace-nowrap text-sm md:text-base text-gray-700">
                   Funcionários
@@ -2095,7 +2097,7 @@ function renderMyRidsPage() {
       <!-- Navigation Menu -->
       <div class="bg-white border-b-2 border-gray-200">
         <div class="px-2 md:px-8">
-          <nav class="flex overflow-x-auto space-x-1">
+          <nav class="flex overflow-x-auto space-x-1 whitespace-nowrap">
 
             <button onclick="renderAdminDashboard()"
               class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100">
