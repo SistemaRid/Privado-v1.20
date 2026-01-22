@@ -1594,6 +1594,12 @@ const monthlyUserStats = Object.values(ridsByUser)
                 <button onclick="renderSearchPage()" class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100 transition-colors whitespace-nowrap text-sm md:text-base text-gray-700">
                   RID's
                 </button>
+                ${(isAdmin() || isDeveloper()) ? `
+    <button onclick="renderMyRidsPage()"
+      class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100 transition-colors whitespace-nowrap text-sm md:text-base text-gray-700">
+      Meus RIDs
+    </button>
+  ` : ''}
                 <button onclick="renderEmployeesPage()" class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100 transition-colors whitespace-nowrap text-sm md:text-base text-gray-700">
                   Funcionários
                 </button>
@@ -2025,6 +2031,193 @@ const monthlyUserStats = Object.values(ridsByUser)
         updateRequestsBadge();
       }
     }
+
+function renderMyRidsPage() {
+  if (!isAdmin() && !isDeveloper()) {
+    renderEmployeeDashboard();
+    return;
+  }
+
+  window.currentPage = 'myrids';
+
+  const myRids = allRids
+    .filter(r => r.emitterId === currentUser.uid)
+    .sort((a, b) => b.createdAt?.toDate() - a.createdAt?.toDate());
+
+  const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
+  const app = document.getElementById('app');
+
+  app.innerHTML = `
+    <div class="h-full flex flex-col">
+
+      <!-- Header -->
+      <div class="px-4 md:px-8 py-3 shadow-md" style="background-color: #808080;">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+          <div>
+            <h1 class="system-title text-lg md:text-2xl font-bold text-white">
+              ${config.system_title || defaultConfig.system_title}
+            </h1>
+            <p class="company-name text-xs md:text-sm text-gray-300">
+              ${config.company_name || defaultConfig.company_name}
+            </p>
+            <p class="text-sm font-semibold text-white mt-1">
+              ${currentUserData.name}
+            </p>
+            <p class="text-xs text-gray-300">
+              ${currentUserData.userType || (currentUserData.isAdmin ? 'Administrador' : 'Funcionário')}
+            </p>
+          </div>
+
+          <div class="relative">
+            <button onclick="toggleHeaderMenu()" class="p-2 rounded-lg hover:bg-gray-700">
+              ☰
+            </button>
+            <div id="headerMenu"
+              class="hidden absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl z-50 border">
+              <button onclick="handleLogout()"
+                class="w-full text-left px-4 py-3 hover:bg-gray-100 text-red-500 font-semibold">
+                Sair
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Navigation Menu -->
+      <div class="bg-white border-b-2 border-gray-200">
+        <div class="px-2 md:px-8">
+          <nav class="flex overflow-x-auto space-x-1">
+
+            <button onclick="renderAdminDashboard()"
+              class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100">
+              Dashboard
+            </button>
+
+            <button onclick="renderSearchPage()"
+              class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100">
+              RID's
+            </button>
+
+            <button
+              onclick="renderMyRidsPage()"
+              class="px-3 md:px-6 py-3 font-semibold border-b-4"
+              style="border-color:#a8d5e2; color:#6b9eb0;">
+              Meus RIDs
+            </button>
+
+            <button onclick="renderEmployeesPage()"
+              class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100">
+              Funcionários
+            </button>
+
+            ${isDeveloper() ? `
+              <button onclick="renderRequestsPage()"
+                class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100 relative">
+                Solicitações
+              </button>
+            ` : ''}
+
+            <button onclick="renderReportsPage()"
+              class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100">
+              Relatórios
+            </button>
+
+            <button onclick="renderDesignatedPage()"
+              class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100">
+              ${isDeveloper() ? 'Centro de Controle' : 'Designadas'}
+            </button>
+
+          </nav>
+        </div>
+      </div>
+
+      <!-- Main Content -->
+      <div class="flex-1 overflow-auto p-8" style="background-color:#dfdfdf;">
+        <div class="max-w-5xl mx-auto">
+
+          <h1 class="text-3xl font-bold text-gray-800 mb-6">
+            Meus RIDs
+          </h1>
+
+          ${
+            myRids.length === 0
+              ? `<p class="text-gray-500 text-center py-12">
+                   Você ainda não emitiu nenhum RID.
+                 </p>`
+              : `
+                <div class="space-y-4">
+                  ${myRids.map(rid => `
+                    <div class="bg-white rounded-xl shadow-md p-5">
+
+                      <div class="flex items-center justify-between mb-2">
+                        <div class="font-bold text-gray-800">
+                          RID #${rid.ridNumber} | ${rid.emitterName}
+                        </div>
+
+                        <span class="px-3 py-1 rounded-lg text-xs font-bold ${getStatusColor(rid.status)}">
+                          ${rid.status}
+                        </span>
+                      </div>
+
+                      <p class="text-sm text-gray-700">
+                        ${rid.description}
+                      </p>
+                      
+                      ${
+  rid.status === 'CORRIGIDO' &&
+  rid.emitterId === currentUser.uid &&
+  (!rid.correctiveActions || rid.correctiveActions.trim() === '') &&
+  rid.immediateAction &&
+  rid.immediateAction.trim() !== ''
+    ? `
+      <div class="mt-3 p-3 rounded-lg bg-yellow-50 border border-yellow-300">
+        <p class="text-sm font-bold text-yellow-800 mb-1">
+          Ação imediata (emissor)
+        </p>
+        <p class="text-sm text-yellow-800">
+          ${rid.immediateAction}
+        </p>
+      </div>
+    `
+    : ''
+}
+
+                      ${
+  rid.status === 'CORRIGIDO'
+    ? `
+      <div class="mt-3 p-3 rounded-lg bg-green-50 border border-green-200">
+        <p class="text-sm font-bold text-green-700 mb-1">
+          Ação corretiva
+        </p>
+        <p class="text-sm text-green-700">
+          ${
+            rid.correctiveActions && rid.correctiveActions.trim() !== ''
+              ? rid.correctiveActions
+              : (
+                  rid.emitterId === currentUser.uid
+                    ? 'Correção realizada pelo próprio emissor no momento da abertura do RID.'
+                    : 'Aguardando detalhamento da ação corretiva.'
+                )
+          }
+        </p>
+      </div>
+    `
+    : ''
+}
+
+                    </div>
+                  `).join('')}
+                </div>
+              `
+          }
+
+        </div>
+      </div>
+
+    </div>
+  `;
+}
+
 
     function renderSearchPage() {
       window.currentPage = 'search';
@@ -4310,6 +4503,14 @@ ${
               <button onclick="renderSearchPage()" class="px-3 md:px-6 py-3 font-semibold ${active === 'rids' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors whitespace-nowrap text-sm md:text-base ${active === 'rids' ? '' : 'text-gray-700'}" ${active === 'rids' ? 'style="border-color: #a8d5e2; color: #6b9eb0;"' : ''}>
                 RID's
               </button>
+              ${(isAdmin() || isDeveloper()) ? `
+  <button
+    onclick="renderMyRidsPage()"
+    class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100 transition-colors whitespace-nowrap text-sm md:text-base text-gray-700"
+  >
+    Meus RIDs
+  </button>
+` : ''}
               <button onclick="renderEmployeesPage()" class="px-3 md:px-6 py-3 font-semibold ${active === 'employees' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors whitespace-nowrap text-sm md:text-base ${active === 'employees' ? '' : 'text-gray-700'}" ${active === 'employees' ? 'style="border-color: #a8d5e2; color: #6b9eb0;"' : ''}>
                 Funcionários
               </button>
