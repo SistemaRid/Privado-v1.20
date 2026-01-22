@@ -2060,6 +2060,8 @@ function renderMyRidsPage() {
 
   app.innerHTML = `
     <div class="h-full flex flex-col">
+      ${renderHeader(config)}
+     ${renderNavigation('myrids')}
 
       <!-- Header -->
       <div class="px-4 md:px-8 py-3 shadow-md" style="background-color: #808080;">
@@ -2077,19 +2079,6 @@ function renderMyRidsPage() {
             <p class="text-xs text-gray-300">
               ${currentUserData.userType || (currentUserData.isAdmin ? 'Administrador' : 'Funcionário')}
             </p>
-          </div>
-
-          <div class="relative">
-            <button onclick="toggleHeaderMenu()" class="p-2 rounded-lg hover:bg-gray-700">
-              ☰
-            </button>
-            <div id="headerMenu"
-              class="hidden absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl z-50 border">
-              <button onclick="handleLogout()"
-                class="w-full text-left px-4 py-3 hover:bg-gray-100 text-red-500 font-semibold">
-                Sair
-              </button>
-            </div>
           </div>
         </div>
       </div>
