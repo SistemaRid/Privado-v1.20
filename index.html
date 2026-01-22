@@ -1641,17 +1641,16 @@ const monthlyUserStats = Object.values(ridsByUser)
                     </svg>
                   </button>
                 </div>
-                <div class="flex flex-col md:flex-row md:items-end gap-4">
-                  <div class="flex flex-col md:flex-row md:items-end gap-4">
+                <div class="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto] gap-4 items-end">
 
   <!-- MÊS -->
-  <div class="flex-1">
-    <label class="block text-sm font-semibold mb-2" style="color:#808080;">
+  <div>
+    <label class="block text-sm font-semibold mb-1 text-gray-600">
       Mês
     </label>
     <select
       id="dashboardMonth"
-      class="w-full px-4 py-2 border rounded-lg bg-white"
+      class="w-full h-11 px-4 border rounded-lg bg-white"
       style="border-color:#9c9494;"
     >
       <option value="">Mês atual</option>
@@ -1671,8 +1670,8 @@ const monthlyUserStats = Object.values(ridsByUser)
   </div>
 
   <!-- ANO -->
-  <div class="flex-1">
-    <label class="block text-sm font-semibold mb-2" style="color:#808080;">
+  <div>
+    <label class="block text-sm font-semibold mb-1 text-gray-600">
       Ano
     </label>
     <input
@@ -1681,19 +1680,19 @@ const monthlyUserStats = Object.values(ridsByUser)
       placeholder="Ex: 2026"
       min="2020"
       max="2100"
-      class="w-full px-4 py-2 border rounded-lg"
+      class="w-full h-11 px-4 border rounded-lg"
       style="border-color:#9c9494;"
     >
   </div>
 
   <!-- SETOR -->
-  <div class="flex-1">
-    <label class="block text-sm font-semibold mb-2" style="color:#808080;">
+  <div>
+    <label class="block text-sm font-semibold mb-1 text-gray-600">
       Setor
     </label>
     <select
       id="dashboardSector"
-      class="w-full px-4 py-2 border rounded-lg bg-white"
+      class="w-full h-11 px-4 border rounded-lg bg-white"
       style="border-color:#9c9494;"
     >
       <option value="">Todos os setores</option>
@@ -1705,18 +1704,27 @@ const monthlyUserStats = Object.values(ridsByUser)
       <option value="MINA">MINA</option>
     </select>
   </div>
+
+  <!-- BOTÕES -->
+  <div class="flex gap-2">
+    <button
+      onclick="filterDashboard()"
+      class="h-11 px-6 rounded-lg font-semibold text-white"
+      style="background-color:#a8d5e2;"
+    >
+      Aplicar
+    </button>
+
+    <button
+      onclick="clearDashboardFilters()"
+      class="h-11 px-6 rounded-lg font-semibold border text-gray-600"
+    >
+      Limpar
+    </button>
   </div>
-                  <button onclick="filterDashboard()" class="px-6 py-3 text-white rounded-lg font-bold hover:opacity-90 transition-opacity" style="background-color: #a8d5e2;">
-                    Aplicar
-                  </button>
-                  <button
-        onclick="clearDashboardFilters()"
-        class="px-6 py-2 border rounded-lg font-semibold text-gray-600"
-      >
-        Limpar
-      </button>
-                </div>
-              </div>
+
+</div>
+</div>
 
               <!-- Stats Cards -->
               <div class="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-5 mb-6">
