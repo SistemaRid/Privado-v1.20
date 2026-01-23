@@ -272,6 +272,9 @@ unsubscribeLeader = db.collection("rids")
     let allUsers = [];
     let userNotifications = [];
     let monthlyGoal = null;
+    let designatedSortMode = '';
+    let designatedRiskMode = '';
+
 
     // Default Config
     const defaultConfig = {
@@ -2524,17 +2527,21 @@ if (isAdmin() || isDeveloper()) {
               
               <div>
   <label class="block text-sm font-bold mb-2 text-gray-700">3. Unidade</label>
-  <input
-    type="text"
-    name="unit"
-    required
-    class="w-full px-4 py-2 border border-gray-300 rounded-lg"
-    placeholder="Nome da unidade"
-    oninput="this.value = this.value.toUpperCase()"
-  >
+  <select
+  name="unit"
+  required
+  class="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-100"
+>
+    <option value="">Selecione a unidade</option>
+    <option value="CALNAMIX">CALNAMIX</option>
+    <option value="CALPI">CALPI</option>
+    <option value="CALTINS">CALTINS</option>
+    <option value="FORMACAL">FORMACAL</option>
+    <option value="MINERAX">MINERAX</option>
+    <option value="NATICAL">NATICAL</option>
+    <option value="SUPERCAL">SUPERCAL</option>
+  </select>
 </div>
-
-
               <div>
                 <label class="block text-sm font-bold mb-2 text-gray-700">4. Setor do Emitente</label>
                 <input type="text" name="ridSector" required readonly class="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed" value="${currentUserData.sector}">
@@ -3830,8 +3837,7 @@ function showRidNotification(rid) {
       
       showToast('Relatório exportado com sucesso!');
     }
-
-    function renderDesignatedPage() {
+function renderDesignatedPage() {
   window.currentPage = 'designated';
 
   // 🔥 DEV vê outro painel
@@ -3840,20 +3846,69 @@ function showRidNotification(rid) {
     return;
   }
 
-  // 🔹 ADMIN continua vendo as designadas normais
+  // 🔹 RIDs designadas para mim (exceto corrigidas)
   const myDesignatedRids = allRids.filter(
     r => r.responsibleLeader === currentUser.uid && r.status !== 'CORRIGIDO'
   );
-  // 🔢 Contadores dos MEUS RIDs
-const myTotalRids = myDesignatedRids.length;
 
-const myPendingRids = myDesignatedRids.filter(
-  r => r.status === 'EM ANDAMENTO'
-).length;
+  // 🔃 cópia ordenável
+  let orderedRids = [...myDesignatedRids];
 
-const myOverdueRids = myDesignatedRids.filter(
-  r => r.status === 'VENCIDO'
-).length;
+  // 🔃 ordenação por status
+  if (designatedSortMode === 'EM_ANDAMENTO') {
+    orderedRids.sort((a, b) => {
+      if (a.status === 'EM ANDAMENTO' && b.status !== 'EM ANDAMENTO') return -1;
+      if (a.status !== 'EM ANDAMENTO' && b.status === 'EM ANDAMENTO') return 1;
+      return 0;
+    });
+  }
+
+  if (designatedSortMode === 'VENCIDO') {
+    orderedRids.sort((a, b) => {
+      if (a.status === 'VENCIDO' && b.status !== 'VENCIDO') return -1;
+      if (a.status !== 'VENCIDO' && b.status === 'VENCIDO') return 1;
+      return 0;
+    });
+  }
+
+  // 🔢 contadores
+  const myTotalRids = myDesignatedRids.length;
+
+  const myPendingRids = myDesignatedRids.filter(
+    r => r.status === 'EM ANDAMENTO'
+  ).length;
+
+  const myOverdueRids = myDesignatedRids.filter(
+    r => r.status === 'VENCIDO'
+  ).length;
+
+// 🔃 prioriza APENAS o risco selecionado
+if (designatedRiskMode) {
+
+  const normalizeRisk = (value) => {
+    if (!value) return '';
+    return value
+      .toString()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+      .replace('RISCO', '')
+      .trim();
+  };
+
+  const selectedRisk = normalizeRisk(designatedRiskMode);
+
+  orderedRids.sort((a, b) => {
+    const aIsSelected =
+      normalizeRisk(a.riskClassification) === selectedRisk;
+    const bIsSelected =
+      normalizeRisk(b.riskClassification) === selectedRisk;
+
+    if (aIsSelected && !bIsSelected) return -1;
+    if (!aIsSelected && bIsSelected) return 1;
+    return 0; // mantém ordem relativa do resto
+  });
+}
 
 
   const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
@@ -3866,50 +3921,110 @@ const myOverdueRids = myDesignatedRids.filter(
       
       <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
         <div class="max-w-7xl mx-auto">
-          <h1 class="text-3xl font-bold text-gray-800 mb-8">Meus RIDs Designados</h1>
-<!-- 📊 CONTADORES DOS MEUS RIDs -->
-<div class="grid grid-cols-3 gap-4 mb-8">
 
-  <!-- TOTAL -->
-  <div
-    class="rounded-xl shadow p-4 text-center card-hover"
-    style="background-color:#f3f4f6;"
-  >
-    <p class="text-sm font-semibold text-gray-500">Total</p>
-    <p class="text-2xl font-bold text-gray-800">${myTotalRids}</p>
+          <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-8 gap-4">
+  <h1 class="text-3xl font-bold text-gray-800">
+    Meus RIDs Designados
+  </h1>
+
+  <div class="flex gap-3">
+
+    <!-- 🔃 Ordenar por status -->
+    <select
+      class="h-11 px-4 border rounded-lg bg-white font-semibold text-gray-700"
+      style="border-color:#d1d5db;"
+      onchange="designatedSortMode = this.value; renderDesignatedPage();"
+    >
+      <option value="" ${designatedSortMode === '' ? 'selected' : ''}>
+        Status (padrão)
+      </option>
+
+      <option value="EM_ANDAMENTO"
+        ${designatedSortMode === 'EM_ANDAMENTO' ? 'selected' : ''}>
+        Em andamento
+      </option>
+
+      <option value="VENCIDO"
+        ${designatedSortMode === 'VENCIDO' ? 'selected' : ''}>
+        Vencidos
+      </option>
+    </select>
+
+    <!-- ⚠️ Priorizar por risco -->
+    <select
+      class="h-11 px-4 border rounded-lg bg-white font-semibold text-gray-700"
+      style="border-color:#d1d5db;"
+      onchange="designatedRiskMode = this.value; renderDesignatedPage();"
+    >
+      <option value="" ${designatedRiskMode === '' ? 'selected' : ''}>
+        Risco (padrão)
+      </option>
+
+      <option value="CRITICO"
+        ${designatedRiskMode === 'CRITICO' ? 'selected' : ''}>
+        Crítico
+      </option>
+
+      <option value="ALTO"
+        ${designatedRiskMode === 'ALTO' ? 'selected' : ''}>
+        Alto
+      </option>
+
+      <option value="MEDIO"
+        ${designatedRiskMode === 'MEDIO' ? 'selected' : ''}>
+        Médio
+      </option>
+
+      <option value="BAIXO"
+        ${designatedRiskMode === 'BAIXO' ? 'selected' : ''}>
+        Baixo
+      </option>
+    </select>
+
   </div>
-
-  <!-- PENDENTES -->
-  <div
-    class="rounded-xl shadow p-4 text-center card-hover"
-    style="background-color:#fff7ed;"
-  >
-    <p class="text-sm font-semibold text-yellow-600">Pendentes</p>
-    <p class="text-2xl font-bold text-yellow-700">${myPendingRids}</p>
-  </div>
-
-  <!-- VENCIDOS -->
-  <div
-    class="rounded-xl shadow p-4 text-center card-hover"
-    style="background-color:#fef2f2;"
-  >
-    <p class="text-sm font-semibold text-red-600">Vencidos</p>
-    <p class="text-2xl font-bold text-red-700">${myOverdueRids}</p>
-  </div>
-
 </div>
 
+          <!-- 📊 CONTADORES -->
+          <div class="grid grid-cols-3 gap-4 mb-8">
 
-          ${myDesignatedRids.length === 0 ? 
-            '<div class="bg-white rounded-xl shadow-lg p-12 text-center"><p class="text-gray-500 text-lg">Você não possui RIDs designados no momento</p></div>' :
-            `<div class="space-y-4">${renderRidsList(myDesignatedRids)}</div>`
+            <div class="rounded-xl shadow p-4 text-center card-hover"
+                 style="background-color:#f3f4f6;">
+              <p class="text-sm font-semibold text-gray-500">Total</p>
+              <p class="text-2xl font-bold text-gray-800">${myTotalRids}</p>
+            </div>
+
+            <div class="rounded-xl shadow p-4 text-center card-hover"
+                 style="background-color:#fff7ed;">
+              <p class="text-sm font-semibold text-yellow-600">Pendentes</p>
+              <p class="text-2xl font-bold text-yellow-700">${myPendingRids}</p>
+            </div>
+
+            <div class="rounded-xl shadow p-4 text-center card-hover"
+                 style="background-color:#fef2f2;">
+              <p class="text-sm font-semibold text-red-600">Vencidos</p>
+              <p class="text-2xl font-bold text-red-700">${myOverdueRids}</p>
+            </div>
+
+          </div>
+
+          <!-- LISTA -->
+          ${
+            orderedRids.length === 0
+              ? `<div class="bg-white rounded-xl shadow-lg p-12 text-center">
+                   <p class="text-gray-500 text-lg">
+                     Você não possui RIDs designados no momento
+                   </p>
+                 </div>`
+              : `<div class="space-y-4">
+                   ${renderRidsList(orderedRids)}
+                 </div>`
           }
+
         </div>
       </div>
     </div>
   `;
 }
-  
        function renderDevControlCenter() {
   const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
   const app = document.getElementById('app');
