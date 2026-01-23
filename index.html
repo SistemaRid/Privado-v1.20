@@ -3844,6 +3844,17 @@ function showRidNotification(rid) {
   const myDesignatedRids = allRids.filter(
     r => r.responsibleLeader === currentUser.uid && r.status !== 'CORRIGIDO'
   );
+  // 🔢 Contadores dos MEUS RIDs
+const myTotalRids = myDesignatedRids.length;
+
+const myPendingRids = myDesignatedRids.filter(
+  r => r.status === 'EM ANDAMENTO'
+).length;
+
+const myOverdueRids = myDesignatedRids.filter(
+  r => r.status === 'VENCIDO'
+).length;
+
 
   const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
   const app = document.getElementById('app');
@@ -3856,6 +3867,38 @@ function showRidNotification(rid) {
       <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
         <div class="max-w-7xl mx-auto">
           <h1 class="text-3xl font-bold text-gray-800 mb-8">Meus RIDs Designados</h1>
+<!-- 📊 CONTADORES DOS MEUS RIDs -->
+<div class="grid grid-cols-3 gap-4 mb-8">
+
+  <!-- TOTAL -->
+  <div
+    class="rounded-xl shadow p-4 text-center card-hover"
+    style="background-color:#f3f4f6;"
+  >
+    <p class="text-sm font-semibold text-gray-500">Total</p>
+    <p class="text-2xl font-bold text-gray-800">${myTotalRids}</p>
+  </div>
+
+  <!-- PENDENTES -->
+  <div
+    class="rounded-xl shadow p-4 text-center card-hover"
+    style="background-color:#fff7ed;"
+  >
+    <p class="text-sm font-semibold text-yellow-600">Pendentes</p>
+    <p class="text-2xl font-bold text-yellow-700">${myPendingRids}</p>
+  </div>
+
+  <!-- VENCIDOS -->
+  <div
+    class="rounded-xl shadow p-4 text-center card-hover"
+    style="background-color:#fef2f2;"
+  >
+    <p class="text-sm font-semibold text-red-600">Vencidos</p>
+    <p class="text-2xl font-bold text-red-700">${myOverdueRids}</p>
+  </div>
+
+</div>
+
 
           ${myDesignatedRids.length === 0 ? 
             '<div class="bg-white rounded-xl shadow-lg p-12 text-center"><p class="text-gray-500 text-lg">Você não possui RIDs designados no momento</p></div>' :
