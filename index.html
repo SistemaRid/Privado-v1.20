@@ -3672,6 +3672,7 @@ function showRidNotification(rid) {
 
     <!-- LIMPAR -->
 <button
+  class="h-11 px-6 rounded-lg font-semibold border text-gray-600"
   onclick="
     clearReportFilters();
     if (window.innerWidth < 640) {
@@ -3682,7 +3683,6 @@ function showRidNotification(rid) {
 >
   Limpar
 </button>
-
   </div>
 </div>
 
@@ -4325,7 +4325,7 @@ const sectorRanking = Object.entries(sectorRisk)
   <!-- RANKING -->
   <div class="bg-white rounded-xl shadow-lg p-6">
     <h2 class="text-xl font-bold text-gray-800 mb-4">
-      Setores mais críticos
+      Setores com mais RIDs Medio, Alto e Critico
     </h2>
 
     <div class="space-y-3">
