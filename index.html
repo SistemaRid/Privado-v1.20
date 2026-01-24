@@ -742,12 +742,18 @@ if (window.currentPage === 'designated') renderDesignatedPage();
       updates.conclusionDate = firebase.firestore.FieldValue.serverTimestamp();
     }
 
-    if (rid.deleted) {
-  showToast('RID removida não pode ser alterada', 'error');
+    const rid = allRids.find(r => r.id === ridId);
+
+if (!rid) {
+  showToast('RID não encontrada', 'error');
   return false;
 }
 
-const rid = allRids.find(r => r.id === ridId);
+if (rid.deleted) {
+  showToast('RID removido não pode ser alterado', 'error');
+  return false;
+}
+
 
 await db.collection('rids').doc(ridId).update(updates);
 
@@ -932,16 +938,32 @@ if (!reason) {
 }
 
     // 🔥 Apaga o RID
-    await db.collection('rids').doc(ridId).update({
+    const ridRef = db.collection('rids').doc(ridId);
+const ridSnap = await ridRef.get();
+const ridData = ridSnap.data();
+
+const previousObs = ridData?.observations || '';
+
+const deleteNote =
+`[${new Date().toLocaleDateString()}] RID removido do sistema
+Motivo: ${reason}
+Removido por: ${currentUserData.name}`;
+
+await ridRef.update({
   deleted: true,
+  status: 'EXCLUIDO',
   deletedAt: firebase.firestore.FieldValue.serverTimestamp(),
   deletedBy: {
     uid: currentUser.uid,
     name: currentUserData.name,
     role: 'DEV'
   },
-  deleteReason: reason || 'Não informado'
+  deleteReason: reason,
+  observations: previousObs
+    ? previousObs + '\n\n' + deleteNote
+    : deleteNote
 });
+
 
 
     // 🔔 Notifica admins
@@ -2835,13 +2857,16 @@ function showRidNotification(rid) {
   });
 }
 
-    function showRidDetails(ridId) {
+    async function showRidDetails(ridId) {
          if (!isAdmin()) {
     showToast('Você não tem permissão para visualizar esta RID', 'error');
     return;
   }
-      const rid = allRids.find(r => r.id === ridId);
-      if (!rid) return;
+      const ridSnap = await db.collection('rids').doc(ridId).get();
+if (!ridSnap.exists) return;
+
+const rid = { id: ridSnap.id, ...ridSnap.data() };
+
        
       const modal = document.createElement('div');
       modal.className = 'modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
@@ -3676,18 +3701,59 @@ function cancelarEncerramento(button) {
       </h2>
 
       ${
-        empRequests.length === 0
-          ? `
-            <div class="bg-white rounded-lg shadow p-6 text-center">
-              <p class="text-gray-500">Nenhuma solicitação pendente</p>
+  empRequests.length === 0
+    ? `
+      <div class="bg-white rounded-lg shadow p-6 text-center">
+        <p class="text-gray-500">Nenhuma solicitação pendente</p>
+      </div>
+    `
+    : empRequests.map(req => `
+      <div class="bg-white rounded-xl shadow-md p-6 mb-4">
+        <div class="flex items-start justify-between">
+          <div class="flex-1">
+
+            <div class="flex items-center space-x-3 mb-3">
+              <div class="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
+                   style="background-color:#c4a8e0;">
+                ${req.userName.charAt(0)}
+              </div>
+              <div>
+                <p class="font-bold text-gray-800">${req.userName}</p>
+                <span class="text-sm text-gray-500">
+                  ${formatDate(req.createdAt)}
+                </span>
+              </div>
             </div>
-          `
-          : empRequests.map(req => `
-            <div class="bg-white rounded-xl shadow-md p-6 mb-4">
-              <!-- mantém o card de funcionário que você já tinha -->
-            </div>
-          `).join('')
-      }
+
+            <p class="text-gray-700 mb-2">
+              <strong>Solicitante:</strong> ${req.requesterName}
+            </p>
+
+            <p class="text-gray-700">
+              <strong>Motivo:</strong> ${req.reason}
+            </p>
+
+          </div>
+
+          <div class="flex flex-col space-y-2 ml-4">
+            <button
+              onclick="approveEmployeeDeletion('${req.id}', '${req.userId}', '${req.requesterId}')"
+              class="px-4 py-2 bg-green-500 text-white rounded-lg font-bold hover:bg-green-600"
+            >
+              Aprovar
+            </button>
+
+            <button
+              onclick="rejectEmployeeDeletion('${req.id}', '${req.requesterId}')"
+              class="px-4 py-2 bg-red-500 text-white rounded-lg font-bold hover:bg-red-600"
+            >
+              Rejeitar
+            </button>
+          </div>
+        </div>
+      </div>
+    `).join('')
+}
     </div>
 
   </div>
@@ -3704,16 +3770,32 @@ function cancelarEncerramento(button) {
     async function approveRidDeletion(requestId, ridId, requesterId) {
       try {
         const rid = allRids.find(r => r.id === ridId);
-await db.collection('rids').doc(ridId).update({
+const ridRef = db.collection('rids').doc(ridId);
+const ridSnap = await ridRef.get();
+const ridData = ridSnap.data();
+
+const previousObs = ridData?.observations || '';
+
+const deleteNote =
+`[${new Date().toLocaleDateString()}] RID removido do sistema
+Motivo: Solicitação de exclusão aprovada
+Removido por: ${rid?.requesterName || 'Sistema'}`;
+
+await ridRef.update({
   deleted: true,
+  status: 'EXCLUIDO',
   deletedAt: firebase.firestore.FieldValue.serverTimestamp(),
   deletedBy: {
     uid: requesterId,
     name: rid?.requesterName || 'Solicitação',
     role: 'REQUEST'
   },
-  deleteReason: 'Solicitação de exclusão aprovada'
+  deleteReason: 'Solicitação de exclusão aprovada',
+  observations: previousObs
+    ? previousObs + '\n\n' + deleteNote
+    : deleteNote
 });
+
 
         await db.collection('deleteRequests').doc(requestId).update({ status: 'approved' });
         
@@ -3728,8 +3810,6 @@ await db.collection('rids').doc(ridId).update({
         });
 
         showToast('RID excluída com sucesso!');
-        await loadRids();
-        renderRequestsPage();
       } catch (error) {
         showToast('Erro ao excluir RID: ' + error.message, 'error');
       }
@@ -4408,6 +4488,8 @@ const deletedRids = allRids.filter(r =>
   r.status === 'EXCLUIDO' ||
   r.status === 'EXCLUÍDO'
 );
+const deleted = deletedRids.length;
+
 
 // 📅 Filtro por período
 const month = document.getElementById('devMonth')?.value;
@@ -4438,10 +4520,6 @@ const overdue = base.filter(r => r.status === 'VENCIDO');
 const noLeader = base.filter(r =>
   !r.responsibleLeader && r.status !== 'CORRIGIDO'
 );
-
-const deleted = base.filter(r =>
-  r.status === 'EXCLUIDO' || r.status === 'EXCLUÍDO'
-).length;
 
 
 // 📊 Ranking de setores por risco
@@ -4603,7 +4681,7 @@ const sectorRanking = Object.entries(sectorRisk)
   </div>
 
   <div class="bg-gray-200 rounded-xl p-6 shadow">
-    <p class="text-sm font-bold text-gray-700">RIDs Excluídas</p>
+    <p class="text-sm font-bold text-gray-700">RIDs Removidos</p>
     <p class="text-4xl font-bold text-gray-900">${deleted}</p>
   </div>
 
@@ -4673,7 +4751,7 @@ const sectorRanking = Object.entries(sectorRisk)
 
   <div class="flex items-center justify-between mb-4">
     <h2 class="text-lg font-bold text-gray-700">
-      🗑️ RIDs Removidos do Sistema
+       RIDs Removidos do Sistema
     </h2>
 
     <span class="text-sm font-semibold text-gray-600">
@@ -4687,30 +4765,49 @@ const sectorRanking = Object.entries(sectorRisk)
       : `
         <div class="space-y-3 max-h-[450px] overflow-y-auto pr-2">
           ${deletedRids.map(r => `
-            <div class="bg-white rounded-lg p-4 opacity-80">
-              <div class="flex items-center justify-between">
+           <div class="bg-white rounded-md px-4 py-2 opacity-80">
+  <div class="flex items-center justify-between text-sm text-gray-700 gap-4">
 
-                <div>
-                  <p class="font-semibold text-gray-800">
-                    RID #${r.ridNumber || '—'}
-                    <span class="ml-2 text-xs bg-gray-400 text-white px-2 py-0.5 rounded-full">
-                      REMOVIDO
-                    </span>
-                  </p>
+    <!-- ESQUERDA -->
+    <div class="flex items-center gap-3 min-w-0">
+      <span class="font-semibold text-gray-800 whitespace-nowrap">
+        RID #${r.ridNumber || '—'}
+      </span>
 
-                  <p class="text-sm text-gray-600">
-                    Setor: ${r.sector || '—'}
-                  </p>
+      <span class="text-xs bg-gray-300 text-gray-700 px-2 py-0.5 rounded-full">
+        REMOVIDO
+      </span>
 
-                  <p class="text-sm text-gray-600">
-                    Motivo: ${r.deleteReason || 'Não informado'}
-                  </p>
-                </div>
+      <span class="text-gray-500 whitespace-nowrap">
+        Setor: ${r.sector || '—'}
+      </span>
 
-                <div class="text-right text-sm text-gray-500">
-                  <p>Removido por: ${r.deletedBy?.name || '—'}</p>
-                  <p>${r.deletedAt ? formatDate(r.deletedAt) : ''}</p>
-                </div>
+      <span class="text-gray-500 truncate">
+        Motivo: ${r.deleteReason || 'Não informado'}
+      </span>
+    </div>
+
+    <!-- DIREITA -->
+    <div class="flex items-center gap-3 text-xs text-gray-500 whitespace-nowrap">
+      <span class="flex items-center gap-1">
+        👤 ${r.deletedBy?.name || '—'}
+      </span>
+
+      <span>
+        ${r.deletedAt ? formatDate(r.deletedAt) : ''}
+      </span>
+
+     <span
+  onclick="openRestoreRidModal('${r.id}', '${r.ridNumber || ''}')"
+  title="Solicitar restauração"
+  class="cursor-pointer text-blue-600 hover:text-blue-800 flex items-center gap-1"
+>
+  ↩ Voltar
+</span>
+    </div>
+
+  </div>
+</div>
 
               </div>
             </div>
@@ -4731,6 +4828,142 @@ setTimeout(() => {
 }, 100);
 
 }
+
+async function restoreRid(ridId) {
+  const reason = prompt('Informe o motivo da restauração do RID:');
+  if (!reason || !reason.trim()) return;
+
+  try {
+    const ridRef = db.collection('rids').doc(ridId);
+    const ridSnap = await ridRef.get();
+    const ridData = ridSnap.data();
+
+    const previousObs = ridData?.observations || '';
+
+    const restoreNote =
+`[${new Date().toLocaleDateString()}] RID restaurado no sistema
+Motivo: ${reason}
+Restaurado por: ${currentUserData.name}`;
+
+    await ridRef.update({
+      deleted: false,
+      status: 'VENCIDO',
+      restoredAt: firebase.firestore.FieldValue.serverTimestamp(),
+      restoredBy: {
+        uid: currentUser.uid,
+        name: currentUserData.name,
+        role: 'DEV'
+      },
+      observations: previousObs
+        ? previousObs + '\n\n' + restoreNote
+        : restoreNote
+    });
+
+    showToast('RID restaurado com sucesso!');
+    await loadRids();
+renderDevControlCenter();
+showRidDetails(ridId);
+
+
+  } catch (err) {
+    showToast('Erro ao restaurar RID: ' + err.message, 'error');
+  }
+}
+
+function openRestoreRidModal(ridId, ridNumber) {
+  const modal = document.createElement('div');
+  modal.className = 'modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
+
+  modal.innerHTML = `
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+
+      <h2 class="text-xl font-bold text-gray-800 mb-4">
+        Restaurar RID ${ridNumber ? `#${ridNumber}` : ''}
+      </h2>
+
+      <p class="text-sm text-gray-600 mb-4">
+        Informe o motivo da restauração deste RID.
+        Esta ação será registrada para auditoria.
+      </p>
+
+      <textarea
+        id="restoreRidReason"
+        rows="4"
+        class="w-full px-4 py-2 border border-gray-300 rounded-lg mb-4"
+        placeholder="Descreva o motivo da restauração..."
+      ></textarea>
+
+      <div class="flex gap-3">
+        <button
+          onclick="confirmRestoreRid('${ridId}')"
+          class="flex-1 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700"
+        >
+          Confirmar
+        </button>
+
+        <button
+          onclick="this.closest('.modal-backdrop').remove()"
+          class="flex-1 py-2 bg-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-400"
+        >
+          Cancelar
+        </button>
+      </div>
+
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+}
+
+async function confirmRestoreRid(ridId) {
+  const reason = document.getElementById('restoreRidReason')?.value.trim();
+
+  if (!reason) {
+    showToast('Informe o motivo da restauração', 'error');
+    return;
+  }
+
+  try {
+    const ridRef = db.collection('rids').doc(ridId);
+    const ridSnap = await ridRef.get();
+    const ridData = ridSnap.data();
+
+    const previousObs = ridData?.observations || '';
+
+    const restoreNote =
+`[${new Date().toLocaleDateString()}] RID restaurado no sistema
+Motivo: ${reason}
+Restaurado por: ${currentUserData.name}`;
+
+    await ridRef.update({
+      deleted: false,
+      status: 'VENCIDO',
+      restoredAt: firebase.firestore.FieldValue.serverTimestamp(),
+      restoredBy: {
+        uid: currentUser.uid,
+        name: currentUserData.name,
+        role: 'DEV'
+      },
+      observations: previousObs
+        ? previousObs + '\n\n' + restoreNote
+        : restoreNote
+    });
+
+   showToast('RID restaurado com sucesso!', 'success');
+document.querySelector('.modal-backdrop')?.remove();
+
+// 🔥 realtime já atualiza automaticamente
+if (window.currentPage === 'dashboard') renderDashboard();
+if (window.currentPage === 'search') renderSearchPage();
+if (window.currentPage === 'designated') renderDesignatedPage();
+
+
+  } catch (err) {
+    console.error(err);
+    showToast('Erro ao restaurar RID', 'error');
+  }
+}
+
 
 function renderDevRiskChart(base) {
   const canvas = document.getElementById('devRiskChart');
