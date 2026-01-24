@@ -153,6 +153,13 @@ input[type="date"] {
 p, span, h1, h2, h3, h4 {
   caret-color: transparent;
 }
+/* 🔒 Status ENCERRADO */
+.status-ENCERRADO {
+  background-color: #e5e7eb; /* cinza claro */
+  color: #374151;           /* cinza escuro */
+  border: 1px solid #9ca3af;
+}
+
 
 
   </style>
@@ -410,7 +417,7 @@ function spawnConfetti(card) {
   const periodInput = document.getElementById('dashboardPeriod');
   const sectorSelect = document.getElementById('dashboardSector');
 
-  let filtered = allRids;
+  let filtered = allRids.filter(r => !r.deleted);
 
   // 🔹 FILTRO POR PERÍODO (MÊS + ANO)
   if (periodInput && periodInput.value) {
@@ -735,6 +742,11 @@ if (window.currentPage === 'designated') renderDesignatedPage();
       updates.conclusionDate = firebase.firestore.FieldValue.serverTimestamp();
     }
 
+    if (rid.deleted) {
+  showToast('RID removida não pode ser alterada', 'error');
+  return false;
+}
+
 const rid = allRids.find(r => r.id === ridId);
 
 await db.collection('rids').doc(ridId).update(updates);
@@ -850,24 +862,60 @@ if (!currentUserData?.isAdmin && !currentUserData?.isDeveloper) {
       const modal = document.createElement('div');
       modal.className = 'modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overscroll-contain touch-none';
       modal.innerHTML = `
-        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md">
-          <div class="border-b-2 px-6 py-4 bg-red-50" style="border-color: #ff6b6b;">
-            <h3 class="text-xl font-bold text-red-800">⚠️ Confirmar Exclusão Permanente</h3>
-          </div>
-          <div class="p-6">
-            <p class="mb-4 text-gray-700 font-semibold">Esta ação é <strong class="text-red-600">IRREVERSÍVEL</strong>!</p>
-            <p class="mb-6 text-gray-600">O RID será excluído permanentemente do sistema sem possibilidade de recuperação.</p>
-            <div class="flex space-x-4">
-              <button onclick="confirmDeleteRid('${ridId}')" class="flex-1 py-3 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-colors">
-                Confirmar Exclusão
-              </button>
-              <button onclick="this.closest('.modal-backdrop').remove()" class="flex-1 py-3 bg-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-400 transition-colors">
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
-      `;
+  <div class="bg-white rounded-xl shadow-2xl w-full max-w-md">
+    
+    <!-- Header -->
+    <div class="border-b-2 px-6 py-4 bg-red-50" style="border-color: #ff6b6b;">
+      <h3 class="text-xl font-bold text-red-800">
+        ⚠️ Confirmar Exclusão Permanente
+      </h3>
+    </div>
+
+    <!-- Conteúdo -->
+    <div class="p-6 space-y-4">
+      <p class="text-gray-700 font-semibold">
+        Esta ação é <span class="text-red-600 font-bold">IRREVERSÍVEL</span>.
+      </p>
+
+      <p class="text-gray-600">
+        O RID será removido do fluxo operacional e ficará disponível apenas
+        para consulta no Centro de Controle.
+      </p>
+
+      <!-- Motivo da exclusão -->
+      <div>
+        <label class="block text-sm font-bold text-gray-700 mb-1">
+          Motivo da exclusão <span class="text-red-600">*</span>
+        </label>
+        <textarea
+          id="deleteReasonInput"
+          rows="3"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-400"
+          placeholder="Descreva o motivo da exclusão do RID"
+        ></textarea>
+      </div>
+
+      <!-- Botões -->
+      <div class="flex space-x-4 pt-4">
+        <button
+          onclick="confirmDeleteRid('${ridId}')"
+          class="flex-1 py-3 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-colors"
+        >
+          Confirmar Exclusão
+        </button>
+
+        <button
+          onclick="this.closest('.modal-backdrop').remove()"
+          class="flex-1 py-3 bg-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-400 transition-colors"
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
+
+  </div>
+`;
+
       document.body.appendChild(modal);
     }
 
@@ -875,8 +923,26 @@ if (!currentUserData?.isAdmin && !currentUserData?.isDeveloper) {
   try {
     const rid = allRids.find(r => r.id === ridId);
 
+     const reasonInput = document.getElementById('deleteReasonInput');
+const reason = reasonInput?.value?.trim();
+
+if (!reason) {
+  showToast('Informe o motivo da exclusão', 'error');
+  return;
+}
+
     // 🔥 Apaga o RID
-    await db.collection('rids').doc(ridId).delete();
+    await db.collection('rids').doc(ridId).update({
+  deleted: true,
+  deletedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  deletedBy: {
+    uid: currentUser.uid,
+    name: currentUserData.name,
+    role: 'DEV'
+  },
+  deleteReason: reason || 'Não informado'
+});
+
 
     // 🔔 Notifica admins
     const adminUsers = allUsers.filter(u => u.isAdmin && u.id !== currentUser.uid);
@@ -1469,7 +1535,7 @@ await db.collection('goals').doc(monthYear).set({
 
     .map(u => {
       // última RID do funcionário (se existir)
-      const lastRid = allRids
+      const lastRid = allRids.filter(r => !r.deleted)
         .filter(r => r.emitterId === u.id && r.emissionDate)
         .sort(
           (a, b) =>
@@ -2059,8 +2125,8 @@ function renderMyRidsPage() {
   window.currentPage = 'myrids';
 
   const myRids = allRids
-    .filter(r => r.emitterId === currentUser.uid)
-    .sort((a, b) => b.createdAt?.toDate() - a.createdAt?.toDate());
+  .filter(r => r.emitterId === currentUser.uid)
+  .sort((a, b) => b.createdAt?.toDate() - a.createdAt?.toDate());
 
   const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
   const app = document.getElementById('app');
@@ -2079,6 +2145,7 @@ function renderMyRidsPage() {
             Meus RIDs
           </h1>
 
+
           ${
             myRids.length === 0
               ? `<p class="text-gray-500 text-center py-12">
@@ -2089,20 +2156,34 @@ function renderMyRidsPage() {
                   ${myRids.map(rid => `
                     <div class="bg-white rounded-xl shadow-md p-5">
 
-                      <div class="flex items-center justify-between mb-2">
-                        <div class="font-bold text-gray-800">
-                          RID #${rid.ridNumber} | ${rid.emitterName}
-                        </div>
+  ${
+    rid.deleted
+      ? `
+        <div class="font-bold text-gray-700 mb-3">
+          RID #${rid.ridNumber}
+        </div>
 
-                        <span class="px-3 py-1 rounded-lg text-xs font-bold ${getStatusColor(rid.status)}">
-                          ${rid.status}
-                        </span>
-                      </div>
+        <div class="bg-gray-100 border border-gray-300 rounded-lg p-4 text-sm text-gray-600">
+          RIDs removidos do fluxo operacional não são exibidos nesta lista.<br>
+          Em caso de dúvida, procure seu gestor.
+        </div>
+      `
+      : `
+        <div class="flex items-center justify-between mb-2">
+          <div class="font-bold text-gray-800">
+            RID #${rid.ridNumber} | ${rid.emitterName}
+          </div>
 
-                      <p class="text-sm text-gray-700">
-                        ${rid.description}
-                      </p>
-                      
+          <span class="px-3 py-1 rounded-lg text-xs font-bold ${getStatusColor(rid.status)}">
+            ${rid.status}
+          </span>
+        </div>
+
+        <p class="text-sm text-gray-700">
+          ${rid.description}
+        </p>
+      `
+  }
                       ${
   rid.status === 'CORRIGIDO' &&
   rid.emitterId === currentUser.uid &&
@@ -2144,6 +2225,29 @@ function renderMyRidsPage() {
     `
     : ''
 }
+${rid.status === 'ENCERRADO'
+  ? `
+    <div class="mt-3 p-3 rounded-lg bg-gray-100 border border-gray-400">
+      <p class="text-sm font-bold text-gray-700 mb-1">
+        RID encerrado pela gestão
+      </p>
+
+      <p class="text-sm text-gray-600 mb-1">
+        Motivo do encerramento:
+      </p>
+
+      <p class="text-sm text-gray-800 whitespace-pre-line">
+        ${
+          rid.correctiveActions && rid.correctiveActions.trim() !== ''
+            ? rid.correctiveActions
+            : 'Motivo não informado'
+        }
+      </p>
+    </div>
+  `
+  : ''
+}
+
 
                     </div>
                   `).join('')}
@@ -2166,11 +2270,14 @@ function renderMyRidsPage() {
       const currentMonth = now.getMonth() + 1;
       const currentYear = now.getFullYear();
       
-      // Filter RIDs for current month by default
-      const currentMonthRids = allRids.filter(r => {
-        const ridDate = r.emissionDate.toDate();
-        return ridDate.getMonth() + 1 === currentMonth && ridDate.getFullYear() === currentYear;
-      });
+      // Filter RIDs for current month by default (ignorando RIDs removidos)
+const currentMonthRids = allRids
+  .filter(r => !r.deleted)
+  .filter(r => {
+    const ridDate = r.emissionDate.toDate();
+    return ridDate.getMonth() + 1 === currentMonth &&
+           ridDate.getFullYear() === currentYear;
+  });
       
       const app = document.getElementById('app');
       app.innerHTML = `
@@ -2297,6 +2404,7 @@ function renderMyRidsPage() {
         <option value="EM ANDAMENTO">EM ANDAMENTO</option>
         <option value="VENCIDO">VENCIDO</option>
         <option value="CORRIGIDO">CORRIGIDO</option>
+        <option value="ENCERRADO">ENCERRADO</option>
       </select>
     </div>
 
@@ -2438,18 +2546,25 @@ function isAdminOrDev() {
 }
 
 
-    function getStatusColor(status) {
+   function getStatusColor(status) {
   switch (status) {
-    case 'CORRIGIDO':
-      return 'bg-green-100 text-green-700';
     case 'VENCIDO':
-      return 'bg-red-100 text-red-700';
+      return 'bg-red-200 text-red-800';
+
+    case 'ENCERRADO':
+      return 'bg-gray-300 text-gray-800';
+
     case 'EM ANDAMENTO':
-      return 'bg-yellow-100 text-yellow-700';
+      return 'bg-yellow-200 text-yellow-800';
+
+    case 'CORRIGIDO':
+      return 'bg-green-200 text-green-800';
+
     default:
-      return 'bg-gray-100 text-gray-700';
+      return 'bg-gray-200 text-gray-800';
   }
 }
+
 
     function getRiskColor(risk) {
       switch(risk) {
@@ -2829,12 +2944,22 @@ function showRidNotification(rid) {
 
               <div>
                 <label class="block text-sm font-bold text-gray-500 mb-2">Status</label>
-                <select name="status" class="w-full px-4 py-2 border border-gray-300 rounded-lg" required>
-                  <option value="PENDENTE" ${rid.status === 'PENDENTE' ? 'selected' : ''}>PENDENTE</option>
-                  <option value="EM ANDAMENTO" ${rid.status === 'EM ANDAMENTO' ? 'selected' : ''}>EM ANDAMENTO</option>
-                  <option value="VENCIDO" ${rid.status === 'VENCIDO' ? 'selected' : ''}>VENCIDO</option>
-                  <option value="CORRIGIDO" ${rid.status === 'CORRIGIDO' ? 'selected' : ''}>CORRIGIDO</option>
-                </select>
+                <select
+  name="status"
+  class="w-full px-4 py-2 border border-gray-300 rounded-lg"
+  required
+  onchange="handleEncerramentoChange(this, '${rid.id}')"
+>
+  <option value="EM ANDAMENTO" ${rid.status === 'EM ANDAMENTO' ? 'selected' : ''}>EM ANDAMENTO</option>
+  <option value="VENCIDO" ${rid.status === 'VENCIDO' ? 'selected' : ''}>VENCIDO</option>
+  <option value="CORRIGIDO" ${rid.status === 'CORRIGIDO' ? 'selected' : ''}>CORRIGIDO</option>
+
+  ${(isAdmin() || isDeveloper()) ? `
+    <option value="ENCERRADO" ${rid.status === 'ENCERRADO' ? 'selected' : ''}>
+      ENCERRADO
+    </option>
+  ` : ''}
+</select>
               </div>
             </div>
 
@@ -2894,14 +3019,23 @@ function showRidNotification(rid) {
               </button>
               
               ${isDeveloper() ? `
-                <button type="button" onclick="deleteRidDirectly('${rid.id}')" class="flex-1 py-3 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-colors">
-                  Excluir RID
-                </button>
-              ` : isAdmin() && rid.status === 'PENDENTE' ? `
-                <button type="button" onclick="showDeleteRequestModal('${rid.id}')" class="flex-1 py-3 bg-red-500 text-white rounded-lg font-bold hover:bg-red-600 transition-colors">
-                  Solicitar Exclusão
-                </button>
-              ` : ''}
+  <button
+    type="button"
+    onclick="deleteRidDirectly('${rid.id}')"
+    class="flex-1 py-3 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-colors"
+  >
+    Excluir RID
+  </button>
+` : isAdmin() && !rid.deleted ? `
+  <button
+    type="button"
+    onclick="showDeleteRequestModal('${rid.id}')"
+    class="flex-1 py-3 bg-yellow-500 text-white rounded-lg font-bold hover:bg-yellow-600 transition-colors"
+  >
+    Solicitar remoção
+  </button>
+` : ''}
+
               
               <button type="button" onclick="this.closest('.modal-backdrop').remove()" class="flex-1 py-3 bg-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-400 transition-colors">
                 Cancelar
@@ -2913,18 +3047,114 @@ function showRidNotification(rid) {
       document.body.appendChild(modal);
     }
 
+function handleEncerramentoChange(select, ridId) {
+  if (select.value !== 'ENCERRADO') return;
+
+  if (!isAdmin() && !isDeveloper()) {
+    showToast('Sem permissão para encerrar RID', 'error');
+    select.value = 'EM ANDAMENTO';
+    return;
+  }
+
+  showEncerramentoMotivoModal(ridId, select);
+}
+
+function showEncerramentoMotivoModal(ridId, statusSelect) {
+  const modal = document.createElement('div');
+  modal.className =
+    'modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
+
+  modal.innerHTML = `
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-md">
+      <div class="border-b px-6 py-4 bg-gray-100">
+        <h3 class="text-lg font-bold text-gray-800">
+          Encerrar RID
+        </h3>
+        <p class="text-sm text-gray-600 mt-1">
+          Informe o motivo do encerramento
+        </p>
+      </div>
+
+      <div class="p-6">
+        <textarea
+          id="encerramentoMotivo"
+          rows="4"
+          class="w-full px-4 py-2 border border-gray-300 rounded-lg"
+          placeholder="Ex: Não existe solução técnica viável para este risco"
+        ></textarea>
+
+        <div class="flex gap-3 mt-6">
+          <button
+            onclick="confirmarEncerramento('${ridId}')"
+            class="flex-1 py-3 bg-gray-700 text-white rounded-lg font-bold hover:bg-gray-800"
+          >
+            Salvar motivo
+          </button>
+
+          <button
+            onclick="cancelarEncerramento(this)"
+            class="flex-1 py-3 bg-gray-300 text-gray-700 rounded-lg font-bold hover:bg-gray-400"
+          >
+            Cancelar
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  // guarda referência do select pra caso cancele
+  window._encerramentoSelect = statusSelect;
+}
+async function confirmarEncerramento(ridId) {
+  const motivo = document.getElementById('encerramentoMotivo')?.value?.trim();
+
+  if (!motivo || motivo.length < 5) {
+    showToast('Informe um motivo válido para encerrar o RID', 'error');
+    return;
+  }
+
+  const updates = {
+    status: 'ENCERRADO',
+
+    // 🔥 motivo vira ação corretiva oficial
+    correctiveActions: motivo,
+
+    conclusionDate: firebase.firestore.FieldValue.serverTimestamp()
+  };
+
+  const success = await updateRid(ridId, updates);
+
+  if (success) {
+    document
+      .querySelectorAll('.modal-backdrop')
+      .forEach(m => m.remove());
+
+    showToast('RID encerrado com sucesso');
+  }
+}
+function cancelarEncerramento(button) {
+  button.closest('.modal-backdrop')?.remove();
+
+  if (window._encerramentoSelect) {
+    window._encerramentoSelect.value = 'EM ANDAMENTO';
+    window._encerramentoSelect = null;
+  }
+}
+
     function showDeleteRequestModal(ridId) {
       const modal = document.createElement('div');
       modal.className = 'modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
       modal.innerHTML = `
         <div class="bg-white rounded-xl shadow-2xl w-full max-w-md">
           <div class="border-b-2 px-6 py-4 bg-red-50" style="border-color: #ff6b6b;">
-            <h3 class="text-xl font-bold text-red-800">Solicitar Exclusão da RID</h3>
+            <h3 class="text-xl font-bold text-red-800">Solicitar Remoção do RID</h3>
           </div>
           <form onsubmit="handleDeleteRequest(event, '${ridId}')" class="p-6">
             <div class="mb-6">
-              <label class="block text-sm font-bold mb-2 text-gray-700">Motivo da Exclusão</label>
-              <textarea name="reason" required rows="4" placeholder="Explique por que esta RID deve ser excluída..." class="w-full px-4 py-2 border border-gray-300 rounded-lg"></textarea>
+              <label class="block text-sm font-bold mb-2 text-gray-700">Motivo da Remoção</label>
+              <textarea name="reason" required rows="4" placeholder="Explique por que este RID deve ser excluído..." class="w-full px-4 py-2 border border-gray-300 rounded-lg"></textarea>
             </div>
             <div class="flex space-x-4">
               <button type="submit" class="flex-1 py-3 bg-red-500 text-white rounded-lg font-bold hover:bg-red-600 transition-colors">
@@ -3375,43 +3605,94 @@ function showRidNotification(rid) {
           
           <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
             <div class="max-w-7xl mx-auto">
-              <h1 class="text-3xl font-bold text-gray-800 mb-8">Solicitações Pendentes</h1>
+     <h1 class="text-3xl font-bold text-gray-800 mb-8">
+  Solicitações Pendentes
+</h1>
 
-            
+<div class="bg-white rounded-2xl shadow-xl p-8">
 
-              <div>
-                <h2 class="text-2xl font-bold text-gray-800 mb-4">Exclusões de Funcionários</h2>
-                ${empRequests.length === 0 ?
-                  '<div class="bg-white rounded-xl shadow-lg p-8 text-center"><p class="text-gray-500">Nenhuma solicitação pendente</p></div>' :
-                  empRequests.map(req => `
-                    <div class="bg-white rounded-xl shadow-lg p-6 mb-4">
-                      <div class="flex items-start justify-between">
-                        <div class="flex-1">
-                          <div class="flex items-center space-x-3 mb-3">
-                            <div class="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold" style="background-color: #c4a8e0;">
-                              ${req.userName.charAt(0)}
-                            </div>
-                            <div>
-                              <p class="font-bold text-gray-800">${req.userName}</p>
-                              <span class="text-sm text-gray-500">${formatDate(req.createdAt)}</span>
-                            </div>
-                          </div>
-                          <p class="text-gray-700 mb-2"><strong>Solicitante:</strong> ${req.requesterName}</p>
-                          <p class="text-gray-700"><strong>Motivo:</strong> ${req.reason}</p>
-                        </div>
-                        <div class="flex space-x-2">
-                          <button onclick="approveEmployeeDeletion('${req.id}', '${req.userId}', '${req.requesterId}')" class="px-4 py-2 bg-green-500 text-white rounded-lg font-bold hover:bg-green-600 transition-colors">
-                            Aprovar
-                          </button>
-                          <button onclick="rejectEmployeeDeletion('${req.id}', '${req.requesterId}')" class="px-4 py-2 bg-red-500 text-white rounded-lg font-bold hover:bg-red-600 transition-colors">
-                            Rejeitar
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  `).join('')
-                }
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+
+    <!-- 🟦 CARD: SOLICITAÇÕES DE REMOÇÃO DE RID -->
+    <div class="bg-gray-50 rounded-xl p-6 border border-gray-200">
+      <h2 class="text-xl font-bold text-gray-800 mb-4">
+        Solicitações de remoção de RID
+      </h2>
+
+      ${
+        ridRequests.length === 0
+          ? `
+            <div class="bg-white rounded-lg shadow p-6 text-center">
+              <p class="text-gray-500">Nenhuma solicitação pendente</p>
+            </div>
+          `
+          : ridRequests.map(req => `
+            <div class="bg-white rounded-xl shadow-md p-6 mb-4">
+              <p class="font-bold text-gray-800 mb-1">
+                RID #${req.ridNumber || '—'}
+              </p>
+
+              <p class="text-sm text-gray-500 mb-2">
+                ${formatDate(req.createdAt)}
+              </p>
+
+              <p class="text-sm text-gray-700 mb-2">
+                <strong>Solicitado por:</strong> ${req.requesterName}
+              </p>
+
+              <div class="mt-2 p-3 rounded-lg bg-gray-100 border border-gray-300">
+                <p class="text-sm font-bold text-gray-700 mb-1">
+                  Motivo da solicitação
+                </p>
+                <p class="text-sm text-gray-800 whitespace-pre-line">
+                  ${req.reason || 'Motivo não informado'}
+                </p>
               </div>
+
+              <div class="flex gap-2 mt-4">
+                <button
+                  onclick="approveRidDeletion('${req.id}', '${req.ridId}', '${req.requesterId}')"
+                  class="flex-1 py-2 bg-green-500 text-white rounded-lg font-bold hover:bg-green-600"
+                >
+                  Aprovar
+                </button>
+
+                <button
+                  onclick="rejectRidDeletion('${req.id}', '${req.requesterId}')"
+                  class="flex-1 py-2 bg-red-500 text-white rounded-lg font-bold hover:bg-red-600"
+                >
+                  Rejeitar
+                </button>
+              </div>
+            </div>
+          `).join('')
+      }
+    </div>
+
+    <!-- 🟪 CARD: EXCLUSÕES DE FUNCIONÁRIOS -->
+    <div class="bg-gray-50 rounded-xl p-6 border border-gray-200">
+      <h2 class="text-xl font-bold text-gray-800 mb-4">
+        Exclusões de Funcionários
+      </h2>
+
+      ${
+        empRequests.length === 0
+          ? `
+            <div class="bg-white rounded-lg shadow p-6 text-center">
+              <p class="text-gray-500">Nenhuma solicitação pendente</p>
+            </div>
+          `
+          : empRequests.map(req => `
+            <div class="bg-white rounded-xl shadow-md p-6 mb-4">
+              <!-- mantém o card de funcionário que você já tinha -->
+            </div>
+          `).join('')
+      }
+    </div>
+
+  </div>
+</div>
+
             </div>
           </div>
         </div>
@@ -3423,8 +3704,17 @@ function showRidNotification(rid) {
     async function approveRidDeletion(requestId, ridId, requesterId) {
       try {
         const rid = allRids.find(r => r.id === ridId);
-        
-        await db.collection('rids').doc(ridId).delete();
+await db.collection('rids').doc(ridId).update({
+  deleted: true,
+  deletedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  deletedBy: {
+    uid: requesterId,
+    name: rid?.requesterName || 'Solicitação',
+    role: 'REQUEST'
+  },
+  deleteReason: 'Solicitação de exclusão aprovada'
+});
+
         await db.collection('deleteRequests').doc(requestId).update({ status: 'approved' });
         
         await createNotification(requesterId, {
@@ -3546,11 +3836,14 @@ function showRidNotification(rid) {
       const currentMonth = now.getMonth() + 1;
       const currentYear = now.getFullYear();
       
-      // Filter RIDs for current month by default
-      const currentMonthRids = allRids.filter(r => {
-        const ridDate = r.emissionDate.toDate();
-        return ridDate.getMonth() + 1 === currentMonth && ridDate.getFullYear() === currentYear;
-      });
+      // Filter RIDs for current month by default (ignorando RIDs removidos)
+const currentMonthRids = allRids
+  .filter(r => !r.deleted)
+  .filter(r => {
+    const ridDate = r.emissionDate.toDate();
+    return ridDate.getMonth() + 1 === currentMonth &&
+           ridDate.getFullYear() === currentYear;
+  });
       
       const app = document.getElementById('app');
       app.innerHTML = `
@@ -4109,6 +4402,12 @@ const sector = document.getElementById('devSector')?.value;
 if (sector) {
   base = base.filter(r => r.sector === sector);
 }
+// calculo de exclusão
+const deletedRids = allRids.filter(r =>
+  r.deleted === true ||
+  r.status === 'EXCLUIDO' ||
+  r.status === 'EXCLUÍDO'
+);
 
 // 📅 Filtro por período
 const month = document.getElementById('devMonth')?.value;
@@ -4368,6 +4667,60 @@ const sectorRanking = Object.entries(sectorRisk)
     `
   }
 </div>
+
+<!-- CARD: RIDs REMOVIDOS -->
+<div class="bg-gray-100 border-2 border-dashed border-gray-400 rounded-xl p-6 mt-10">
+
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-lg font-bold text-gray-700">
+      🗑️ RIDs Removidos do Sistema
+    </h2>
+
+    <span class="text-sm font-semibold text-gray-600">
+      Total: ${deletedRids.length}
+    </span>
+  </div>
+
+  ${
+    deletedRids.length === 0
+      ? `<p class="text-gray-500">Nenhuma RID removida até o momento</p>`
+      : `
+        <div class="space-y-3 max-h-[450px] overflow-y-auto pr-2">
+          ${deletedRids.map(r => `
+            <div class="bg-white rounded-lg p-4 opacity-80">
+              <div class="flex items-center justify-between">
+
+                <div>
+                  <p class="font-semibold text-gray-800">
+                    RID #${r.ridNumber || '—'}
+                    <span class="ml-2 text-xs bg-gray-400 text-white px-2 py-0.5 rounded-full">
+                      REMOVIDO
+                    </span>
+                  </p>
+
+                  <p class="text-sm text-gray-600">
+                    Setor: ${r.sector || '—'}
+                  </p>
+
+                  <p class="text-sm text-gray-600">
+                    Motivo: ${r.deleteReason || 'Não informado'}
+                  </p>
+                </div>
+
+                <div class="text-right text-sm text-gray-500">
+                  <p>Removido por: ${r.deletedBy?.name || '—'}</p>
+                  <p>${r.deletedAt ? formatDate(r.deletedAt) : ''}</p>
+                </div>
+
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `
+  }
+
+</div>
+
         </div>
       </div>
     </div>
