@@ -1547,7 +1547,7 @@ await db.collection('goals').doc(monthYear).set({
 
   return allUsers
     // somente funcionários
-    .filter(u => !u.isAdmin && !u.isDeveloper)
+    .filter(u => true)
 
     // 🔥 FILTRO POR SETOR (AQUI ESTAVA FALTANDO)
     .filter(u => !selectedSector || u.sector === selectedSector)
