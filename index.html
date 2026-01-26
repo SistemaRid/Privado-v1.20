@@ -4105,7 +4105,7 @@ const currentMonthRids = allRids
         <tr class="hover:bg-gray-50 cursor-pointer" onclick="showRidDetails('${rid.id}')">
           <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.unit || '-'}</td>
           <td class="px-4 py-3 text-sm font-bold text-gray-800 whitespace-nowrap">${rid.ridNumber}</td>
-          <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${formatDate(rid.emissionDate)}</td>
+          <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${formatDate(rid.createdAt || rid.emissionDate)}</td>
           <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.emitterName}</td>
           <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.contractType || '-'}</td>
           <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.sector || '-'}</td>
