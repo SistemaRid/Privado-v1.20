@@ -188,14 +188,20 @@ let unsubscribeLeader = null;
 
 function listenRidsRealtimeEmployee() {
   return db.collection("rids")
-    .where("emitterCpf", "==", currentUserData.cpf)
-    .orderBy("createdAt", "desc")
+    .where("emitterId", "==", currentUser.uid)
     .onSnapshot(
       snapshot => {
         allRids = snapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data()
         }));
+
+        // opcional: ordena no cliente (não precisa de índice)
+        allRids.sort((a, b) => {
+          const ta = a.createdAt?.toMillis?.() || 0;
+          const tb = b.createdAt?.toMillis?.() || 0;
+          return tb - ta;
+        });
 
         renderEmployeeDashboard();
       },
@@ -205,6 +211,7 @@ function listenRidsRealtimeEmployee() {
       }
     );
 }
+
 
 function spawnConfetti(card) {
   if (!card) return;
