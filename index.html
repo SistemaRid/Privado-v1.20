@@ -1997,8 +1997,8 @@ const monthlyUserStats = Object.values(ridsByUser)
              <!-- Week  RIDs -->
               <div class="bg-white rounded-xl shadow-lg p-6">
                 <h3 class="text-xl font-bold text-gray-800 mb-6">RIDs da Semana</h3>
-                <div class="space-y-3 max-h-[360px] overflow-y-auto pr-2">
-                  ${weekRids.length === 0 ? '<p class="text-gray-500 text-center py-8">Nenhuma RID nesta semana</p>' : weekRids.slice(0, 10).map(rid => `
+               <div class="space-y-3 max-h-[360px] overflow-y-auto pr-2">
+                  ${weekRids.length === 0 ? '<p class="text-gray-500 text-center py-8">Nenhuma RID nesta semana</p>' : weekRids.map(rid => `
                     <div class="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow cursor-pointer p-4"onclick="showRidDetails('${rid.id}')"
 ')">
                       <div class="flex items-center justify-between w-full">
