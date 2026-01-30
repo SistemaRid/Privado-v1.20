@@ -5354,12 +5354,28 @@ ${
 
 <!-- 🔧 Ação corretiva -->
 ${
-  rid.status === 'CORRIGIDO' && rid.correctiveActions
-    ? `<div class="mt-2 text-sm text-green-700 bg-green-50 p-2 rounded-lg">
-         <strong>Ação corretiva:</strong> ${rid.correctiveActions}
-       </div>`
+  rid.status === 'CORRIGIDO'
+    ? `
+      <div class="mt-3 p-3 rounded-lg bg-green-50 border border-green-200">
+        <p class="text-sm font-bold text-green-700 mb-1">
+          Ação corretiva
+        </p>
+        <p class="text-sm text-green-700">
+          ${
+            rid.correctiveActions && rid.correctiveActions.trim() !== ''
+              ? rid.correctiveActions
+              : (
+                  rid.emitterId === currentUser.uid
+                    ? 'Correção realizada pelo próprio emissor no momento da abertura do RID.'
+                    : 'Aguardando detalhamento da ação corretiva.'
+                )
+          }
+        </p>
+      </div>
+    `
     : ''
 }
+
 
 <!-- Linha 3 -->
 <div class="mt-3">
