@@ -2045,7 +2045,7 @@ const monthlyUserStats = Object.values(ridsByUser)
               <div class="bg-white rounded-xl shadow-lg p-6">
                 <h3 class="text-xl font-bold text-gray-800 mb-6">RIDs da Semana</h3>
                <div class="space-y-3 max-h-[360px] overflow-y-auto pr-2">
-                  ${weekRids.length === 0 ? '<p class="text-gray-500 text-center py-8">Nenhuma RID nesta semana</p>' : weekRids.map(rid => `
+                  ${weekRids.length === 0 ? '<p class="text-gray-500 text-center py-8">Nenhum RID nesta semana</p>' : weekRids.map(rid => `
                     <div class="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow cursor-pointer p-4"onclick="showRidDetails('${rid.id}')"
 ')">
                       <div class="flex items-center justify-between w-full">
@@ -2118,7 +2118,7 @@ const monthlyUserStats = Object.values(ridsByUser)
 
     ${
       monthlyUserStats.length === 0
-        ? '<p class="text-gray-500 text-center py-8">Nenhuma RID no período</p>'
+        ? '<p class="text-gray-500 text-center py-8">Nenhum RID no período</p>'
         : monthlyUserStats.map(user => `
           <div class="flex items-center justify-between p-4 rounded-lg bg-gray-100">
             <div class="flex items-center gap-3">
@@ -2304,12 +2304,20 @@ const doughnutPercentCallouts = {
 
   plugins: {
     legend: {
-      position: 'bottom', // ✅ no mobile não espreme o gráfico
-      labels: {
-        usePointStyle: true,
-        padding: 14
-      }
-    },
+  position: 'bottom',
+  align: 'center',
+  maxHeight: 24,
+  labels: {
+    usePointStyle: true,
+    boxWidth: 10,
+    boxHeight: 10,
+    padding: 10,
+    font: {
+      size: 12
+    }
+  }
+},
+
 
     // ✅ configurações do plugin (menor pra caber no card)
     doughnutPercentCallouts: {
@@ -2682,7 +2690,7 @@ function isAdminOrDev() {
   if (rids.length === 0) {
     return `
       <div class="bg-white rounded-xl shadow-lg p-12 text-center">
-        <p class="text-gray-500 text-lg">Nenhuma RID encontrada</p>
+        <p class="text-gray-500 text-lg">Nenhum RID encontrado</p>
       </div>
     `;
   }
@@ -4277,7 +4285,7 @@ const currentMonthRids = allRids
                     </tbody>
                   </table>
                 </div>
-                ${currentMonthRids.length === 0 ? '<div class="p-8 text-center text-gray-500">Nenhuma RID encontrada no período selecionado</div>' : ''}
+                ${currentMonthRids.length === 0 ? '<div class="p-8 text-center text-gray-500">Nenhum RID encontrado no período selecionado</div>' : ''}
               </div>
             </div>
           </div>
@@ -4924,7 +4932,7 @@ const sectorRanking = Object.entries(sectorRisk)
   </h2>
 
   ${riskList.length === 0
-    ? `<p class="text-gray-500">Nenhuma RID crítica no momento 🎉</p>`
+    ? `<p class="text-gray-500">Nenhum RID crítico no momento</p>`
     : `
       <div class="max-h-[600px] overflow-y-auto space-y-4 pr-2">
         ${renderRidsList(riskList)}
@@ -4948,7 +4956,7 @@ const sectorRanking = Object.entries(sectorRisk)
 
   ${
     deletedRids.length === 0
-      ? `<p class="text-gray-500">Nenhuma RID removida até o momento</p>`
+      ? `<p class="text-gray-500">Nenhum RID removido até o momento</p>`
       : `
         <div class="space-y-3 max-h-[450px] overflow-y-auto pr-2">
           ${deletedRids.map(r => `
@@ -5526,7 +5534,7 @@ async function loadImageAsBase64(url) {
               ${myRids.length === 0
   ? `
     <div class="bg-white rounded-xl shadow-lg p-12 text-center">
-      <p class="text-gray-500 text-lg">Você ainda não criou nenhuma RID</p>
+      <p class="text-gray-500 text-lg">Você ainda não criou nenhum RID</p>
     </div>
   `
   : `
