@@ -1310,6 +1310,9 @@ async function loadUsers() {
 
     function updateGoalDisplay() {
       const display = document.getElementById('monthGoalDisplay');
+      const displayMobile = document.getElementById('monthGoalDisplayMobile');
+      const cardMobile = document.getElementById('statusRidsCardMobile');
+
       if (!display) {
         // If display element doesn't exist yet, try again in a moment
         setTimeout(updateGoalDisplay, 100);
@@ -1331,12 +1334,21 @@ async function loadUsers() {
     const oldBadge = card.querySelector('.goal-badge');
     if (oldBadge) oldBadge.remove();
   }
+  if (cardMobile) {
+  const oldBadgeMobile = cardMobile.querySelector('.goal-badge');
+  if (oldBadgeMobile) oldBadgeMobile.remove();
+}
+
 
   if (currentCount >= monthlyGoal) {
     console.log('CONFETE DISPARADO', card);
     display.textContent =
       `Meta do Mês: ${currentCount}/${monthlyGoal} (${percentage}%) • Meta atingida!`;
     display.style.color = '#10b981'; // Green
+if (displayMobile) {
+  displayMobile.textContent = display.textContent;
+  displayMobile.style.color = display.style.color;
+}
 
     // 🎉 adiciona selo animado
     if (card) {
@@ -1345,6 +1357,18 @@ async function loadUsers() {
       badge.innerHTML = '✓';
       card.appendChild(badge);
     }
+
+    // ✅ badge também no mobile
+if (cardMobile) {
+  const oldBadgeMobile = cardMobile.querySelector('.goal-badge');
+  if (oldBadgeMobile) oldBadgeMobile.remove();
+
+  const badgeMobile = document.createElement('div');
+  badgeMobile.className = 'goal-badge';
+  badgeMobile.innerHTML = '✓';
+  cardMobile.appendChild(badgeMobile);
+}
+
 
     // 🎊 confetes sutis
     spawnConfetti(card);
@@ -1358,6 +1382,11 @@ async function loadUsers() {
     } else {
       display.style.color = '#6b7280'; // Gray
     }
+    if (displayMobile) {
+  displayMobile.textContent = display.textContent;
+  displayMobile.style.color = display.style.color;
+}
+
   }
 
   // estilo fixo
@@ -1365,9 +1394,18 @@ async function loadUsers() {
   display.style.fontWeight = '600';
   display.style.marginTop = '0.25rem';
 
+  if (displayMobile) {
+  displayMobile.style.fontSize = '0.80rem';
+  displayMobile.style.fontWeight = '600';
+  displayMobile.style.marginTop = '0.25rem';
+}
+
+
 } else {
   display.textContent = '';
+  if (displayMobile) displayMobile.textContent = '';
 }
+
     }
 
     function showGoalModal() {
@@ -1910,8 +1948,8 @@ const monthlyUserStats = Object.values(ridsByUser)
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 mb-8">
                 <!-- Chart -->
                 <div 
-                 id="statusRidsCard"
-                class="bg-white rounded-xl shadow-lg p-6 relative overflow-hidden">
+ id="statusRidsCard"
+ class="hidden md:block bg-white rounded-xl shadow-lg p-6 relative overflow-hidden">
                   <div class="flex items-center justify-between mb-4 md:mb-6">
                     <div class="flex-1">
                       <h3 class="text-lg md:text-xl font-bold text-gray-800">Status dos RIDs</h3>
@@ -1940,7 +1978,6 @@ const monthlyUserStats = Object.values(ridsByUser)
                         </div>
                       </div>
                     </div>
-
                     <div class="flex items-center space-x-4">
                       <div class="w-32 flex-shrink-0">
                         <p class="text-sm font-bold text-gray-700">VENCIDO</p>
@@ -1991,6 +2028,16 @@ const monthlyUserStats = Object.values(ridsByUser)
                   </div>
                 </div>
               </div>
+<!-- 📱 MOBILE: Status dos RIDs (igual ao de barras do PC) -->
+<div id="statusRidsCardMobile" class="md:hidden bg-white rounded-xl shadow-lg p-4 mb-6 relative overflow-hidden">
+  <h3 class="text-lg font-bold text-gray-800 mb-1">
+    Status dos RIDs
+  </h3>
+<p id="monthGoalDisplayMobile" class="text-xs font-semibold mt-1"></p>
+  <div class="relative w-full" style="height:220px;">
+    <canvas id="dashboardStatusChart"></canvas>
+  </div>
+</div>
 
               <div class="space-y-10">
 
@@ -2140,11 +2187,143 @@ const monthlyUserStats = Object.values(ridsByUser)
           </div>
         </div>
       `;
+setTimeout(() => {
+  renderDashboardStatusChart(openRids, overdueRids, correctedRids);
+}, 0);
 
       if (isDeveloper()) {
         updateRequestsBadge();
       }
     }
+
+    // ✅ Plugin: risquinho + % fora do doughnut
+const doughnutPercentCallouts = {
+  id: 'doughnutPercentCallouts',
+  afterDatasetsDraw(chart, args, pluginOptions) {
+    const { ctx } = chart;
+    const dataset = chart.data.datasets?.[0];
+    if (!dataset) return;
+
+    const meta = chart.getDatasetMeta(0);
+    if (!meta?.data?.length) return;
+
+    const data = dataset.data || [];
+    const total = data.reduce((a, b) => a + (Number(b) || 0), 0);
+    if (!total) return;
+
+    const fontSize = pluginOptions?.fontSize ?? 12;
+    const lineLength = pluginOptions?.lineLength ?? 14;
+    const lineGap = pluginOptions?.lineGap ?? 6;
+    const minPercent = pluginOptions?.minPercent ?? 3; // não polui com fatia minúscula
+
+    ctx.save();
+    ctx.font = `700 ${fontSize}px Arial`;
+    ctx.fillStyle = pluginOptions?.textColor ?? '#374151'; // cinza escuro
+    ctx.strokeStyle = pluginOptions?.lineColor ?? '#9CA3AF'; // cinza
+    ctx.lineWidth = pluginOptions?.lineWidth ?? 2;
+
+    meta.data.forEach((arc, i) => {
+      const value = Number(data[i]) || 0;
+      if (!value) return;
+
+      const percent = (value / total) * 100;
+      if (percent < minPercent) return;
+
+      // ponto na borda da fatia
+      const angle = (arc.startAngle + arc.endAngle) / 2;
+      const r = arc.outerRadius;
+
+      const x0 = arc.x + Math.cos(angle) * r;
+      const y0 = arc.y + Math.sin(angle) * r;
+
+      // pontinho fora (risquinho)
+      const x1 = arc.x + Math.cos(angle) * (r + lineLength);
+      const y1 = arc.y + Math.sin(angle) * (r + lineLength);
+
+      // pequeno “cotovelo” para esquerda/direita
+      const isRight = Math.cos(angle) >= 0;
+      const x2 = x1 + (isRight ? lineGap : -lineGap);
+      const y2 = y1;
+
+      // desenha linha
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+
+      // texto %
+      const label = `${Math.round(percent)}%`;
+      ctx.textAlign = isRight ? 'left' : 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, x2 + (isRight ? 4 : -4), y2);
+    });
+
+    ctx.restore();
+  }
+};
+
+   function renderDashboardStatusChart(openRids, overdueRids, correctedRids) {
+  const canvas = document.getElementById('dashboardStatusChart');
+  if (!canvas) return;
+
+  const ctx = canvas.getContext('2d');
+
+  // 🔥 destruir gráfico anterior (evita bug ao re-renderizar dashboard)
+  if (
+    window.dashboardStatusChart &&
+    typeof window.dashboardStatusChart.destroy === 'function'
+  ) {
+    window.dashboardStatusChart.destroy();
+  }
+
+  window.dashboardStatusChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Em Andamento', 'Vencido', 'Corrigido'],
+      datasets: [
+        {
+          data: [openRids, overdueRids, correctedRids],
+          backgroundColor: ['#f59e0b', '#ef4444', '#22c55e'], // laranja, vermelho, verde
+          borderWidth: 0
+        }
+      ]
+    },
+
+    // ✅ ativa o plugin dos risquinhos
+    plugins: [doughnutPercentCallouts],
+
+    options: {
+  responsive: true,
+  maintainAspectRatio: false,
+
+  // ✅ cria “margem” dentro do canvas (impede o risquinho de cortar)
+  layout: {
+    padding: { top: 10, right: 22, bottom: 14, left: 22 }
+  },
+
+  plugins: {
+    legend: {
+      position: 'bottom', // ✅ no mobile não espreme o gráfico
+      labels: {
+        usePointStyle: true,
+        padding: 14
+      }
+    },
+
+    // ✅ configurações do plugin (menor pra caber no card)
+    doughnutPercentCallouts: {
+      fontSize: 11,
+      lineLength: 10,
+      lineGap: 4,
+      minPercent: 2
+    }
+  }
+}
+
+  });
+}
+
 
 function renderMyRidsPage() {
   if (!isAdmin() && !isDeveloper()) {
@@ -4989,6 +5168,46 @@ function renderDevRiskChart(base) {
   const medium = base.filter(r => r.riskClassification === 'Médio').length;
 
   window.devRiskChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Crítico', 'Alto', 'Médio'],
+      datasets: [{
+        data: [critical, high, medium],
+        backgroundColor: ['#dc2626', '#f59e0b', '#10b981']
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'right',
+          labels: {
+            usePointStyle: true,
+            padding: 20
+          }
+        }
+      }
+    }
+  });
+}
+
+function renderDashboardRiskChart(base) {
+  const canvas = document.getElementById('dashboardRiskChart');
+  if (!canvas) return;
+
+  const ctx = canvas.getContext('2d');
+
+  // 🔥 Se existir um gráfico antigo válido, destrói
+  if (window.dashboardRiskChart && typeof window.dashboardRiskChart.destroy === 'function') {
+    window.dashboardRiskChart.destroy();
+  }
+
+  const critical = base.filter(r => r.riskClassification === 'Crítico').length;
+  const high = base.filter(r => r.riskClassification === 'Alto').length;
+  const medium = base.filter(r => r.riskClassification === 'Médio').length;
+
+  window.dashboardRiskChart = new Chart(ctx, {
     type: 'doughnut',
     data: {
       labels: ['Crítico', 'Alto', 'Médio'],
