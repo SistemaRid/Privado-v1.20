@@ -421,41 +421,38 @@ function spawnConfetti(card) {
     }
 
     function getFilteredRids() {
-  const periodInput = document.getElementById('dashboardPeriod');
+  const monthSelect = document.getElementById('dashboardMonth');
+  const yearInput = document.getElementById('dashboardYear');
   const sectorSelect = document.getElementById('dashboardSector');
 
   let filtered = allRids.filter(r => !r.deleted);
 
-  // 🔹 FILTRO POR PERÍODO (MÊS + ANO)
-  if (periodInput && periodInput.value) {
-    const [year, month] = periodInput.value.split('-').map(Number);
+  const now = new Date();
+  const month = monthSelect?.value
+    ? parseInt(monthSelect.value)
+    : now.getMonth() + 1;
 
-    filtered = filtered.filter(r => {
-      const d = r.emissionDate.toDate();
-      return (
-        d.getFullYear() === year &&
-        d.getMonth() + 1 === month
-      );
-    });
-  } else {
-    // padrão: mês atual
-    const now = new Date();
-    filtered = filtered.filter(r => {
-      const d = r.emissionDate.toDate();
-      return (
-        d.getFullYear() === now.getFullYear() &&
-        d.getMonth() + 1 === now.getMonth() + 1
-      );
-    });
-  }
+  const year = yearInput?.value
+    ? parseInt(yearInput.value)
+    : now.getFullYear();
 
-  // 🔹 FILTRO POR SETOR
-  if (sectorSelect && sectorSelect.value) {
+  // 🔹 FILTRO MÊS + ANO
+  filtered = filtered.filter(r => {
+    if (!r.emissionDate) return false;
+    const d = r.emissionDate.toDate();
+    return (
+      d.getFullYear() === year &&
+      d.getMonth() + 1 === month
+    );
+  });
+
+  // 🔹 FILTRO SETOR
+  if (sectorSelect?.value) {
     filtered = filtered.filter(r => r.sector === sectorSelect.value);
   }
+
   return filtered;
 }
-
 
     function filterDashboard() {
       renderAdminDashboard();
@@ -1866,12 +1863,12 @@ const monthlyUserStats = Object.values(ridsByUser)
   <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full">
 
     <button
-      onclick="filterDashboard()"
-      class="h-11 px-6 rounded-lg font-semibold text-white"
-      style="background-color:#a8d5e2;"
-    >
-      Aplicar
-    </button>
+  onclick="filterDashboard()"
+  class="bg-blue-300 text-white px-6 py-2 rounded-lg font-semibold"
+>
+  Aplicar
+</button>
+
 
     <button
       onclick="clearDashboardFilters()"
