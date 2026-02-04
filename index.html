@@ -186,6 +186,30 @@ p, span, h1, h2, h3, h4 {
 
 let unsubscribeLeader = null;
 
+// =========================
+// DATA SEGURA PARA RID
+// =========================
+function getRidDateSafe(r) {
+  // padrão correto
+  if (r?.emissionDate && typeof r.emissionDate.toDate === "function") {
+    return r.emissionDate.toDate();
+  }
+
+  // fallback: createdAt
+  if (r?.createdAt && typeof r.createdAt.toDate === "function") {
+    return r.createdAt.toDate();
+  }
+
+  // último fallback: string
+  if (r?.date) {
+    const d = new Date(r.date + "T00:00:00");
+    if (!isNaN(d.getTime())) return d;
+  }
+
+  return null;
+}
+
+
 function listenRidsRealtimeEmployee() {
   return db.collection("rids")
     .where("emitterId", "==", currentUser.uid)
@@ -1573,7 +1597,20 @@ await db.collection('goals').doc(monthYear).set({
     function canOpenRid(rid) {
   return isAdmin() || rid.responsibleLeader === currentUser.uid;
 }  
-    
+    function getRidDateSafe(r) {
+  if (r?.emissionDate && typeof r.emissionDate.toDate === "function") {
+    return r.emissionDate.toDate();
+  }
+  if (r?.createdAt && typeof r.createdAt.toDate === "function") {
+    return r.createdAt.toDate();
+  }
+  if (r?.date) {
+    const d = new Date(r.date + "T00:00:00");
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
     function getEmployeesWithoutRidsThisMonth(allUsers, filteredRids) {
   const now = new Date();
 
@@ -1602,16 +1639,21 @@ await db.collection('goals').doc(monthYear).set({
       // última RID do funcionário (se existir)
       const lastRid = allRids.filter(r => !r.deleted)
         .filter(r => r.emitterId === u.id && r.emissionDate)
-        .sort(
-          (a, b) =>
-            b.emissionDate.toDate() - a.emissionDate.toDate()
-        )[0];
+        .sort((a, b) => {
+  const da = getRidDateSafe(a);
+  const db = getRidDateSafe(b);
+  // quem não tem data vai pro final
+  if (!da && !db) return 0;
+  if (!da) return 1;
+  if (!db) return -1;
+  return db - da;
+})[0];
 
       let lastDate = null;
       let daysWithout = null;
 
-      if (lastRid) {
-        lastDate = lastRid.emissionDate.toDate();
+      if (lastRid && lastDate) {
+        lastDate = getRidDateSafe(lastRid);
         daysWithout = Math.floor(
           (now - lastDate) / (1000 * 60 * 60 * 24)
         );
