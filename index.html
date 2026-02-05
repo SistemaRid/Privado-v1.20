@@ -209,6 +209,14 @@ function getRidDateSafe(r) {
   return null;
 }
 
+function getEmissionDateOnly(r) {
+  // Só vale se for Timestamp do Firestore
+  if (r?.emissionDate && typeof r.emissionDate.toDate === "function") {
+    return r.emissionDate.toDate();
+  }
+  return null; // sem fallback pra createdAt
+}
+
 
 function listenRidsRealtimeEmployee() {
   return db.collection("rids")
@@ -765,6 +773,53 @@ if (window.currentPage === 'designated') renderDesignatedPage();
 
     async function updateRid(ridId, updates) {
   try {
+      // =========================
+  // 🔔 Validação de STATUS
+  // =========================
+  if (updates.status) {
+
+    // EM ANDAMENTO
+    if (updates.status === 'EM ANDAMENTO') {
+      if (!updates.observations || updates.observations.trim() === '') {
+        showToast(
+          '⚠️ Para status "EM ANDAMENTO", é OBRIGATORIO preencher o campo Observações.',
+          'error'
+        );
+        return false;
+      }
+    }
+
+    // CORRIGIDO
+    if (updates.status === 'CORRIGIDO') {
+      if (
+        !updates.correctiveActions || updates.correctiveActions.trim() === '' ||
+        !updates.conclusion || updates.conclusion.trim() === ''
+      ) {
+        showToast(
+          '⚠️ Para status "CORRIGIDO", é OBRIGATORIO preencher Ações Corretivas e Conclusão.',
+          'error'
+        );
+        return false;
+      }
+    }
+
+    // ENCERRADO
+    if (updates.status === 'ENCERRADO') {
+      if (
+        !updates.observations || updates.observations.trim() === '' ||
+        !updates.conclusion || updates.conclusion.trim() === ''
+      ) {
+        showToast(
+          '⚠️ Para status "ENCERRADO", é obrigatório preencher Observações e Conclusão.',
+          'error'
+        );
+        return false;
+      }
+    }
+
+    // VENCIDO → não valida nada
+  }
+
     // Se virou CORRIGIDO, grava data
     if (updates.status === 'CORRIGIDO' && !updates.conclusionDate) {
       updates.conclusionDate = firebase.firestore.FieldValue.serverTimestamp();
@@ -1226,13 +1281,18 @@ await ridRef.update({
       try {
         const rid = allRids.find(r => r.id === ridId);
         await db.collection('deleteRequests').add({
-          ridId: ridId,
-          requesterId: currentUser.uid,
-          requesterName: currentUserData.name,
-          reason: reason,
-          status: 'pending',
-          createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
+  ridId: ridId,
+
+  // ✅ NOVO: salva o número e a descrição do RID na hora da solicitação
+  ridNumber: rid?.ridNumber || null,
+  ridDescription: rid?.description || null,
+
+  requesterId: currentUser.uid,
+  requesterName: currentUserData.name,
+  reason: reason,
+  status: 'pending',
+  createdAt: firebase.firestore.FieldValue.serverTimestamp()
+});
         
         // Notify all developers about the deletion request (only developers can approve)
         const developerUsers = allUsers.filter(u => u.isDeveloper);
@@ -1650,14 +1710,17 @@ await db.collection('goals').doc(monthYear).set({
 })[0];
 
       let lastDate = null;
-      let daysWithout = null;
+let daysWithout = null;
 
-      if (lastRid && lastDate) {
-        lastDate = getRidDateSafe(lastRid);
-        daysWithout = Math.floor(
-          (now - lastDate) / (1000 * 60 * 60 * 24)
-        );
-      }
+if (lastRid) {
+  lastDate = getRidDateSafe(lastRid);
+
+  if (lastDate) {
+    daysWithout = Math.floor(
+      (now - lastDate) / (1000 * 60 * 60 * 24)
+    );
+  }
+}
 
       return {
         id: u.id,
@@ -1931,7 +1994,7 @@ const monthlyUserStats = Object.values(ridsByUser)
                       <p class="text-xs md:text-sm font-bold mb-1 text-gray-600">Total de RIDs</p>
                       <p class="text-xl md:text-3xl font-bold text-gray-800">${totalRids}</p>
                     </div>
-                    <div class="w-8 h-8 md:w-10 md:h-10 rounded-lg flex items-center justify-center"style="background-color: #a8d5e2;">
+                    <div class="w-8 h-8 md:w-12 md:h-12 rounded-lg flex items-center justify-center" style="background-color: #a8d5e2;">
                       <svg class="w-4 h-4 md:w-6 md:h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
                         <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z"/>
                         <path fill-rule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clip-rule="evenodd"/>
@@ -2205,7 +2268,7 @@ const monthlyUserStats = Object.values(ridsByUser)
                     ${
                       u.lastDate
                         ? `Último RID em ${u.lastDate.toLocaleDateString('pt-BR')}`
-                        : 'Nenhum RID no mes atual'
+                        : 'Nenhum RID Emitido Pelo Usuario'
                     }
                   </p>
                 </div>
@@ -3303,7 +3366,50 @@ const rid = { id: ridSnap.id, ...ridSnap.data() };
           </form>
         </div>
       `;
-      document.body.appendChild(modal);
+  document.body.appendChild(modal);
+
+// 🔒 Admin: trava tudo e libera só os campos permitidos
+// ✅ Developer: não aplica trava (edita tudo)
+const applyLock = () => {
+  // Se for developer, NÃO bloqueia nada
+  if (typeof isDeveloper === "function" && isDeveloper()) return;
+
+  const allowedNames = new Set([
+    "riskClassification",  // Classificação de Risco
+    "status",              // Status
+    "responsibleLeader",   // Responsável Designado
+    "deadline",            // Prazo
+    "observations",        // Observações
+    "correctiveActions",   // Ações Corretivas
+    "conclusion"           // Conclusão
+  ]);
+
+  document
+    .querySelectorAll(".modal-backdrop input, .modal-backdrop select, .modal-backdrop textarea")
+    .forEach(el => {
+      const name = el.getAttribute("name") || "";
+
+      // libera somente os campos permitidos
+      if (allowedNames.has(name)) {
+        el.disabled = false;
+        el.readOnly = false;
+        el.style.pointerEvents = "auto";
+        el.classList.remove("bg-gray-100", "cursor-not-allowed");
+        return;
+      }
+
+      // trava TODO o resto (somente admin)
+      el.disabled = true;
+      el.readOnly = true;
+      el.style.pointerEvents = "none";
+      el.classList.add("bg-gray-100", "cursor-not-allowed");
+    });
+};
+
+// executa agora e reforça após render (somente admin)
+applyLock();
+requestAnimationFrame(applyLock);
+setTimeout(applyLock, 50);
     }
 
 function handleEncerramentoChange(select, ridId) {
@@ -3846,10 +3952,40 @@ function cancelarEncerramento(button) {
 
       const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
       
-      const ridRequestsSnapshot = await db.collection('deleteRequests')
-        .where('status', '==', 'pending')
-        .get();
-      const ridRequests = ridRequestsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+     const ridRequestsSnapshot = await db.collection('deleteRequests')
+  .where('status', '==', 'pending')
+  .get();
+
+const ridRequests = await Promise.all(
+  ridRequestsSnapshot.docs.map(async (doc) => {
+    const data = doc.data();
+
+    // defaults
+    let ridNumber = data.ridNumber || '—';
+    let ridDescription = data.ridDescription || null;
+
+    // 🔥 busca a RID real no Firestore
+    if (data.ridId) {
+      try {
+        const ridSnap = await db.collection('rids').doc(data.ridId).get();
+        if (ridSnap.exists) {
+          const rid = ridSnap.data();
+          ridNumber = rid?.ridNumber || ridNumber;
+          ridDescription = rid?.description || ridDescription;
+        }
+      } catch (e) {
+        console.warn('Erro ao buscar RID:', data.ridId, e);
+      }
+    }
+
+    return {
+      id: doc.id,
+      ...data,
+      ridNumber,
+      ridDescription
+    };
+  })
+);
 
       const empRequestsSnapshot = await db.collection('employeeDeleteRequests')
         .where('status', '==', 'pending')
@@ -3898,6 +4034,15 @@ function cancelarEncerramento(button) {
               <p class="text-sm text-gray-700 mb-2">
                 <strong>Solicitado por:</strong> ${req.requesterName}
               </p>
+
+              <div class="mt-2 p-3 rounded-lg bg-gray-100 border border-gray-300">
+  <p class="text-sm font-bold text-gray-700 mb-1">
+    Descrição do RID
+  </p>
+  <p class="text-sm text-gray-800 whitespace-pre-line">
+    ${req.ridDescription || 'Descrição não encontrada'}
+  </p>
+</div>
 
               <div class="mt-2 p-3 rounded-lg bg-gray-100 border border-gray-300">
                 <p class="text-sm font-bold text-gray-700 mb-1">
@@ -4151,11 +4296,13 @@ await ridRef.update({
       const currentYear = now.getFullYear();
       
       // Filter RIDs for current month by default (ignorando RIDs removidos)
-const currentMonthRids = allRids
-  .filter(r => !r.deleted)
+// ✅ Usa SOMENTE emissionDate. Se não tiver emissionDate válido, NÃO entra.
+const currentMonthRids = (allRids || [])
+  .filter(r => !r?.deleted)
   .filter(r => {
+    if (!r?.emissionDate || typeof r.emissionDate.toDate !== "function") return false;
     const ridDate = r.emissionDate.toDate();
-    return ridDate.getMonth() + 1 === currentMonth &&
+    return (ridDate.getMonth() + 1) === currentMonth &&
            ridDate.getFullYear() === currentYear;
   });
       
@@ -4518,6 +4665,7 @@ const currentMonthRids = allRids
       
       showToast('Relatório exportado com sucesso!');
     }
+
 function renderDesignatedPage() {
   window.currentPage = 'designated';
 
@@ -4528,9 +4676,12 @@ function renderDesignatedPage() {
   }
 
   // 🔹 RIDs designadas para mim (exceto corrigidas)
-  const myDesignatedRids = allRids.filter(
-    r => r.responsibleLeader === currentUser.uid && r.status !== 'CORRIGIDO'
-  );
+ const myDesignatedRids = allRids.filter(r =>
+  r.responsibleLeader === currentUser.uid &&
+  r.status !== 'CORRIGIDO' &&
+  !r.deleted &&
+  r.status !== 'EXCLUIDO'
+);
 
   // 🔃 cópia ordenável
   let orderedRids = [...myDesignatedRids];
@@ -5062,6 +5213,34 @@ setTimeout(() => {
 }, 100);
 
 }
+
+async function logRidHistory({
+  ridId,
+  ridNumber,
+  action,
+  before,
+  after
+}) {
+  const user = auth.currentUser;
+  if (!user) return;
+
+  const userSnap = await getDoc(doc(db, "users", user.uid));
+  const userData = userSnap.exists() ? userSnap.data() : {};
+
+  await addDoc(collection(db, "ridHistory"), {
+    ridId,
+    ridNumber,
+    action,
+    changedFields: Object.keys(after || {}),
+    before: before || {},
+    after: after || {},
+    byUid: user.uid,
+    byName: userData.name || "Desconhecido",
+    byRole: userData.role || "não definido",
+    at: serverTimestamp()
+  });
+}
+
 
 async function restoreRid(ridId) {
   const reason = prompt('Informe o motivo da restauração do RID:');
