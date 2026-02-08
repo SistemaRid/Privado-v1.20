@@ -217,6 +217,81 @@ function getEmissionDateOnly(r) {
   return null; // sem fallback pra createdAt
 }
 
+// =========================
+// 🔥 SEPARAÇÃO: ATRASADOS + MÊS ATUAL (TELA DE RIDs)
+// =========================
+function getSearchSelectedMonthYear() {
+  const now = new Date();
+  const monthEl = document.getElementById('searchMonth');
+  const yearEl = document.getElementById('searchYear');
+
+  const month = monthEl?.value ? Number(monthEl.value) : (now.getMonth() + 1);
+  const year = yearEl?.value ? Number(yearEl.value) : now.getFullYear();
+
+  return { month, year };
+}
+
+function isInMonthYear(d, month, year) {
+  return d && d.getFullYear() === year && (d.getMonth() + 1) === month;
+}
+
+function isBeforeMonthYear(d, month, year) {
+  if (!d) return false;
+  const y = d.getFullYear();
+  const m = d.getMonth() + 1;
+  return (y < year) || (y === year && m < month);
+}
+
+function splitRidsForSearchView(baseRids, month, year) {
+  const clean = (baseRids || []).filter(r => !r?.deleted);
+
+  // ✅ RIDs do mês selecionado (qualquer status)
+  const monthRids = clean
+    .filter(r => {
+      const d = getEmissionDateOnly(r);
+      return isInMonthYear(d, month, year);
+    })
+    .sort((a, b) => {
+      const da = getEmissionDateOnly(a);
+      const db = getEmissionDateOnly(b);
+      return (db?.getTime?.() || 0) - (da?.getTime?.() || 0);
+    });
+
+  // 🚨 Atrasados = emitidos antes do mês selecionado e AINDA PENDENTES
+  const atrasados = clean
+    .filter(r => {
+      const d = getEmissionDateOnly(r);
+      if (!isBeforeMonthYear(d, month, year)) return false;
+
+      const st = String(r.status || '').toUpperCase();
+      const isPendente = (st !== 'CORRIGIDO' && st !== 'ENCERRADO' && st !== 'EXCLUIDO');
+      return isPendente;
+    })
+    // (opcional) mais antigos primeiro pra dar senso de prioridade
+    .sort((a, b) => {
+      const da = getEmissionDateOnly(a);
+      const db = getEmissionDateOnly(b);
+      return (da?.getTime?.() || 0) - (db?.getTime?.() || 0);
+    });
+
+  return { atrasados, monthRids };
+}
+
+function renderRidsSection(title, count, innerHtml, open = true) {
+  // usa <details> pra não “empurrar” 90 cards pra baixo
+  return `
+    <details ${open ? 'open' : ''} class="bg-white rounded-xl shadow-lg">
+      <summary class="cursor-pointer select-none px-5 py-4 font-extrabold text-gray-800 flex items-center justify-between">
+        <span>${title}</span>
+        <span class="px-3 py-1 rounded-lg text-xs font-bold bg-gray-100 text-gray-700">${count}</span>
+      </summary>
+      <div class="px-4 pb-4 space-y-4">
+        ${innerHtml}
+      </div>
+    </details>
+  `;
+}
+
 
 function listenRidsRealtimeEmployee() {
   return db.collection("rids")
@@ -440,11 +515,45 @@ function spawnConfetti(card) {
       setTimeout(() => toast.remove(), 3000);
     }
 
-    function formatDate(date) {
-      if (!date) return '';
-      const d = date.toDate ? date.toDate() : new Date(date);
-      return d.toLocaleDateString('pt-BR');
-    }
+function toFirestoreDateFromInput(dateStr) {
+  // dateStr esperado: "YYYY-MM-DD"
+  if (!dateStr) return null;
+
+  const [y, m, d] = dateStr.split('-').map(Number);
+  if (!y || !m || !d) return null;
+
+  // ✅ meio-dia local (blindado contra fuso)
+  const safeLocal = new Date(y, m - 1, d, 12, 0, 0);
+
+  // 🔥 Se você salva como Timestamp do Firestore:
+  return firebase.firestore.Timestamp.fromDate(safeLocal);
+
+  // Se você salva como Date puro, use:
+  // return safeLocal;
+}
+
+   function formatDate(date) {
+  if (!date) return '-';
+
+  let d;
+
+  // Firestore Timestamp
+  if (typeof date.toDate === 'function') {
+    d = date.toDate();
+  } else {
+    d = new Date(date);
+  }
+
+  // 🔒 NORMALIZA PARA DATA LOCAL (remove efeito de fuso)
+  const localDate = new Date(
+    d.getFullYear(),
+    d.getMonth(),
+    d.getDate()
+  );
+
+  return localDate.toLocaleDateString('pt-BR');
+}
+
 
     function getNextRidNumber() {
       if (allRids.length === 0) return '00001';
@@ -687,7 +796,10 @@ const initialStatus =
   contractType: form.contractType.value,
   unit: form.unit.value,
   sector: form.ridSector.value,
-  emissionDate: firebase.firestore.Timestamp.fromDate(new Date(form.emissionDate.value)),
+  emissionDate: firebase.firestore.Timestamp.fromDate((() => {
+  const [y, m, d] = form.emissionDate.value.split('-').map(Number);
+  return new Date(y, m - 1, d, 12, 0, 0); // ✅ meio-dia local (blindado contra fuso)
+})()),
   incidentType: form.incidentType.value,
   detectionOrigin: form.detectionOrigin.value,
   location: form.location.value,
@@ -1753,15 +1865,67 @@ if (lastRid) {
   }
 
   const openRids = filteredRids.filter(r => r.status === 'EM ANDAMENTO').length;
-  const overdueRids = filteredRids.filter(r => r.status === 'VENCIDO').length;
-  const correctedRids = filteredRids.filter(r => r.status === 'CORRIGIDO').length;
+const overdueRids = filteredRids.filter(r => r.status === 'VENCIDO').length;
+
+// 📅 Mês/ano “ativo” no dashboard (se não tiver filtro ainda, usa mês atual)
+const dashMonth = Number(document.getElementById('dashboardMonth')?.value) || (new Date().getMonth() + 1);
+const dashYear  = Number(document.getElementById('dashboardYear')?.value)  || (new Date().getFullYear());
+
+const toDateSafe = (v) => {
+  if (!v) return null;
+  if (v instanceof Date) return v;
+  if (typeof v.toDate === 'function') return v.toDate();
+  const parsed = new Date(v);
+  return isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const isInMonthYear = (d, m, y) => !!d && (d.getMonth() + 1) === m && d.getFullYear() === y;
+const isBeforeMonthYear = (d, m, y) => {
+  if (!d) return false;
+  const dm = d.getMonth() + 1;
+  const dy = d.getFullYear();
+  return (dy < y) || (dy === y && dm < m);
+};
+
+// 🚨 ATRASADOS (meses anteriores) — pendentes
+const atrasadosCount = allRids
+  .filter(r => !r.deleted)
+  .filter(r => {
+    const em = toDateSafe(r.emissionDate);
+    if (!isBeforeMonthYear(em, dashMonth, dashYear)) return false;
+
+    const st = String(r.status || '').toUpperCase();
+    return st !== 'CORRIGIDO' && st !== 'ENCERRADO' && st !== 'EXCLUIDO';
+  }).length;
+
+// ✅ CORRIGIDAS DO MÊS (inclui atrasados resolvidos agora) — usa conclusionDate
+const correctedRids = allRids
+  .filter(r => !r.deleted)
+  .filter(r => {
+    const st = String(r.status || '').toUpperCase();
+    if (st !== 'CORRIGIDO' && st !== 'ENCERRADO') return false;
+
+    const cd = toDateSafe(r.conclusionDate);
+    return isInMonthYear(cd, dashMonth, dashYear);
+  }).length;
+
 
   const now = new Date();
-  const weekStart = new Date(now.setDate(now.getDate() - now.getDay()));
-  const weekRids = filteredRids.filter(r => {
+
+// semana começando no domingo 00:00
+const weekStart = new Date(now);
+weekStart.setDate(now.getDate() - now.getDay());
+weekStart.setHours(0, 0, 0, 0);
+
+// pega do sistema todo (não do filtro do dashboard)
+const weekRids = allRids
+  .filter(r => !r.deleted)
+  .filter(r => r.emissionDate && typeof r.emissionDate.toDate === 'function')
+  .filter(r => {
     const ridDate = r.emissionDate.toDate();
-    return ridDate >= weekStart;
+    return ridDate >= weekStart && ridDate <= now;
   });
+
 
       // 📊 RIDs do MÊS por usuário
 const ridsByUser = {};
@@ -1987,7 +2151,7 @@ const monthlyUserStats = Object.values(ridsByUser)
 </div>
 
               <!-- Stats Cards -->
-              <div class="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-5 mb-6">
+              <div class="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-5 gap-3 md:gap-5 mb-6">
                 <div class="rounded-xl shadow-lg p-3 md:p-6 card-hover bg-white">
                   <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                     <div>
@@ -2045,7 +2209,23 @@ const monthlyUserStats = Object.values(ridsByUser)
                     </div>
                   </div>
                 </div>
+                <div class="rounded-xl shadow-lg p-3 md:p-6 card-hover bg-white">
+  <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+    <div>
+      <p class="text-xs md:text-sm font-bold mb-1 text-gray-600">Atrasados</p>
+      <p class="text-xl md:text-3xl font-bold text-red-700">${atrasadosCount}</p>
+    </div>
+    <div class="w-8 h-8 md:w-12 md:h-12 rounded-lg flex items-center justify-center" style="background-color:#fca5a5;">
+      <svg class="w-4 h-4 md:w-6 md:h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+  <path d="M7 2a1 1 0 0 1 1 1v1h8V3a1 1 0 1 1 2 0v1h1a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3h1V3a1 1 0 0 1 1-1Zm13 8H4v9a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-9ZM6 6H5a1 1 0 0 0-1 1v1h16V7a1 1 0 0 0-1-1h-1v1a1 1 0 1 1-2 0V6H8v1a1 1 0 1 1-2 0V6Z"/>
+</svg>
+        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v4a1 1 0 00.293.707l1 1a1 1 0 001.414-1.414l-.707-.707V7z" clip-rule="evenodd"/>
+      </svg>
+    </div>
+  </div>
+</div>
               </div>
+
 
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 mb-8">
                 <!-- Chart -->
@@ -2583,20 +2763,43 @@ ${rid.status === 'ENCERRADO'
 
 
     function renderSearchPage() {
+      document.body.style.overflow = 'hidden';
       window.currentPage = 'search';
       const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
       const now = new Date();
       const currentMonth = now.getMonth() + 1;
       const currentYear = now.getFullYear();
       
-      // Filter RIDs for current month by default (ignorando RIDs removidos)
+    // ✅ mês/ano selecionado (se vazio, cai no mês atual)
+const selectedMonth = Number(document.getElementById('searchMonth')?.value) || currentMonth;
+const selectedYear  = Number(document.getElementById('searchYear')?.value)  || currentYear;
+
+// 🔵 RIDs do mês selecionado (qualquer status)
 const currentMonthRids = allRids
   .filter(r => !r.deleted)
+  .filter(r => r.emissionDate && typeof r.emissionDate.toDate === 'function')
   .filter(r => {
-    const ridDate = r.emissionDate.toDate();
-    return ridDate.getMonth() + 1 === currentMonth &&
-           ridDate.getFullYear() === currentYear;
+    const d = r.emissionDate.toDate();
+    return (d.getMonth() + 1) === selectedMonth && d.getFullYear() === selectedYear;
   });
+
+// 🚨 Atrasados pendentes = emitidos antes do mês selecionado e ainda não resolvidos
+const atrasados = allRids
+  .filter(r => !r.deleted)
+  .filter(r => r.emissionDate && typeof r.emissionDate.toDate === 'function')
+  .filter(r => {
+    const d = r.emissionDate.toDate();
+
+    const isBefore =
+      (d.getFullYear() < selectedYear) ||
+      (d.getFullYear() === selectedYear && (d.getMonth() + 1) < selectedMonth);
+
+    if (!isBefore) return false;
+
+    const st = String(r.status || '').toUpperCase();
+    return st !== 'CORRIGIDO' && st !== 'ENCERRADO' && st !== 'EXCLUIDO';
+  });
+
       
       const app = document.getElementById('app');
       app.innerHTML = `
@@ -2758,7 +2961,29 @@ const currentMonthRids = allRids
 </div>
 
                 <div id="ridsListContainer" class="space-y-4">
-  ${renderRidsList(currentMonthRids)}
+
+  ${atrasados.length > 0 ? `
+    <details class="bg-white rounded-xl shadow-lg">
+      <summary class="cursor-pointer select-none px-5 py-4 font-extrabold text-gray-800 flex items-center justify-between">
+        <span>🚨 Atrasados (mês anterior ou antes)</span>
+        <span class="px-3 py-1 rounded-lg text-xs font-bold bg-red-100 text-red-700">${atrasados.length}</span>
+      </summary>
+      <div class="px-4 pb-4 space-y-4">
+        ${renderRidsList(atrasados)}
+      </div>
+    </details>
+  ` : ''}
+
+  <details open class="bg-white rounded-xl shadow-lg">
+    <summary class="cursor-pointer select-none px-5 py-4 font-extrabold text-gray-800 flex items-center justify-between">
+      <span>📅 RIDs do mês selecionado</span>
+      <span class="px-3 py-1 rounded-lg text-xs font-bold bg-gray-100 text-gray-700">${currentMonthRids.length}</span>
+    </summary>
+    <div class="px-4 pb-4 space-y-4">
+      ${renderRidsList(currentMonthRids)}
+    </div>
+  </details>
+
 </div>
               </div>
             </div>
@@ -4291,20 +4516,72 @@ await ridRef.update({
 
     function renderReportsPage() {
       const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
-      const now = new Date();
-      const currentMonth = now.getMonth() + 1;
-      const currentYear = now.getFullYear();
-      
-      // Filter RIDs for current month by default (ignorando RIDs removidos)
-// ✅ Usa SOMENTE emissionDate. Se não tiver emissionDate válido, NÃO entra.
-const currentMonthRids = (allRids || [])
-  .filter(r => !r?.deleted)
+     const now = new Date();
+const currentMonth = now.getMonth() + 1;
+const currentYear = now.getFullYear();
+
+// ✅ Mês/Ano selecionado do RELATÓRIO (se vazio, cai no mês atual)
+const monthEl = document.getElementById('reportMonth');
+const yearEl  = document.getElementById('reportYear');
+
+const selectedMonth = monthEl?.value ? Number(monthEl.value) : currentMonth;
+const selectedYear  = yearEl?.value  ? Number(yearEl.value)  : currentYear;
+
+// helpers locais (bem seguros)
+const toDateSafe = (v) => {
+  if (!v) return null;
+  if (v instanceof Date) return v;
+  if (typeof v.toDate === 'function') return v.toDate(); // Firestore Timestamp
+  const parsed = new Date(v);
+  return isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const isInMonthYear = (d, m, y) => !!d && (d.getMonth() + 1) === m && d.getFullYear() === y;
+const isBeforeMonthYear = (d, m, y) => {
+  if (!d) return false;
+  const dm = d.getMonth() + 1;
+  const dy = d.getFullYear();
+  return (dy < y) || (dy === y && dm < m);
+};
+
+// 🔵 LISTA A: emitidos no mês selecionado (qualquer status)
+const reportMonthRids = allRids
+  .filter(r => !r.deleted)
   .filter(r => {
-    if (!r?.emissionDate || typeof r.emissionDate.toDate !== "function") return false;
-    const ridDate = r.emissionDate.toDate();
-    return (ridDate.getMonth() + 1) === currentMonth &&
-           ridDate.getFullYear() === currentYear;
+    const d = toDateSafe(r.emissionDate);
+    return isInMonthYear(d, selectedMonth, selectedYear);
   });
+
+// 🟡 LISTA B: emitidos antes, mas RESOLVIDOS no mês selecionado (status + conclusionDate)
+const resolvedPreviousInMonth = allRids
+  .filter(r => !r.deleted)
+  .filter(r => {
+   const emission = toDateSafe(r.emissionDate);
+
+// 🚫 garante que NÃO é do mês atual
+if (isInMonthYear(emission, selectedMonth, selectedYear)) return false;
+
+// ✅ garante que é de mês anterior
+if (!isBeforeMonthYear(emission, selectedMonth, selectedYear)) return false;
+
+
+    const st = String(r.status || '').toUpperCase();
+    if (st !== 'CORRIGIDO' && st !== 'ENCERRADO') return false;
+
+    const concl = toDateSafe(r.conclusionDate);
+    return isInMonthYear(concl, selectedMonth, selectedYear);
+  });
+
+// ✅ lista final da tabela com separador
+const reportDisplayRids = resolvedPreviousInMonth.length > 0
+  ? [
+      ...reportMonthRids,
+      { __separator: true, label: 'RIDs de meses anteriores resolvidos neste mês' },
+      ...resolvedPreviousInMonth
+    ]
+  : [...reportMonthRids];
+
+
       
       const app = document.getElementById('app');
       app.innerHTML = `
@@ -4440,7 +4717,6 @@ const currentMonthRids = (allRids || [])
   </div>
 </div>
 
-
               <!-- Tabela de Relatório -->
               <div class="bg-white rounded-xl shadow-lg overflow-hidden">
                 <div class="overflow-x-auto">
@@ -4467,11 +4743,11 @@ const currentMonthRids = (allRids || [])
                       </tr>
                     </thead>
                     <tbody id="reportTableBody" class="bg-white divide-y divide-gray-200">
-                      ${renderReportRows(currentMonthRids)}
+                      ${renderReportRows(reportDisplayRids)}
                     </tbody>
                   </table>
                 </div>
-                ${currentMonthRids.length === 0 ? '<div class="p-8 text-center text-gray-500">Nenhum RID encontrado no período selecionado</div>' : ''}
+                ${reportDisplayRids.length === 0 ? '<div class="p-8 text-center text-gray-500">Nenhum RID encontrado no período selecionado</div>' : ''}
               </div>
             </div>
           </div>
@@ -4479,87 +4755,113 @@ const currentMonthRids = (allRids || [])
       `;
     }
 
-    function renderReportRows(rids) {
-      if (rids.length === 0) return '';
-      
-      return rids.map(rid => `
-        <tr class="hover:bg-gray-50 cursor-pointer" onclick="showRidDetails('${rid.id}')">
-          <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.unit || '-'}</td>
-          <td class="px-4 py-3 text-sm font-bold text-gray-800 whitespace-nowrap">${rid.ridNumber}</td>
-          <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${formatDate(rid.createdAt || rid.emissionDate)}</td>
-          <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.emitterName}</td>
-          <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.contractType || '-'}</td>
-          <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.sector || '-'}</td>
-          <td class="px-4 py-3 text-sm text-gray-800 max-w-xs truncate">${rid.location || '-'}</td>
-          <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.incidentType || '-'}</td>
-          <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.detectionOrigin || '-'}</td>
-          <td class="px-4 py-3 text-sm text-gray-800 max-w-xs truncate">${rid.description || '-'}</td>
-          <td class="px-4 py-3 text-sm whitespace-nowrap">
-            <span class="px-2 py-1 rounded-lg text-xs font-bold ${getRiskColor(rid.riskClassification)}">
-              ${rid.riskClassification || '-'}
-            </span>
-          </td>
-          <td class="px-4 py-3 text-sm text-gray-800 max-w-xs truncate">${rid.immediateAction || '-'}</td>
-          <td class="px-4 py-3 text-sm text-gray-800 max-w-xs truncate">${rid.correctiveActions || '-'}</td>
-          <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.responsibleLeaderName || '-'}</td>
-          <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.deadline ? formatDate(rid.deadline) : '-'}</td>
-          <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.conclusionDate ? formatDate(rid.conclusionDate) : '-'}</td>
-          <td class="px-4 py-3 text-sm whitespace-nowrap">
-            <span class="px-2 py-1 rounded-lg text-xs font-bold ${getStatusColor(rid.status)}">
-              ${rid.status}
-            </span>
+   function renderReportRows(rids) {
+  if (!rids || rids.length === 0) return '';
+
+  return rids.map(rid => {
+    // ✅ linha separadora
+    if (rid && rid.__separator) {
+      return `
+        <tr>
+          <td colspan="17" class="px-4 py-3 text-sm font-extrabold text-gray-700 bg-gray-100 whitespace-nowrap">
+            ${rid.label || '---'}
           </td>
         </tr>
-      `).join('');
+      `;
     }
 
-   function filterReports() {
+    // ✅ linha normal
+    return `
+      <tr class="hover:bg-gray-50 cursor-pointer" onclick="showRidDetails('${rid.id}')">
+        <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.unit || '-'}</td>
+        <td class="px-4 py-3 text-sm font-bold text-gray-800 whitespace-nowrap">${rid.ridNumber}</td>
+        <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${formatDate(rid.emissionDate)}</td>
+        <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.emitterName}</td>
+        <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.contractType || '-'}</td>
+        <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.sector || '-'}</td>
+        <td class="px-4 py-3 text-sm text-gray-800 max-w-xs truncate">${rid.location || '-'}</td>
+        <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.incidentType || '-'}</td>
+        <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.detectionOrigin || '-'}</td>
+        <td class="px-4 py-3 text-sm text-gray-800 max-w-xs truncate">${rid.description || '-'}</td>
+        <td class="px-4 py-3 text-sm whitespace-nowrap">
+          <span class="px-2 py-1 rounded-lg text-xs font-bold ${getRiskColor(rid.riskClassification)}">
+            ${rid.riskClassification || '-'}
+          </span>
+        </td>
+        <td class="px-4 py-3 text-sm text-gray-800 max-w-xs truncate">${rid.immediateAction || '-'}</td>
+        <td class="px-4 py-3 text-sm text-gray-800 max-w-xs truncate">${rid.correctiveActions || '-'}</td>
+        <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.responsibleLeaderName || '-'}</td>
+        <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.deadline ? formatDate(rid.deadline) : '-'}</td>
+        <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.conclusionDate ? formatDate(rid.conclusionDate) : '-'}</td>
+        <td class="px-4 py-3 text-sm whitespace-nowrap">
+          <span class="px-2 py-1 rounded-lg text-xs font-bold ${getStatusColor(rid.status)}">
+            ${rid.status}
+          </span>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+ function filterReports() {
   const month = document.getElementById('reportMonth')?.value;
   const year = document.getElementById('reportYear')?.value;
   const sector = document.getElementById('reportSector')?.value;
 
-  let filtered = allRids;
+  const now = new Date();
+  const currentMonth = now.getMonth() + 1;
+  const currentYear = now.getFullYear();
 
-  // 📅 Se nenhum filtro, mês atual
-  if (!month && !year && !sector) {
-    const now = new Date();
-    const currentMonth = now.getMonth() + 1;
-    const currentYear = now.getFullYear();
+  const selectedMonth = month ? Number(month) : currentMonth;
+  const selectedYear  = year  ? Number(year)  : currentYear;
 
-    filtered = allRids.filter(r => {
-      const d = r.emissionDate?.toDate();
-      if (!d) return false;
-      return (
-        d.getMonth() + 1 === currentMonth &&
-        d.getFullYear() === currentYear
-      );
-    });
-  } else {
+  const toDateSafe = (v) => {
+    if (!v) return null;
+    if (v instanceof Date) return v;
+    if (typeof v.toDate === 'function') return v.toDate();
+    const parsed = new Date(v);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  };
 
-    // 📆 MÊS
-    if (month) {
-      filtered = filtered.filter(r => {
-        const d = r.emissionDate?.toDate();
-        return d && d.getMonth() + 1 == month;
-      });
-    }
+  const isInMonthYear = (d, m, y) => !!d && (d.getMonth() + 1) === m && d.getFullYear() === y;
+  const isBeforeMonthYear = (d, m, y) => {
+    if (!d) return false;
+    const dm = d.getMonth() + 1;
+    const dy = d.getFullYear();
+    return (dy < y) || (dy === y && dm < m);
+  };
 
-    // 📅 ANO
-    if (year) {
-      filtered = filtered.filter(r => {
-        const d = r.emissionDate?.toDate();
-        return d && d.getFullYear() == year;
-      });
-    }
+  // base segura
+  let base = allRids.filter(r => !r.deleted);
+  if (sector) base = base.filter(r => r.sector === sector);
 
-    // 🏷️ SETOR
-    if (sector) {
-      filtered = filtered.filter(r => r.sector === sector);
-    }
-  }
+  // 🔵 Seção A: emitidos no mês selecionado (qualquer status)
+  const listA = base.filter(r => {
+    const emission = toDateSafe(r.emissionDate);
+    return isInMonthYear(emission, selectedMonth, selectedYear);
+  });
 
-  document.getElementById('reportTableBody').innerHTML =
-    renderReportRows(filtered);
+  // 🟡 Seção B: emitidos antes, resolvidos no mês selecionado
+  const listB = base.filter(r => {
+    const emission = toDateSafe(r.emissionDate);
+    if (!isBeforeMonthYear(emission, selectedMonth, selectedYear)) return false;
+
+    const st = String(r.status || '').toUpperCase();
+    if (st !== 'CORRIGIDO' && st !== 'ENCERRADO') return false;
+
+    const concl = toDateSafe(r.conclusionDate);
+    return isInMonthYear(concl, selectedMonth, selectedYear);
+  });
+
+  const finalList = listB.length > 0
+    ? [
+        ...listA,
+        { __separator: true, label: 'RIDs de meses anteriores resolvidos neste mês' },
+        ...listB
+      ]
+    : [...listA];
+
+  document.getElementById('reportTableBody').innerHTML = renderReportRows(finalList);
 }
 
   function clearReportFilters() {
@@ -4591,60 +4893,101 @@ const currentMonthRids = (allRids || [])
       const month = document.getElementById('reportMonth').value;
       const year = document.getElementById('reportYear').value;
       
-      let filtered = allRids;
-      
-      // Apply same filters as display
-      if (!month && !year) {
-        const now = new Date();
-        const currentMonth = now.getMonth() + 1;
-        const currentYear = now.getFullYear();
-        
-        filtered = allRids.filter(r => {
-          const ridDate = r.emissionDate.toDate();
-          return ridDate.getMonth() + 1 === currentMonth && ridDate.getFullYear() === currentYear;
-        });
-      } else {
-        if (month) {
-          filtered = filtered.filter(r => {
-            const ridMonth = r.emissionDate.toDate().getMonth() + 1;
-            return ridMonth === parseInt(month);
-          });
-        }
-        
-        if (year) {
-          filtered = filtered.filter(r => {
-            const ridYear = r.emissionDate.toDate().getFullYear();
-            return ridYear === parseInt(year);
-          });
-        }
-      }
+      // ✅ Filtros do relatório
+const sector = document.getElementById('reportSector')?.value || '';
+
+const now = new Date();
+const currentMonth = now.getMonth() + 1;
+const currentYear = now.getFullYear();
+
+const selectedMonth = month ? parseInt(month, 10) : currentMonth;
+const selectedYear  = year  ? parseInt(year, 10)  : currentYear;
+
+const toDateSafe = (v) => {
+  if (!v) return null;
+  if (v instanceof Date) return v;
+  if (typeof v.toDate === 'function') return v.toDate();
+  const parsed = new Date(v);
+  return isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const isInMonthYear = (d, m, y) => !!d && (d.getMonth() + 1) === m && d.getFullYear() === y;
+const isBeforeMonthYear = (d, m, y) => {
+  if (!d) return false;
+  const dm = d.getMonth() + 1;
+  const dy = d.getFullYear();
+  return (dy < y) || (dy === y && dm < m);
+};
+
+// Base (sem deletados e com setor se aplicado)
+let base = allRids.filter(r => !r.deleted);
+if (sector) base = base.filter(r => r.sector === sector);
+
+// 🔵 Seção A: emitidos no mês selecionado (qualquer status)
+const listA = base.filter(r => {
+  const emission = toDateSafe(r.emissionDate);
+  return isInMonthYear(emission, selectedMonth, selectedYear);
+});
+
+// 🟡 Seção B: emitidos antes, mas resolvidos no mês (CORRIGIDO/ENCERRADO + conclusionDate no mês)
+const listB = base.filter(r => {
+  const emission = toDateSafe(r.emissionDate);
+
+  // ✅ garante que é de mês anterior (e NÃO do mês atual)
+  if (!isBeforeMonthYear(emission, selectedMonth, selectedYear)) return false;
+
+  const st = String(r.status || '').toUpperCase();
+  if (st !== 'CORRIGIDO' && st !== 'ENCERRADO') return false;
+
+  const concl = toDateSafe(r.conclusionDate);
+  return isInMonthYear(concl, selectedMonth, selectedYear);
+});
+
+// lista final para export com “linha separadora”
+const exportList = listB.length > 0
+  ? [
+      ...listA,
+      { __separator: true, label: 'RIDs de meses anteriores resolvidos neste mês' },
+      ...listB
+    ]
+  : [...listA];
       
       // Create CSV content
       let csv = 'Unidade,RID Nº,Data Emissão,Emitente,Funcionário/Terceiro/Visitante,Setor/Empresa,Local do Incidente,Gênese do Incidente,Origem da Detecção,Descrição,Classificação de Risco,Ação Imediata,Ações Corretivas,Responsável pelas Ações,Prazo para Conclusão,Data de Conclusão,Status\n';
       
-      filtered.forEach(rid => {
-        const row = [
-          rid.unit || '',
-          rid.ridNumber,
-          formatDate(rid.emissionDate),
-          rid.emitterName,
-          rid.contractType || '',
-          rid.sector || '',
-          rid.location || '',
-          rid.incidentType || '',
-          rid.detectionOrigin || '',
-          (rid.description || '').replace(/,/g, ';').replace(/\n/g, ' '),
-          rid.riskClassification || '',
-          (rid.immediateAction || '').replace(/,/g, ';').replace(/\n/g, ' '),
-          (rid.correctiveActions || '').replace(/,/g, ';').replace(/\n/g, ' '),
-          rid.responsibleLeaderName || '',
-          rid.deadline ? formatDate(rid.deadline) : '',
-          rid.conclusionDate ? formatDate(rid.conclusionDate) : '',
-          rid.status
-        ].map(field => `"${field}"`).join(',');
-        
-        csv += row + '\n';
-      });
+     exportList.forEach(rid => {
+  // ✅ linha separadora no CSV
+  if (rid && rid.__separator) {
+    const sepRow = [
+      rid.label || '---',
+      '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''
+    ].map(field => `"${field}"`).join(',');
+    csv += sepRow + '\n';
+    return;
+  }
+
+  const row = [
+    rid.unit || '',
+    rid.ridNumber,
+    formatDate(rid.emissionDate), // ✅ só emissionDate
+    rid.emitterName,
+    rid.contractType || '',
+    rid.sector || '',
+    rid.location || '',
+    rid.incidentType || '',
+    rid.detectionOrigin || '',
+    (rid.description || '').replace(/,/g, ';').replace(/\n/g, ' '),
+    rid.riskClassification || '',
+    (rid.immediateAction || '').replace(/,/g, ';').replace(/\n/g, ' '),
+    (rid.correctiveActions || '').replace(/,/g, ';').replace(/\n/g, ' '),
+    rid.responsibleLeaderName || '',
+    rid.deadline ? formatDate(rid.deadline) : '',
+    rid.conclusionDate ? formatDate(rid.conclusionDate) : '',
+    rid.status
+  ].map(field => `"${field}"`).join(',');
+
+  csv += row + '\n';
+});
       
       // Create download
       const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
