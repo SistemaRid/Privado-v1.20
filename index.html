@@ -1909,22 +1909,34 @@ const correctedRids = allRids
     return isInMonthYear(cd, dashMonth, dashYear);
   }).length;
 
+// ✅ Semana útil: segunda (00:00) até sábado (23:59:59) — usando createdAt
+const now = new Date();
 
-  const now = new Date();
+// 0=domingo, 1=segunda ... 6=sábado
+const day = now.getDay();
 
-// semana começando no domingo 00:00
+// volta até segunda (domingo volta 6)
+const diffToMonday = (day === 0 ? 6 : day - 1);
+
 const weekStart = new Date(now);
-weekStart.setDate(now.getDate() - now.getDay());
+weekStart.setDate(now.getDate() - diffToMonday);
 weekStart.setHours(0, 0, 0, 0);
 
+// sábado (segunda + 5)
+const weekEnd = new Date(weekStart);
+weekEnd.setDate(weekStart.getDate() + 5);
+weekEnd.setHours(23, 59, 59, 999);
+
 // pega do sistema todo (não do filtro do dashboard)
+// ✅ IGNORA emissionDate e usa só createdAt
 const weekRids = allRids
   .filter(r => !r.deleted)
-  .filter(r => r.emissionDate && typeof r.emissionDate.toDate === 'function')
+  .filter(r => r.createdAt && typeof r.createdAt.toDate === 'function')
   .filter(r => {
-    const ridDate = r.emissionDate.toDate();
-    return ridDate >= weekStart && ridDate <= now;
+    const created = r.createdAt.toDate();
+    return created >= weekStart && created <= weekEnd;
   });
+
 
 
       // 📊 RIDs do MÊS por usuário
