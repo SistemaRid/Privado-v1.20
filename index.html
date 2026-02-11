@@ -319,6 +319,116 @@ function listenRidsRealtimeEmployee() {
     );
 }
 
+// =========================
+// 📊 MEU DESEMPENHO (FUNCIONÁRIO)
+// =========================
+
+function getMonthStartEnd(date = new Date()) {
+  const start = new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
+  const end = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999);
+  return { start, end };
+}
+
+function isResolvedStatus(status) {
+  const st = String(status || '').toUpperCase();
+  return st === 'CORRIGIDO' || st === 'ENCERRADO';
+}
+
+function calcMyPerformanceStats(myRids) {
+  const clean = (myRids || []).filter(r => !r?.deleted);
+
+  const upper = (v) => String(v || '').toUpperCase();
+
+  // ✅ CONTAGEM GERAL (vida toda) -> para os cards
+  const total = clean.length;
+  const corrigidos = clean.filter(r => upper(r.status) === 'CORRIGIDO').length;
+  const emAndamento = clean.filter(r => upper(r.status) === 'EM ANDAMENTO').length;
+  const vencidos = clean.filter(r => upper(r.status) === 'VENCIDO').length;
+
+  // ✅ MÊS ATUAL (para a linha de baixo)
+  const { start, end } = getMonthStartEnd(new Date());
+  const monthRids = clean.filter(r => {
+    const d = r.createdAt?.toDate?.();
+    return d && d >= start && d <= end;
+  });
+
+  const monthTotal = monthRids.length;
+
+  // ✅ meta pessoal (mês)
+  const metaPessoal = 4;
+  const bateuMeta = monthTotal >= metaPessoal;
+  const faltamMeta = Math.max(metaPessoal - monthTotal, 0);
+
+  return {
+    // cards (geral)
+    total,
+    corrigidos,
+    emAndamento,
+    vencidos,
+
+    // linha de baixo (mês atual)
+    monthTotal,
+    metaPessoal,
+    bateuMeta,
+    faltamMeta
+  };
+}
+
+
+ function renderMyPerformancePanelHTML(stats) {
+  return `
+    <div class="bg-white rounded-xl shadow-md p-3 md:p-6 mb-4">
+      <div class="flex items-center justify-between mb-2">
+        <div>
+          <h2 class="text-sm md:text-lg font-bold text-gray-800">📊 Meu desempenho</h2>
+          <p class="text-[11px] md:text-sm text-gray-500 leading-tight">
+            Geral + mês atual
+          </p>
+        </div>
+      </div>
+
+      <!-- Cards (GERAL - vida toda) -->
+     <div class="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
+
+  <div class="rounded-lg p-2 border border-gray-200 bg-slate-50 flex items-center justify-between">
+    <p class="text-[11px] font-semibold text-gray-600">Total</p>
+    <p class="text-base md:text-xl font-bold text-gray-800">${stats.total}</p>
+  </div>
+
+  <div class="rounded-lg p-2 border border-gray-200 bg-yellow-50 flex items-center justify-between">
+    <p class="text-[11px] font-semibold text-gray-600">Em andamento</p>
+    <p class="text-base md:text-xl font-bold text-gray-800">${stats.emAndamento}</p>
+  </div>
+
+  <div class="rounded-lg p-2 border border-gray-200 bg-red-50 flex items-center justify-between">
+    <p class="text-[11px] font-semibold text-gray-600">Vencidos</p>
+    <p class="text-base md:text-xl font-bold text-gray-800">${stats.vencidos}</p>
+  </div>
+
+  <div class="rounded-lg p-2 border border-gray-200 bg-green-50 flex items-center justify-between">
+    <p class="text-[11px] font-semibold text-gray-600">Corrigidos</p>
+    <p class="text-base md:text-xl font-bold text-gray-800">${stats.corrigidos}</p>
+  </div>
+
+</div>
+
+      <!-- Linha slim: mês atual + meta pessoal -->
+      <div class="mt-2 rounded-lg bg-gray-50 p-2 border border-gray-200 text-xs md:text-sm flex items-center justify-between gap-2">
+        <div class="text-gray-700">
+          <span class="font-semibold">${stats.monthTotal}</span> emitidos no mês
+          <span class="text-gray-400">•</span>
+          Meta: <span class="font-semibold">${stats.metaPessoal}</span>
+        </div>
+
+        <div class="font-semibold ${stats.bateuMeta ? 'text-green-600' : 'text-orange-600'}">
+          ${stats.bateuMeta ? 'Meta batida ✅' : `Faltam ${stats.faltamMeta}`}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+
 
 function spawnConfetti(card) {
   if (!card) return;
@@ -1996,6 +2106,7 @@ const monthlyUserStats = Object.values(ridsByUser)
       const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
 
       const app = document.getElementById('app');
+
       app.innerHTML = `
         <div class="h-full flex flex-col">
           <!-- Header -->
@@ -2073,6 +2184,7 @@ const monthlyUserStats = Object.values(ridsByUser)
           <!-- Main Content -->
           <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
             <div class="max-w-7xl mx-auto">
+
               <div class="flex items-center justify-between mb-8">
                 <h1 class="text-3xl font-bold text-gray-800">Dashboard</h1>
                 
@@ -2679,6 +2791,8 @@ function renderMyRidsPage() {
 
   const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
   const app = document.getElementById('app');
+const myStats = calcMyPerformanceStats(myRids);
+const myPerfHTML = renderMyPerformancePanelHTML(myStats);
 
   app.innerHTML = `
     <div class="h-full flex flex-col">
@@ -2689,6 +2803,7 @@ function renderMyRidsPage() {
       <!-- Main Content -->
       <div class="flex-1 overflow-auto p-8" style="background-color:#dfdfdf;">
         <div class="max-w-5xl mx-auto">
+${myPerfHTML}
 
           <h1 class="text-3xl font-bold text-gray-800 mb-6">
             Meus RIDs
@@ -6093,6 +6208,8 @@ async function loadImageAsBase64(url) {
       const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
 
       const app = document.getElementById('app');
+      const myStats = calcMyPerformanceStats(myRids);
+      const myPerfHTML = renderMyPerformancePanelHTML(myStats);
       app.innerHTML = `
         <div class="h-full flex flex-col">
           <!-- Header Simplificado para Funcionários -->
@@ -6129,6 +6246,7 @@ async function loadImageAsBase64(url) {
 
           <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
             <div class="max-w-7xl mx-auto">
+              ${myPerfHTML}
               <div class="flex items-center justify-between mb-8">
                 <h1 class="text-3xl font-bold text-gray-800">Meus RIDs</h1>
                 <button onclick="showCreateRidModal()" 
