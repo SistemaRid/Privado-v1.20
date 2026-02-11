@@ -1887,6 +1887,29 @@ const isBeforeMonthYear = (d, m, y) => {
   return (dy < y) || (dy === y && dm < m);
 };
 
+// ✅ STATUS DOS RIDs (CARD) — SOMENTE OS CRIADOS NO MÊS (createdAt)
+const dashSector = document.getElementById('dashboardSector')?.value || '';
+
+const ridsMesCreatedAt = allRids
+  .filter(r => !r.deleted)
+  .filter(r => {
+    if (dashSector) return r.sector === dashSector;
+    return true;
+  })
+  .filter(r => {
+    const c = toDateSafe(r.createdAt);
+    return isInMonthYear(c, dashMonth, dashYear);
+  });
+
+const totalRidsStatus = ridsMesCreatedAt.length;
+const openRidsStatus = ridsMesCreatedAt.filter(r => r.status === 'EM ANDAMENTO').length;
+const overdueRidsStatus = ridsMesCreatedAt.filter(r => r.status === 'VENCIDO').length;
+const correctedRidsStatus = ridsMesCreatedAt.filter(r => {
+  const st = String(r.status || '').toUpperCase();
+  return st === 'CORRIGIDO' || st === 'ENCERRADO';
+}).length;
+
+
 // 🚨 ATRASADOS (meses anteriores) — pendentes
 const atrasadosCount = allRids
   .filter(r => !r.deleted)
@@ -2244,65 +2267,80 @@ const monthlyUserStats = Object.values(ridsByUser)
                 <div 
  id="statusRidsCard"
  class="hidden md:block bg-white rounded-xl shadow-lg p-6 relative overflow-hidden">
-                  <div class="flex items-center justify-between mb-4 md:mb-6">
-                    <div class="flex-1">
-                      <h3 class="text-lg md:text-xl font-bold text-gray-800">Status dos RIDs</h3>
-                      <p id="monthGoalDisplay" class="text-sm font-semibold mt-1 text-gray-600"></p>
-                    </div>
-                    ${isDeveloper() ? `
-                      <button onclick="showGoalModal()" class="p-2 rounded-lg hover:bg-gray-100 transition-colors flex-shrink-0" title="Definir Meta do Mês">
-                        <svg class="w-5 h-5 text-gray-400 hover:text-gray-600" fill="currentColor" viewBox="0 0 20 20">
-                          <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/>
-                        </svg>
-                      </button>
-                    ` : ''}
-                  </div>
-                  <div class="space-y-6">
-                    <div class="flex items-center space-x-4">
-                      <div class="w-32 flex-shrink-0">
-                        <p class="text-sm font-bold text-gray-700">EM ANDAMENTO</p>
-                      </div>
-                      <div class="flex-1 flex items-center space-x-3">
-                        <div class="flex-1 bg-gray-200 rounded-lg h-12 relative overflow-hidden">
-                          <div class="bg-orange-500 h-full rounded-lg chart-bar transition-all duration-500" style="width: ${totalRids > 0 ? (openRids / totalRids) * 100 : 0}%"></div>
-                        </div>
-                        <div class="w-24 flex-shrink-0 text-right">
-                          <span class="text-2xl font-bold text-gray-800">${openRids}</span>
-                          <span class="text-lg font-semibold text-orange-600 ml-2">(${totalRids > 0 ? Math.round((openRids / totalRids) * 100) : 0}%)</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="flex items-center space-x-4">
-                      <div class="w-32 flex-shrink-0">
-                        <p class="text-sm font-bold text-gray-700">VENCIDO</p>
-                      </div>
-                      <div class="flex-1 flex items-center space-x-3">
-                        <div class="flex-1 bg-gray-200 rounded-lg h-12 relative overflow-hidden">
-                          <div class="bg-red-500 h-full rounded-lg chart-bar transition-all duration-500" style="width: ${totalRids > 0 ? (overdueRids / totalRids) * 100 : 0}%"></div>
-                        </div>
-                        <div class="w-24 flex-shrink-0 text-right">
-                          <span class="text-2xl font-bold text-gray-800">${overdueRids}</span>
-                          <span class="text-lg font-semibold text-red-600 ml-2">(${totalRids > 0 ? Math.round((overdueRids / totalRids) * 100) : 0}%)</span>
-                        </div>
-                      </div>
-                    </div>
+  <div class="flex items-center justify-between mb-4 md:mb-6">
+    <div class="flex-1">
+      <h3 class="text-lg md:text-xl font-bold text-gray-800">Status dos RIDs</h3>
+      <p id="monthGoalDisplay" class="text-sm font-semibold mt-1 text-gray-600"></p>
+    </div>
+    ${isDeveloper() ? `
+      <button onclick="showGoalModal()" class="p-2 rounded-lg hover:bg-gray-100 transition-colors flex-shrink-0" title="Definir Meta do Mês">
+        <svg class="w-5 h-5 text-gray-400 hover:text-gray-600" fill="currentColor" viewBox="0 0 20 20">
+          <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/>
+        </svg>
+      </button>
+    ` : ''}
+  </div>
 
-                    <div class="flex items-center space-x-4">
-                      <div class="w-32 flex-shrink-0">
-                        <p class="text-sm font-bold text-gray-700">CORRIGIDO</p>
-                      </div>
-                      <div class="flex-1 flex items-center space-x-3">
-                        <div class="flex-1 bg-gray-200 rounded-lg h-12 relative overflow-hidden">
-                          <div class="bg-green-500 h-full rounded-lg chart-bar transition-all duration-500" style="width: ${totalRids > 0 ? (correctedRids / totalRids) * 100 : 0}%"></div>
-                        </div>
-                        <div class="w-24 flex-shrink-0 text-right">
-                          <span class="text-2xl font-bold text-gray-800">${correctedRids}</span>
-                          <span class="text-lg font-semibold text-green-600 ml-2">(${totalRids > 0 ? Math.round((correctedRids / totalRids) * 100) : 0}%)</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+  <div class="space-y-6">
+    <!-- EM ANDAMENTO -->
+    <div class="flex items-center space-x-4">
+      <div class="w-32 flex-shrink-0">
+        <p class="text-sm font-bold text-gray-700">EM ANDAMENTO</p>
+      </div>
+      <div class="flex-1 flex items-center space-x-3">
+        <div class="flex-1 bg-gray-200 rounded-lg h-12 relative overflow-hidden">
+          <div class="bg-orange-500 h-full rounded-lg chart-bar transition-all duration-500"
+               style="width: ${totalRidsStatus > 0 ? (openRidsStatus / totalRidsStatus) * 100 : 0}%"></div>
+        </div>
+        <div class="w-24 flex-shrink-0 text-right">
+          <span class="text-2xl font-bold text-gray-800">${openRidsStatus}</span>
+          <span class="text-lg font-semibold text-orange-600 ml-2">
+            (${totalRidsStatus > 0 ? Math.round((openRidsStatus / totalRidsStatus) * 100) : 0}%)
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- VENCIDO -->
+    <div class="flex items-center space-x-4">
+      <div class="w-32 flex-shrink-0">
+        <p class="text-sm font-bold text-gray-700">VENCIDO</p>
+      </div>
+      <div class="flex-1 flex items-center space-x-3">
+        <div class="flex-1 bg-gray-200 rounded-lg h-12 relative overflow-hidden">
+          <div class="bg-red-500 h-full rounded-lg chart-bar transition-all duration-500"
+               style="width: ${totalRidsStatus > 0 ? (overdueRidsStatus / totalRidsStatus) * 100 : 0}%"></div>
+        </div>
+        <div class="w-24 flex-shrink-0 text-right">
+          <span class="text-2xl font-bold text-gray-800">${overdueRidsStatus}</span>
+          <span class="text-lg font-semibold text-red-600 ml-2">
+            (${totalRidsStatus > 0 ? Math.round((overdueRidsStatus / totalRidsStatus) * 100) : 0}%)
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- CORRIGIDO -->
+    <div class="flex items-center space-x-4">
+      <div class="w-32 flex-shrink-0">
+        <p class="text-sm font-bold text-gray-700">CORRIGIDO</p>
+      </div>
+      <div class="flex-1 flex items-center space-x-3">
+        <div class="flex-1 bg-gray-200 rounded-lg h-12 relative overflow-hidden">
+          <div class="bg-green-500 h-full rounded-lg chart-bar transition-all duration-500"
+               style="width: ${totalRidsStatus > 0 ? (correctedRidsStatus / totalRidsStatus) * 100 : 0}%"></div>
+        </div>
+        <div class="w-24 flex-shrink-0 text-right">
+          <span class="text-2xl font-bold text-gray-800">${correctedRidsStatus}</span>
+          <span class="text-lg font-semibold text-green-600 ml-2">
+            (${totalRidsStatus > 0 ? Math.round((correctedRidsStatus / totalRidsStatus) * 100) : 0}%)
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 
                 <!-- Top Emitters -->
                 <div class="rounded-xl shadow-lg p-4 md:p-6 bg-white">
