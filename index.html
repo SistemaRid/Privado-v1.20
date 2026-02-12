@@ -1058,7 +1058,7 @@ if (window.currentPage === 'designated') renderDesignatedPage();
     }
 
     async function updateRid(ridId, updates) {
-  try {
+      try {
       // =========================
   // 🔔 Validação de STATUS
   // =========================
@@ -1111,7 +1111,9 @@ if (window.currentPage === 'designated') renderDesignatedPage();
       updates.conclusionDate = firebase.firestore.FieldValue.serverTimestamp();
     }
 
-    const rid = allRids.find(r => r.id === ridId);
+    const ridSnap = await db.collection('rids').doc(ridId).get();
+    const rid = ridSnap.exists ? { id: ridSnap.id, ...ridSnap.data() } : null;
+
 
 if (!rid) {
   showToast('RID não encontrada', 'error');
@@ -1122,6 +1124,19 @@ if (rid.deleted) {
   showToast('RID removido não pode ser alterado', 'error');
   return false;
 }
+
+// 📩 Se trocou (ou removeu) o líder, reativa envio do e-mail (Worker)
+if (Object.prototype.hasOwnProperty.call(updates, 'responsibleLeader')) {
+  const newLeader = updates.responsibleLeader || null;
+  const oldLeader = rid?.responsibleLeader || null;
+
+  if (newLeader !== oldLeader) {
+    updates.emailSent = false;
+    updates.emailSentAt = null;
+    updates.lastNotifiedLeader = null;
+  }
+}
+
 
 
 await db.collection('rids').doc(ridId).update(updates);
@@ -4633,6 +4648,21 @@ const ridRequests = await Promise.all(
     async function approveRidDeletion(requestId, ridId, requesterId) {
       try {
         const rid = allRids.find(r => r.id === ridId);
+
+        // 📩 Se trocou o líder, reativa envio de e-mail pro novo líder
+if (
+  Object.prototype.hasOwnProperty.call(updates, 'responsibleLeader') &&
+  updates.responsibleLeader !== rid.responsibleLeader
+) {
+  updates.emailSent = false;
+  updates.emailSentAt = null;
+
+  // opcional (eu recomendo): se removeu o líder, limpa o lastNotifiedLeader
+  if (!updates.responsibleLeader) {
+    updates.lastNotifiedLeader = null;
+  }
+}
+
 const ridRef = db.collection('rids').doc(ridId);
 const ridSnap = await ridRef.get();
 const ridData = ridSnap.data();
