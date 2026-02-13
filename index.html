@@ -2199,6 +2199,39 @@ window.hideDeletedRidTooltip = hideDeletedRidTooltip;
 window.moveDeletedRidTooltip = moveDeletedRidTooltip;
 
 
+function showDashboardClosedRemovedTooltip(encerrados, removidos) {
+  const tooltip = ensureDeletedRidTooltip();
+
+  tooltip.innerHTML = `
+    <div style="font-weight:800; margin-bottom:6px;">Encerrados e Removidos</div>
+    <div style="color:#374151; line-height:1.4;">
+      🕔 Encerrados: <b>${encerrados}</b><br/>
+      🗑️ Removidos: <b>${removidos}</b>
+    </div>
+  `;
+
+  tooltip.style.display = 'block';
+}
+
+window.showDashboardClosedRemovedTooltip = showDashboardClosedRemovedTooltip;
+
+function showDashboardCorrectedTooltip(doMes, atrasadas) {
+  const tooltip = ensureDeletedRidTooltip();
+
+  tooltip.innerHTML = `
+    <div style="font-weight:800; margin-bottom:6px;">Corrigidas</div>
+    <div style="color:#374151; line-height:1.4;">
+      ✅ Do mês: <b>${doMes}</b><br/>
+      🕒 Atrasados: <b>${atrasadas}</b>
+    </div>
+  `;
+
+  tooltip.style.display = 'block';
+}
+
+window.showDashboardCorrectedTooltip = showDashboardCorrectedTooltip;
+
+
     function renderAdminDashboard() {
   // 🔒 TRAVA ABSOLUTA DE ROLE
   if (!currentUserData?.isAdmin && !currentUserData?.isDeveloper) {
@@ -2287,6 +2320,32 @@ const correctedRids = allRids
     const cd = toDateSafe(r.conclusionDate);
     return isInMonthYear(cd, dashMonth, dashYear);
   }).length;
+  
+  // ✅ Corrigidas do mês (lista) — pra quebrar entre "do mês" e "atrasados corrigidos agora"
+const correctedInMonthList = allRids
+  .filter(r => !r.deleted)
+  .filter(r => {
+    const st = String(r.status || '').toUpperCase();
+    if (st !== 'CORRIGIDO' && st !== 'ENCERRADO') return false;
+
+    // respeita setor do dashboard
+    if (dashSector && r.sector !== dashSector) return false;
+
+    const cd = toDateSafe(r.conclusionDate);
+    return isInMonthYear(cd, dashMonth, dashYear);
+  });
+
+// ✅ Total corrigidas no mês (mantém igual ao seu correctedRids, mas agora consistente com setor)
+const corrigidasMesAtual = correctedInMonthList.length;
+
+// ✅ Dentre as corrigidas do mês, quais eram atrasadas (criadas antes do mês/ano atual)?
+const corrigidasAtrasadasNesteMes = correctedInMonthList.filter(r => {
+  const created = toDateSafe(r.createdAt);
+  return isBeforeMonthYear(created, dashMonth, dashYear);
+}).length;
+
+// ✅ Corrigidas "do próprio mês" (criadas no mês e corrigidas no mês)
+const corrigidasDoMes = corrigidasMesAtual - corrigidasAtrasadasNesteMes;
 
   // ✅ ENCERRADOS DO MÊS (somente ENCERRADO) — usa conclusionDate
 const encerradosRids = allRids
@@ -2296,6 +2355,22 @@ const encerradosRids = allRids
     const cd = toDateSafe(r.conclusionDate);
     return isInMonthYear(cd, dashMonth, dashYear);
   }).length;
+
+// 🗑️ REMOVIDOS DO MÊS (usa deletedAt) + respeita setor
+const removidosRids = allRids
+  .filter(r => {
+    // setor do dashboard
+    if (dashSector) return r.sector === dashSector;
+    return true;
+  })
+  .filter(r => (r.deleted === true) || (String(r.status || '').toUpperCase() === 'EXCLUIDO') || (String(r.status || '').toUpperCase() === 'EXCLUÍDO'))
+  .filter(r => {
+    const dd = toDateSafe(r.deletedAt);
+    return isInMonthYear(dd, dashMonth, dashYear);
+  }).length;
+
+// ✅ Total que aparece no card
+const encerradosEremovidosTotal = encerradosRids + removidosRids;
 
 
 // ✅ Semana útil: segunda (00:00) até sábado (23:59:59) — usando createdAt
@@ -2602,20 +2677,27 @@ const monthlyUserStats = Object.values(ridsByUser)
     </div>
   </div>
 
-  <!-- CORRIGIDAS -->
-  <div class="stats-slim-card card-hover" style="background:#f0fdf4;">
-    <div class="stats-slim-row">
-      <div class="stats-slim-left">
-        <div class="stats-slim-icon" style="background-color:#22c55e;">
-          <svg class="text-white" fill="currentColor" viewBox="0 0 20 20">
-            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-          </svg>
-        </div>
-        <p class="stats-slim-title">Corrigidas</p>
+<!-- CORRIGIDAS -->
+<div
+  class="stats-slim-card card-hover"
+  style="background:#f0fdf4;"
+  onmouseenter="showDashboardCorrectedTooltip(${corrigidasDoMes}, ${corrigidasAtrasadasNesteMes})"
+  onmousemove="moveDeletedRidTooltip(event)"
+  onmouseleave="hideDeletedRidTooltip()"
+>
+  <div class="stats-slim-row">
+    <div class="stats-slim-left">
+      <div class="stats-slim-icon" style="background-color:#22c55e;">
+        <svg class="text-white" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+        </svg>
       </div>
-      <p class="stats-slim-value text-green-600">${correctedRids}</p>
+      <p class="stats-slim-title">Corrigidas</p>
     </div>
+    <p class="stats-slim-value text-green-600">${corrigidasMesAtual}</p>
   </div>
+</div>
+
 
   <!-- ATRASADOS -->
   <div class="stats-slim-card card-hover" style="background:#fff1f2;">
@@ -2632,8 +2714,14 @@ const monthlyUserStats = Object.values(ridsByUser)
     </div>
   </div>
 
-  <!-- ENCERRADOS -->
-<div class="stats-slim-card card-hover" style="background:#f3f4f6;">
+<!-- ENCERRADOS + REMOVIDOS -->
+<div
+  class="stats-slim-card card-hover"
+  style="background:#f3f4f6;"
+  onmouseenter="showDashboardClosedRemovedTooltip(${encerradosRids}, ${removidosRids})"
+  onmousemove="moveDeletedRidTooltip(event)"
+  onmouseleave="hideDeletedRidTooltip()"
+>
   <div class="stats-slim-row">
     <div class="stats-slim-left">
       <div class="stats-slim-icon" style="background-color:#9ca3af;">
@@ -2641,11 +2729,14 @@ const monthlyUserStats = Object.values(ridsByUser)
           <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
         </svg>
       </div>
-      <p class="stats-slim-title">Encerrados</p>
+      <p class="stats-slim-title leading-tight">
+  Encerrados e<br>Removidos
+</p>
     </div>
-    <p class="stats-slim-value text-gray-700">${encerradosRids}</p>
+    <p class="stats-slim-value text-gray-700">${encerradosEremovidosTotal}</p>
   </div>
 </div>
+
 
 
 </div>
@@ -3406,7 +3497,7 @@ const atrasados = allRids
   ${atrasados.length > 0 ? `
     <details class="bg-white rounded-xl shadow-lg">
       <summary class="cursor-pointer select-none px-5 py-4 font-extrabold text-gray-800 flex items-center justify-between">
-        <span>🚨 Atrasados (mês anterior ou antes)</span>
+        <span>🚨 Atrasados (mêses anteriores)</span>
         <span class="px-3 py-1 rounded-lg text-xs font-bold bg-red-100 text-red-700">${atrasados.length}</span>
       </summary>
       <div class="px-4 pb-4 space-y-4">
