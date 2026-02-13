@@ -58,6 +58,16 @@
       border-color: #a8d5e2;
       box-shadow: 0 0 0 3px rgba(168, 213, 226, 0.2);
     }
+
+    /* ✅ Textarea que cresce sozinho pra mostrar tudo */
+.textarea-autogrow{
+  resize: none;
+  overflow: hidden;      /* importante pro autoGrow funcionar */
+  min-height: 44px;
+  white-space: pre-wrap; /* mantém quebras de linha */
+  word-break: break-word;
+}
+
     /* 🔒 trava swipe horizontal no iOS quando modal está aberto */
 .modal-backdrop {
   overscroll-behavior: contain;
@@ -272,6 +282,17 @@ function getRidDateSafe(r) {
 
   return null;
 }
+
+function autoGrowTextarea(el) {
+  if (!el) return;
+  el.style.height = "auto";
+  el.style.height = (el.scrollHeight + 2) + "px";
+}
+
+function autoGrowAllTextareas(root = document) {
+  root.querySelectorAll("textarea[data-autogrow='1']").forEach(t => autoGrowTextarea(t));
+}
+
 
 function getEmissionDateOnly(r) {
   // Só vale se for Timestamp do Firestore
@@ -3786,12 +3807,24 @@ const rid = { id: ridSnap.id, ...ridSnap.data() };
 
             <div class="mb-6">
               <label class="block text-sm font-bold text-gray-500 mb-2">Descrição do Problema</label>
-              <textarea name="description" rows="4" class="w-full px-4 py-2 border border-gray-300 rounded-lg" required>${rid.description}</textarea>
+              <textarea 
+  name="description" 
+  rows="1"
+  data-autogrow="1"
+  class="w-full px-4 py-2 border border-gray-300 rounded-lg textarea-autogrow" 
+  required
+>${rid.description || ''}</textarea>
             </div>
 
             <div class="mb-6">
               <label class="block text-sm font-bold text-gray-500 mb-2">Ação Imediata</label>
-              <textarea name="immediateAction" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-lg" required>${rid.immediateAction}</textarea>
+             <textarea 
+  name="immediateAction" 
+  rows="1"
+  data-autogrow="1"
+  class="w-full px-4 py-2 border border-gray-300 rounded-lg textarea-autogrow" 
+  required
+>${rid.immediateAction || ''}</textarea>
             </div>
 
             ${isAdmin() ? `
@@ -3866,7 +3899,8 @@ const rid = { id: ridSnap.id, ...ridSnap.data() };
         </div>
       `;
   document.body.appendChild(modal);
-
+// ✅ ajusta altura dos textareas (precisa ser depois de appendChild)
+autoGrowAllTextareas(modal);
 // 🔒 Admin: trava tudo e libera só os campos permitidos
 // ✅ Developer: não aplica trava (edita tudo)
 const applyLock = () => {
@@ -3897,11 +3931,17 @@ const applyLock = () => {
         return;
       }
 
-      // trava TODO o resto (somente admin)
       el.disabled = true;
-      el.readOnly = true;
-      el.style.pointerEvents = "none";
-      el.classList.add("bg-gray-100", "cursor-not-allowed");
+el.readOnly = true;
+
+// ✅ textarea: deixa clicar/selecionar e garante reflow bom
+if (el.tagName === "TEXTAREA") {
+  el.style.pointerEvents = "auto";
+} else {
+  el.style.pointerEvents = "none";
+}
+
+el.classList.add("bg-gray-100", "cursor-not-allowed");
     });
 };
 
