@@ -1085,17 +1085,6 @@ if (window.currentPage === 'designated') renderDesignatedPage();
   // =========================
   if (updates.status) {
 
-    // EM ANDAMENTO
-    if (updates.status === 'EM ANDAMENTO') {
-      if (!updates.observations || updates.observations.trim() === '') {
-        showToast(
-          '⚠️ Para status "EM ANDAMENTO", é OBRIGATORIO preencher o campo Observações.',
-          'error'
-        );
-        return false;
-      }
-    }
-
     // CORRIGIDO
     if (updates.status === 'CORRIGIDO') {
       if (
@@ -1635,6 +1624,86 @@ await ridRef.update({
         showToast('Erro ao solicitar exclusão: ' + error.message, 'error');
       }
     }
+
+     // ✅ APROVAR solicitação de remoção de RID (DEV)
+async function approveRidDeletionRequest(requestId) {
+  try {
+    if (!isDeveloper()) {
+      showToast('Acesso negado', 'error');
+      return;
+    }
+
+    const reqRef = db.collection('deleteRequests').doc(requestId);
+    const reqSnap = await reqRef.get();
+
+    if (!reqSnap.exists) {
+      showToast('Solicitação não encontrada', 'error');
+      return;
+    }
+
+    const req = reqSnap.data();
+    const ridId = req?.ridId;
+    const reason = (req?.reason || '').trim() || 'Aprovado sem motivo informado';
+
+    if (!ridId) {
+      showToast('Solicitação inválida (ridId ausente)', 'error');
+      return;
+    }
+
+    // 1) marca request como aprovada
+    await reqRef.update({
+      status: 'approved',
+      reviewedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      reviewedBy: {
+        uid: currentUser.uid,
+        name: currentUserData?.name || 'DEV'
+      }
+    });
+
+    // 2) executa a exclusão REAL do RID (sem usar "updates")
+    await deleteRid(ridId, reason);
+
+    // 3) recarrega a página de solicitações
+    renderRequestsPage();
+
+    showToast('Solicitação aprovada e o RID foi excluído!');
+  } catch (error) {
+    showToast('Erro ao aprovar solicitação: ' + error.message, 'error');
+  }
+}
+
+// ❌ REJEITAR solicitação de remoção de RID (DEV)
+async function rejectRidDeletionRequest(requestId) {
+  try {
+    if (!isDeveloper()) {
+      showToast('Acesso negado', 'error');
+      return;
+    }
+
+    const rejectReason =
+      prompt('Motivo da rejeição (opcional):')?.trim() || null;
+
+    await db.collection('deleteRequests').doc(requestId).update({
+      status: 'rejected',
+      rejectReason,
+      reviewedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      reviewedBy: {
+        uid: currentUser.uid,
+        name: currentUserData?.name || 'DEV'
+      }
+    });
+
+    renderRequestsPage();
+    showToast('Solicitação rejeitada!');
+  } catch (error) {
+    showToast('Erro ao rejeitar solicitação: ' + error.message, 'error');
+  }
+}
+
+// expõe pro onclick do HTML
+window.approveRidDeletionRequest = approveRidDeletionRequest;
+window.rejectRidDeletionRequest = rejectRidDeletionRequest;
+
 
     // Data Loading Functions
 function listenRidsRealtimeAdmin() {
@@ -4685,89 +4754,121 @@ const ridRequests = await Promise.all(
       updateRequestsBadge();
     }
 
-    async function approveRidDeletion(requestId, ridId, requesterId) {
-      try {
-        const rid = allRids.find(r => r.id === ridId);
+  async function approveRidDeletion(requestId, ridId, requesterId) {
+  try {
+    // 🔒 trava a UI na aba Solicitações durante a aprovação
+window.currentPage = 'requests';
 
-        // 📩 Se trocou o líder, reativa envio de e-mail pro novo líder
-if (
-  Object.prototype.hasOwnProperty.call(updates, 'responsibleLeader') &&
-  updates.responsibleLeader !== rid.responsibleLeader
-) {
-  updates.emailSent = false;
-  updates.emailSentAt = null;
+    const rid = allRids.find(r => r.id === ridId);
 
-  // opcional (eu recomendo): se removeu o líder, limpa o lastNotifiedLeader
-  if (!updates.responsibleLeader) {
-    updates.lastNotifiedLeader = null;
+    const ridRef = db.collection('rids').doc(ridId);
+    const ridSnap = await ridRef.get();
+    const ridData = ridSnap.data() || {};
+
+    const previousObs = ridData?.observations || '';
+
+    const deleteNote =
+`[${new Date().toLocaleDateString()}] RID removido do sistema
+Motivo: Solicitação de exclusão aprovada
+Removido por: ${currentUserData?.name || 'DEV'}`;
+
+    // ✅ Mantém a "funcionalidade de e-mail" sem usar updates:
+    // reseta flags de envio (útil se você tiver lógica de reativar/reverter exclusão)
+    // e evita ficar "travado" com emailSent=true
+    await ridRef.update({
+      // exclusão lógica
+      deleted: true,
+      status: 'EXCLUIDO',
+      deletedAt: firebase.firestore.FieldValue.serverTimestamp(),
+
+      // ✅ quem aprovou/excluiu foi o DEV logado (não o requester)
+      deletedBy: {
+        uid: currentUser?.uid || null,
+        name: currentUserData?.name || 'DEV',
+        role: isDeveloper() ? 'DEVELOPER' : 'ADMIN'
+      },
+
+      deleteReason: 'Solicitação de exclusão aprovada',
+
+      // ✅ histórico no campo observações
+      observations: previousObs
+        ? previousObs + '\n\n' + deleteNote
+        : deleteNote,
+
+      // ✅ reset de e-mail (mantém comportamento saudável do sistema)
+      emailSent: false,
+      emailSentAt: null,
+
+      // opcional: se você usa esse campo pra controlar notificação de líder
+      // deixe null pra forçar nova avaliação caso o RID "volte" algum dia
+      lastNotifiedLeader: null
+    });
+
+    // ✅ marca solicitação como aprovada (com auditoria)
+    await db.collection('deleteRequests').doc(requestId).update({
+      status: 'approved',
+      reviewedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      reviewedBy: {
+        uid: currentUser?.uid || null,
+        name: currentUserData?.name || 'DEV'
+      }
+    });
+
+    // ✅ notifica quem solicitou (requesterId)
+    await createNotification(requesterId, {
+      type: 'request_approved',
+      ridId: '',
+      ridNumber: rid?.ridNumber || '',
+      title: 'Solicitação Aprovada',
+      message: `Sua solicitação de exclusão do RID #${rid?.ridNumber || 'N/A'} foi aprovada`,
+      ridLocation: null,
+      deadline: null
+    });
+// ✅ garante que a UI volta pra Solicitações
+window.currentPage = 'requests';
+renderRequestsPage();
+
+showToast('RID excluído com sucesso!');
+
+    renderRequestsPage();
+    showToast('RID excluído com sucesso!');
+  } catch (error) {
+    showToast('Erro ao excluir RID: ' + error.message, 'error');
   }
 }
 
-const ridRef = db.collection('rids').doc(ridId);
-const ridSnap = await ridRef.get();
-const ridData = ridSnap.data();
-
-const previousObs = ridData?.observations || '';
-
-const deleteNote =
-`[${new Date().toLocaleDateString()}] RID removido do sistema
-Motivo: Solicitação de exclusão aprovada
-Removido por: ${rid?.requesterName || 'Sistema'}`;
-
-await ridRef.update({
-  deleted: true,
-  status: 'EXCLUIDO',
-  deletedAt: firebase.firestore.FieldValue.serverTimestamp(),
-  deletedBy: {
-    uid: requesterId,
-    name: rid?.requesterName || 'Solicitação',
-    role: 'REQUEST'
-  },
-  deleteReason: 'Solicitação de exclusão aprovada',
-  observations: previousObs
-    ? previousObs + '\n\n' + deleteNote
-    : deleteNote
-});
-
-
-        await db.collection('deleteRequests').doc(requestId).update({ status: 'approved' });
-        
-        await createNotification(requesterId, {
-          type: 'request_approved',
-          ridId: '',
-          ridNumber: rid?.ridNumber || '',
-          title: 'Solicitação Aprovada',
-          message: `Sua solicitação de exclusão da RID #${rid?.ridNumber || 'N/A'} foi aprovada`,
-          ridLocation: null,
-          deadline: null
-        });
-
-        showToast('RID excluída com sucesso!');
-      } catch (error) {
-        showToast('Erro ao excluir RID: ' + error.message, 'error');
+async function rejectRidDeletion(requestId, requesterId) {
+  try {
+    await db.collection('deleteRequests').doc(requestId).update({
+      status: 'rejected',
+      reviewedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      reviewedBy: {
+        uid: currentUser?.uid || null,
+        name: currentUserData?.name || 'DEV'
       }
-    }
+    });
 
-    async function rejectRidDeletion(requestId, requesterId) {
-      try {
-        await db.collection('deleteRequests').doc(requestId).update({ status: 'rejected' });
-        
-        await createNotification(requesterId, {
-          type: 'request_rejected',
-          ridId: '',
-          ridNumber: '',
-          title: 'Solicitação Rejeitada',
-          message: 'Sua solicitação de exclusão da RID foi rejeitada',
-          ridLocation: null,
-          deadline: null
-        });
+    await createNotification(requesterId, {
+      type: 'request_rejected',
+      ridId: '',
+      ridNumber: '',
+      title: 'Solicitação Rejeitada',
+      message: 'Sua solicitação de exclusão do RID foi rejeitada',
+      ridLocation: null,
+      deadline: null
+    });
 
-        showToast('Solicitação rejeitada');
-        renderRequestsPage();
-      } catch (error) {
-        showToast('Erro ao rejeitar solicitação: ' + error.message, 'error');
-      }
-    }
+    showToast('Solicitação rejeitada');
+    renderRequestsPage();
+  } catch (error) {
+    showToast('Erro ao rejeitar solicitação: ' + error.message, 'error');
+  }
+}
+
+// garante que o onclick do HTML encontra as funções
+window.approveRidDeletion = approveRidDeletion;
+window.rejectRidDeletion = rejectRidDeletion;
+
 
     async function approveEmployeeDeletion(requestId, userId, requesterId) {
       try {
