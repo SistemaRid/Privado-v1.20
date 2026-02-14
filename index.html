@@ -1623,6 +1623,53 @@ await ridRef.update({
       }
     }
 
+    // ✅ Deleta (exclusão lógica) um RID e grava o motivo corretamente
+async function deleteRid(ridId, reason) {
+  const ridRef = db.collection('rids').doc(ridId);
+  const ridSnap = await ridRef.get();
+
+  if (!ridSnap.exists) {
+    throw new Error('RID não encontrada para exclusão');
+  }
+
+  const ridData = ridSnap.data() || {};
+  const previousObs = ridData?.observations || '';
+
+  const safeReason = (reason || '').trim() || 'Solicitação de exclusão aprovada';
+
+  const deleteNote =
+`[${new Date().toLocaleDateString('pt-BR')}] RID removido do sistema
+Motivo: ${safeReason}
+Removido por: ${currentUserData?.name || 'DEV'}`;
+
+  await ridRef.update({
+    deleted: true,
+    status: 'EXCLUIDO',
+    deletedAt: firebase.firestore.FieldValue.serverTimestamp(),
+
+    deletedBy: {
+      uid: currentUser?.uid || null,
+      name: currentUserData?.name || 'DEV',
+      role: isDeveloper() ? 'DEVELOPER' : 'ADMIN'
+    },
+
+    // ✅ aqui fica o motivo “limpo” pra UI usar direto
+    deleteReason: safeReason,
+
+    // ✅ aqui fica o histórico em observações (como você quer ver no modal)
+    observations: previousObs ? (previousObs + '\n\n' + deleteNote) : deleteNote,
+
+    // (mantém seu comportamento saudável)
+    emailSent: false,
+    emailSentAt: null,
+    lastNotifiedLeader: null
+  });
+}
+
+// se quiser garantir acesso global (não é obrigatório, mas ajuda)
+window.deleteRid = deleteRid;
+
+
      // ✅ APROVAR solicitação de remoção de RID (DEV)
 async function approveRidDeletionRequest(requestId) {
   try {
@@ -4829,21 +4876,22 @@ const ridRequests = await Promise.all(
                 </p>
               </div>
 
-              <div class="flex gap-2 mt-4">
-                <button
-                  onclick="approveRidDeletion('${req.id}', '${req.ridId}', '${req.requesterId}')"
-                  class="flex-1 py-2 bg-green-500 text-white rounded-lg font-bold hover:bg-green-600"
-                >
-                  Aprovar
-                </button>
+             <div class="flex gap-2 mt-4">
+  <button
+    onclick="approveRidDeletionRequest('${req.id}')"
+    class="flex-1 py-2 bg-green-500 text-white rounded-lg font-bold hover:bg-green-600"
+  >
+    Aprovar
+  </button>
 
-                <button
-                  onclick="rejectRidDeletion('${req.id}', '${req.requesterId}')"
-                  class="flex-1 py-2 bg-red-500 text-white rounded-lg font-bold hover:bg-red-600"
-                >
-                  Rejeitar
-                </button>
-              </div>
+  <button
+    onclick="rejectRidDeletionRequest('${req.id}')"
+    class="flex-1 py-2 bg-red-500 text-white rounded-lg font-bold hover:bg-red-600"
+  >
+    Rejeitar
+  </button>
+</div>
+
             </div>
           `).join('')
       }
@@ -4933,11 +4981,17 @@ window.currentPage = 'requests';
     const ridSnap = await ridRef.get();
     const ridData = ridSnap.data() || {};
 
+    // ✅ pega o motivo digitado pelo líder na solicitação (deleteRequests.reason)
+const reqSnap = await db.collection('deleteRequests').doc(requestId).get();
+const reqData = reqSnap.exists ? (reqSnap.data() || {}) : {};
+const ridDeletionReason = (reqData.reason || '').trim() || 'Motivo não informado';
+
+
     const previousObs = ridData?.observations || '';
 
     const deleteNote =
 `[${new Date().toLocaleDateString()}] RID removido do sistema
-Motivo: Solicitação de exclusão aprovada
+Motivo: ${ridDeletionReason}
 Removido por: ${currentUserData?.name || 'DEV'}`;
 
     // ✅ Mantém a "funcionalidade de e-mail" sem usar updates:
@@ -4956,7 +5010,7 @@ Removido por: ${currentUserData?.name || 'DEV'}`;
         role: isDeveloper() ? 'DEVELOPER' : 'ADMIN'
       },
 
-      deleteReason: 'Solicitação de exclusão aprovada',
+      deleteReason: ridDeletionReason,
 
       // ✅ histórico no campo observações
       observations: previousObs
@@ -4994,9 +5048,6 @@ Removido por: ${currentUserData?.name || 'DEV'}`;
     });
 // ✅ garante que a UI volta pra Solicitações
 window.currentPage = 'requests';
-renderRequestsPage();
-
-showToast('RID excluído com sucesso!');
 
     renderRequestsPage();
     showToast('RID excluído com sucesso!');
@@ -6760,6 +6811,31 @@ ${
                     ? 'Correção realizada pelo próprio emissor no momento da abertura do RID.'
                     : 'Aguardando detalhamento da ação corretiva.'
                 )
+          }
+        </p>
+      </div>
+    `
+    : ''
+}
+
+<!-- 🗑️ RID excluído -->
+${
+  rid.status === 'EXCLUIDO'
+    ? `
+      <div class="mt-3 p-3 rounded-lg bg-gray-100 border border-gray-300">
+        <p class="text-sm font-bold text-gray-700 mb-1">
+          RID removido do fluxo operacional de segurança
+        </p>
+
+        <p class="text-sm text-gray-600 mb-1">
+          Motivo da remoção:
+        </p>
+
+        <p class="text-sm text-gray-800 whitespace-pre-line">
+          ${
+            rid.deleteReason && String(rid.deleteReason).trim() !== ''
+              ? rid.deleteReason
+              : 'Motivo não informado'
           }
         </p>
       </div>
