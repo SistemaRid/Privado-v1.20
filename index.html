@@ -6164,8 +6164,8 @@ const sectorRanking = Object.entries(sectorRisk)
           Setor: ${r.sector || '—'}
         </span>
 
-        <span class="text-gray-500 truncate">
-          Motivo: ${r.deleteReason || 'Não informado'}
+        <span class="text-gray-500 overflow-hidden text-ellipsis line-clamp-3">
+          <b>Motivo:</b> ${r.deleteReason || 'Não informado'}
         </span>
       </div>
 
