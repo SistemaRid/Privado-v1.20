@@ -3263,18 +3263,18 @@ ${myPerfHTML}
       `
   }
 
-  ${
+ ${
   rid.status === 'CORRIGIDO' &&
   rid.emitterId === currentUser.uid &&
   (!rid.correctiveActions || rid.correctiveActions.trim() === '') &&
   rid.immediateAction &&
   rid.immediateAction.trim() !== ''
     ? `
-      <div class="mt-3 p-3 rounded-lg bg-green-50 border border-green-200">
-        <p class="text-sm font-bold text-green-700 mb-1">
-          Ação imediata
+      <div class="mt-3 p-3 rounded-lg bg-yellow-50 border border-yellow-300">
+        <p class="text-sm font-bold text-yellow-800 mb-1">
+          Ação imediata (emissor)
         </p>
-        <p class="text-sm text-green-700">
+        <p class="text-sm text-yellow-800">
           ${rid.immediateAction}
         </p>
       </div>
@@ -3282,47 +3282,26 @@ ${myPerfHTML}
     : ''
 }
 
-${
+                      ${
   rid.status === 'CORRIGIDO'
-    ? (function() {
-        // tenta detectar quem efetuou a correção usando nomes de campo comuns
-        const resolver =
-          rid.correctedBy ||
-          rid.correctedById ||
-          rid.correctedByUid ||
-          rid.resolvedBy ||
-          rid.resolvedById ||
-          rid.responsibleLeader ||
-          rid.responsibleLeaderId ||
-          '';
-
-        const resolverStr = String(resolver || '').trim();
-        const emitterStr = String(rid.emitterId || '').trim();
-
-        // se temos um resolvedor e ele é diferente do emitter -> correção feita por outro (líder)
-        const correctedByOther = resolverStr !== '' && resolverStr !== emitterStr;
-
-        const bgClass = correctedByOther ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200';
-        const textClass = correctedByOther ? 'text-green-700' : 'text-blue-700';
-
-        return `
-        <div class="mt-3 p-3 rounded-lg ${bgClass} border">
-          <p class="text-sm font-bold ${textClass} mb-1">Ação corretiva</p>
-          <p class="text-sm ${textClass} whitespace-pre-line">
-            ${
-              rid.correctiveActions && rid.correctiveActions.trim() !== ''
-                ? rid.correctiveActions
-                : (
-                    // mensagem fallback: se tiver um resolvedor diferente, o líder deve detalhar
-                    correctedByOther
-                      ? 'Aguardando detalhamento da ação corretiva pelo responsável.'
-                      : 'Correção realizada pelo próprio emissor no momento da abertura do RID.'
-                  )
-            }
-          </p>
-        </div>
-        `;
-      })()
+    ? `
+      <div class="mt-3 p-3 rounded-lg bg-green-50 border border-green-200">
+        <p class="text-sm font-bold text-green-700 mb-1">
+          Ação corretiva
+        </p>
+        <p class="text-sm text-green-700">
+          ${
+            rid.correctiveActions && rid.correctiveActions.trim() !== ''
+              ? rid.correctiveActions
+              : (
+                  rid.emitterId === currentUser.uid
+                    ? 'Correção realizada pelo próprio emissor no momento da abertura do RID.'
+                    : 'Aguardando detalhamento da ação corretiva.'
+                )
+          }
+        </p>
+      </div>
+    `
     : ''
 }
 
@@ -6892,20 +6871,19 @@ ${
 }
 
 
+     <!-- Ação imediata do emissor -->
+
 ${
-  /* AÇÃO IMEDIATA — igual ao que você mostrou: só aparece quando o RID foi marcado CORRIGIDO
-     e o emissor é o próprio currentUser, e não há correctiveActions; mantém o estilo verde */
   rid.status === 'CORRIGIDO' &&
-  rid.emitterId === currentUser.uid &&
   (!rid.correctiveActions || rid.correctiveActions.trim() === '') &&
   rid.immediateAction &&
   rid.immediateAction.trim() !== ''
     ? `
-      <div class="mt-3 p-3 rounded-lg bg-green-50 border border-green-200">
-        <p class="text-sm font-bold text-green-700 mb-1">
+      <div class="mt-3 p-3 rounded-lg bg-yellow-50 border border-yellow-300">
+        <p class="text-sm font-bold text-yellow-800 mb-1">
           Ação imediata
         </p>
-        <p class="text-sm text-green-700">
+        <p class="text-sm text-yellow-800">
           ${rid.immediateAction}
         </p>
       </div>
@@ -6913,78 +6891,30 @@ ${
     : ''
 }
 
+
+<!-- 🔧 Ação corretiva -->
 ${
-  /* AÇÃO CORRETIVA — cor depende de quem efetuou a correção:
-     - azul (auto-corrigido) quando não houver resolvedor diferente do emitter
-     - verde quando houver resolvedor diferente (líder) */
   rid.status === 'CORRIGIDO'
-    ? (function() {
-        // helper para extrair valor de vários formatos (string, objeto com uid/id/name, etc)
-        const tryGet = x => {
-          try {
-            if (!x && x !== 0) return '';
-            if (typeof x === 'object') {
-              return String(x.uid || x.id || x.userId || x.usuarioId || x.name || x.nome || '').trim();
-            }
-            return String(x).trim();
-          } catch (e) {
-            return '';
+    ? `
+      <div class="mt-3 p-3 rounded-lg bg-green-50 border border-green-200">
+        <p class="text-sm font-bold text-green-700 mb-1">
+          Ação corretiva
+        </p>
+        <p class="text-sm text-green-700">
+          ${
+            rid.correctiveActions && rid.correctiveActions.trim() !== ''
+              ? rid.correctiveActions
+              : (
+                  rid.emitterId === currentUser.uid
+                    ? 'Correção realizada pelo próprio emissor no momento da abertura do RID.'
+                    : 'Aguardando detalhamento da ação corretiva.'
+                )
           }
-        };
-
-        // possíveis campos onde o sistema pode ter salvo quem corrigiu
-        const candidates = [
-          rid.correctedBy, rid.correctedById, rid.corrected_by, rid.corrector,
-          rid.resolvedBy, rid.resolvedById, rid.resolved_by,
-          rid.responsibleLeaderWhenCorrected, rid.responsibleLeaderUid, rid.responsibleLeaderId, rid.responsibleLeader,
-          rid.corrigidoPor, rid.corrigido_por, rid.corrigidoPorId,
-          rid.correctiveAuthor, rid.correctiveAuthorId,
-          rid.correctiveMeta && rid.correctiveMeta.by,
-          rid.correctiveMeta && rid.correctiveMeta.user,
-          rid.meta && (rid.meta.correctedBy || rid.meta.resolvedBy)
-        ];
-
-        // pega o primeiro candidato válido
-        let resolverStr = '';
-        for (const c of candidates) {
-          const v = tryGet(c);
-          if (v) { resolverStr = v; break; }
-        }
-
-        // tenta também campos aninhados comuns
-        if (!resolverStr) {
-          resolverStr = tryGet(rid.correctedBy?.uid) || tryGet(rid.resolvedBy?.uid) || tryGet(rid.correctedBy?.id) || '';
-        }
-
-        // emitter identificador
-        const emitterStr = tryGet(rid.emitterId) || tryGet(rid.emitterUid) || tryGet(rid.emitter) || '';
-
-        // se resolver existe e é diferente do emitter => corrigido por outro (líder)
-        const correctedByOther = resolverStr !== '' && resolverStr !== emitterStr;
-
-        const bgClass = correctedByOther ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200';
-        const textClass = correctedByOther ? 'text-green-700' : 'text-blue-700';
-
-        const messageFallback = correctedByOther
-          ? 'Aguardando detalhamento da ação corretiva pelo responsável.'
-          : 'Correção realizada pelo próprio emissor no momento da abertura do RID.';
-
-        return `
-        <div class="mt-3 p-3 rounded-lg ${bgClass} border">
-          <p class="text-sm font-bold ${textClass} mb-1">Ação corretiva</p>
-          <p class="text-sm ${textClass} whitespace-pre-line">
-            ${
-              rid.correctiveActions && String(rid.correctiveActions).trim() !== ''
-                ? rid.correctiveActions
-                : messageFallback
-            }
-          </p>
-        </div>
-        `;
-      })()
+        </p>
+      </div>
+    `
     : ''
 }
-
 
 <!-- 🗑️ RID excluído -->
 ${
