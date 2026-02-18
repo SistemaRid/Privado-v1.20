@@ -593,6 +593,11 @@ unsubscribeLeader = db.collection("rids")
     let showMobileFilters = false;
     let showMobileReportFilters = false;
 
+    // ===== estado para histórico =====
+    let allRidHistory = [];
+    window.ridHistoryUnsub = null;
+
+
 
 
 
@@ -632,6 +637,10 @@ unsubscribeLeader = db.collection("rids")
     if (window.elementSdk) {
       window.elementSdk.init(elementConfig);
     }
+
+    // listener handle global (para cancelar quando mudar de página)
+window.ridHistoryUnsub = null;
+
 
     // Utility Functions
     function getUserNameById(uid) {
@@ -686,6 +695,13 @@ function spawnConfetti(card) {
 
   // remove depois de alguns segundos
   setTimeout(() => container.remove(), 6000);
+}
+
+function stopRidHistoryListener() {
+  if (window.ridHistoryUnsub) {
+    try { window.ridHistoryUnsub(); } catch(e) { /* ignore */ }
+    window.ridHistoryUnsub = null;
+  }
 }
 
 
@@ -1149,17 +1165,103 @@ if (Object.prototype.hasOwnProperty.call(updates, 'responsibleLeader')) {
 
 await db.collection('rids').doc(ridId).update(updates);
 
-// 🧾 Auditoria
+// 🧾 Auditoria (comparação profunda e normalizada)
+// Substitui o loop simples para evitar gravar valores idênticos (ex.: mesma emissionDate).
 const changes = {};
 
+// normaliza valores para comparação
+function normalizeForCompare(val) {
+  if (val === null || val === undefined) return null;
+
+  // Firestore Timestamp-like ({ seconds, nanoseconds })
+  if (typeof val === 'object' && val !== null && ('seconds' in val)) {
+    const nanos = val.nanoseconds || 0;
+    return (Number(val.seconds) * 1000) + Math.round(nanos / 1e6);
+  }
+
+  // Date object
+  if (val instanceof Date) return val.getTime();
+
+  // números / boolean já ok
+  if (typeof val === 'number' || typeof val === 'boolean') return val;
+
+  // objetos/arrays
+  if (typeof val === 'object') {
+    try {
+      return JSON.stringify(val);
+    } catch (e) {
+      return String(val);
+    }
+  }
+
+  // string
+  return String(val).trim();
+}
+
+// compara cada campo de updates com o valor atual do rid
 for (const key in updates) {
-  if (rid[key] !== updates[key]) {
+  const beforeRaw = rid ? rid[key] : null;
+  const afterRaw = updates[key];
+
+  const before = normalizeForCompare(beforeRaw);
+  const after  = normalizeForCompare(afterRaw);
+
+  if (before !== after) {
     changes[key] = {
-      from: rid[key] || null,
-      to: updates[key]
+      from: beforeRaw === undefined ? null : beforeRaw,
+      to:   afterRaw  === undefined ? null : afterRaw
     };
   }
 }
+
+// --- INICIO: grava auditoria na coleção ridhistory ---
+try {
+  if (Object.keys(changes).length > 0) {
+
+    await db.collection('ridHistory').add({
+
+      // 🔹 Identificação do RID
+      ridId: ridId,
+      ridNumber: rid?.ridNumber || null,
+
+      // 🔹 Dados fixos do RID (AGORA VÃO APARECER NA TELA)
+      emitterName: rid?.emitterName || null,
+      emitterId: rid?.emitterId || null,
+
+      leaderName: rid?.responsibleLeaderName || null,
+      leaderId: rid?.responsibleLeader || null,
+
+      // 🔹 Quem fez a alteração
+      changedBy: {
+        uid: currentUser?.uid || null,
+        name: currentUserData?.name || null,
+        role: currentUserData?.isDeveloper
+          ? 'DEVELOPER'
+          : (currentUserData?.isAdmin ? 'ADMIN' : 'USER')
+      },
+
+      // 🔹 O que mudou
+      changes: changes,
+
+      // 🔹 Snapshot antes da alteração
+      before: {
+        status: rid?.status || null,
+        responsibleLeader: rid?.responsibleLeader || null,
+        responsibleLeaderName: rid?.responsibleLeaderName || null
+      },
+
+      meta: {
+        page: window.currentPage || null,
+        userAgent: navigator.userAgent
+      },
+
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  }
+} catch (err) {
+  console.warn('Erro ao gravar ridhistory:', err);
+}
+// --- FIM: grava auditoria ---
 
     // 🔔 Notifica admins
     if (updates.status) {
@@ -1380,6 +1482,7 @@ await ridRef.update({
     if (window.currentPage === 'dashboard') renderDashboard();
     if (window.currentPage === 'search') renderSearchPage();
     if (window.currentPage === 'designated') renderDesignatedPage();
+    if (window.currentPage === 'nova') renderNovaPage();
 
     showToast('RID excluída com sucesso!');
   } catch (error) {
@@ -1765,7 +1868,7 @@ function listenRidsRealtimeAdmin() {
         if (window.currentPage === 'dashboard') renderDashboard();
         if (window.currentPage === 'search') renderSearchPage();
         if (window.currentPage === 'designated') renderDesignatedPage();
-
+        if (window.currentPage === 'nova') renderNovaPage();
         if (currentUserData?.isAdmin || currentUserData?.isDeveloper) {
           updateGoalDisplay();
         }
@@ -1776,6 +1879,287 @@ function listenRidsRealtimeAdmin() {
       }
     );
 }
+
+function listenRidHistoryRealtime() {
+  // garante cancelar listener antigo antes de criar outro
+  stopRidHistoryListener();
+
+  // Query padrão: mais recentes primeiro
+  const q = db.collection('ridHistory').orderBy('createdAt', 'desc').limit(500);
+
+  window.ridHistoryUnsub = q.onSnapshot(
+    snapshot => {
+      allRidHistory = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // renderiza a página caso já esteja aberta
+      if (window.currentPage === 'nova') {
+        renderRidHistoryPage();
+      }
+    },
+    error => {
+      console.warn('Erro listener ridHistory:', error);
+      // se der permission-denied ou outro, mostra mensagem leve
+      showToast('Erro ao carregar histórico de alterações', 'error');
+    }
+  );
+
+  return window.ridHistoryUnsub;
+}
+
+function renderRidHistoryPage() {
+  const container = document.getElementById('ridHistoryContainer');
+  if (!container) return;
+
+  // limpa só o conteúdo interno
+  container.innerHTML = '';
+
+  if (!allRidHistory || allRidHistory.length === 0) {
+    container.innerHTML = `<p class="text-gray-600">Nenhuma alteração registrada ainda.</p>`;
+    return;
+  }
+
+  // helpers de formatação
+  function toDateObject(raw) {
+    if (!raw) return null;
+    // Firestore Timestamp
+    if (typeof raw === 'object' && raw !== null && typeof raw.toDate === 'function') return raw.toDate();
+    // { seconds, nanoseconds }
+    if (typeof raw === 'object' && raw !== null && 'seconds' in raw) return new Date(Number(raw.seconds) * 1000);
+    // Date
+    if (raw instanceof Date) return raw;
+    // string / number
+    const n = Number(raw);
+    if (!isNaN(n)) return new Date(n);
+    const parsed = Date.parse(String(raw));
+    return isNaN(parsed) ? null : new Date(parsed);
+  }
+
+  function formatDateOnly(raw) {
+    const d = toDateObject(raw);
+    if (!d) return '—';
+    return d.toLocaleDateString('pt-BR');
+  }
+
+  function formatTimeOnly(raw) {
+    const d = toDateObject(raw);
+    if (!d) return '—';
+    // HH:MM
+    return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  // opcional: ordenar por createdAt desc (mais recentes primeiro)
+  const list = [...allRidHistory].sort((a, b) => {
+    const da = toDateObject(a.createdAt) || new Date(0);
+    const db = toDateObject(b.createdAt) || new Date(0);
+    return db - da;
+  });
+
+  // monta HTML em modo "linha única" estilo tabela responsiva
+  const rows = list.map(h => {
+    const ridNumber = h.ridNumber || h.ridId || '-';
+    const emitter = h.emitterName || h.emitterId || h.emitter || '-';
+    const who = (h.changedBy && (h.changedBy.name || h.changedBy.uid)) || '—';
+    const date = formatDateOnly(h.createdAt);
+    const time = formatTimeOnly(h.createdAt);
+    const histId = h.id || h.ridHistoryId || '';
+
+    return `
+      <div class="bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-3 flex items-center gap-4 text-sm">
+        <!-- RID -->
+        <div class="w-28 flex-none font-semibold text-sky-700 truncate">#${ridNumber}</div>
+
+        <!-- Emitente -->
+        <div class="flex-1 text-gray-700 truncate">${escapeHtml(String(emitter))}</div>
+
+        <!-- Quem alterou -->
+        <div class="flex-1 text-gray-700 truncate">${escapeHtml(String(who))}</div>
+
+        <!-- Data -->
+        <div class="w-36 text-gray-600 text-xs">${date}</div>
+
+        <!-- Hora -->
+        <div class="w-20 text-gray-600 text-xs">${time}</div>
+
+        <!-- Botão ver -->
+        <div class="w-24 text-right">
+          <button
+            class="text-xs px-3 py-1 rounded-md border border-orange-300 text-orange-600 bg-orange-50 hover:bg-orange-100 transition-colors"
+            onclick="openRidFromHistory && openRidFromHistory('${histId.replace(/'/g, "\\'")}')">
+            ver
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.innerHTML = rows;
+}
+
+// pequeno helper para evitar injeção/quebra de layout com strings
+function escapeHtml(str) {
+  return str
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+// Substitua/cole esta função global (openRidFromHistory) no seu arquivo JS
+window.openRidFromHistory = async function(historyIdOrRidId) {
+  try {
+    // 1) tenta tratar o argumento como ID de documento em ridHistory
+    const dbRidHistoryRef = db.collection('ridHistory').doc(String(historyIdOrRidId));
+    let historySnap = await dbRidHistoryRef.get();
+
+    // 2) se não existir doc com esse id, tenta buscar o último ridhistory do RID (fallback)
+    if (!historySnap.exists) {
+      const maybeRidNumber = String(historyIdOrRidId).replace('#','').trim();
+      const q = await db.collection('ridHistory')
+                        .where('ridId','==', maybeRidNumber)
+                        .orderBy('createdAt','desc')
+                        .limit(1)
+                        .get();
+      if (!q.empty) {
+        historySnap = q.docs[0];
+      } else {
+        // tenta buscar por ridNumber (campo ridNumber) caso tenha sido salvo assim
+        const q2 = await db.collection('ridHistory')
+                          .where('ridNumber','==', maybeRidNumber)
+                          .orderBy('createdAt','desc')
+                          .limit(1)
+                          .get();
+        if (!q2.empty) historySnap = q2.docs[0];
+      }
+    }
+
+    if (!historySnap || !historySnap.exists) {
+      return showToast ? showToast('Registro de alteração não encontrado.', 'error') : alert('Registro de alteração não encontrado.');
+    }
+
+    const history = { id: historySnap.id, ...historySnap.data() };
+
+    // Pega dados do RID para mostrar emissor (tenta doc rids/{ridId})
+    let emitterName = history.emitterName || null;
+    if (!emitterName && history.ridId) {
+      try {
+        const ridSnap = await db.collection('rids').doc(history.ridId).get();
+        if (ridSnap.exists) {
+          const ridData = ridSnap.data();
+          emitterName = ridData.emitterName || ridData.emitterId || emitterName;
+          // salva localmente para debug (não grava no Firestore)
+        }
+      } catch (e) {
+        // ignora falha ao buscar rid
+      }
+    }
+
+    // Se ainda não tiver nome do emissor, tenta buscar user pelo emitterId (caso exista)
+    if (!emitterName && history.emitterId) {
+      try {
+        const userSnap = await db.collection('users').doc(history.emitterId).get();
+        if (userSnap.exists) {
+          emitterName = userSnap.data().name || emitterName;
+        }
+      } catch(e) {}
+    }
+
+    // Formata data
+    const when = (history.createdAt && history.createdAt.toDate && typeof history.createdAt.toDate === 'function')
+      ? history.createdAt.toDate().toLocaleString()
+      : (history.createdAt && history.createdAt.seconds ? new Date(history.createdAt.seconds * 1000).toLocaleString() : String(history.createdAt || '-'));
+
+    // Monta lista de mudanças (cada linha: campo — from → to)
+    const changes = history.changes || {};
+    const changesHtml = Object.keys(changes).length === 0
+      ? '<div class="text-sm text-gray-600">Nenhum detalhe salvo.</div>'
+      : `<div class="space-y-1">${Object.keys(changes).map(k => {
+          let from = changes[k]?.from ?? '';
+          let to   = changes[k]?.to ?? '';
+
+          // formata timestamps simples
+          if (from && from.seconds) from = new Date(from.seconds * 1000).toLocaleString();
+          if (to   && to.seconds)   to   = new Date(to.seconds * 1000).toLocaleString();
+
+          // evita JSON enorme: limita strings longas
+          const short = (s) => {
+            if (s === null || s === undefined) return '-';
+            s = String(s);
+            if (s.length > 120) return s.slice(0,120) + '…';
+            return s;
+          };
+
+         // 🔤 Tradução dos nomes dos campos
+const fieldNames = {
+  riskClassification: 'Classificação de risco',
+  emissionDate: 'Data de emissão',
+  responsibleLeaderName: 'Responsável',
+  responsibleLeader: 'Responsável',
+  sector: 'Setor',
+  description: 'Descrição',
+  status: 'Status',
+  correctiveActions: 'Ações corretivas',
+  conclusion: 'Conclusão',
+  observations: 'Observações'
+};
+
+const label = fieldNames[k] || k;
+
+return `<div class="text-sm">
+  <strong class="text-gray-700">${label}</strong>:
+  <span class="text-gray-500">${short(from)}</span> → 
+  <span class="text-gray-800">${short(to)}</span>
+</div>`;
+
+        }).join('')}</div>`;
+
+    // remove modal antigo
+    const old = document.getElementById('historySmallModal');
+    if (old) old.remove();
+
+    // cria modal pequeno
+    const modal = document.createElement('div');
+    modal.id = 'historySmallModal';
+    modal.className = 'fixed inset-0 z-50 flex items-center justify-center p-4';
+    modal.innerHTML = `
+      <div class="absolute inset-0 bg-black/40" id="historySmallBackdrop"></div>
+
+      <div class="relative bg-white rounded-xl shadow-xl w-full max-w-2xl p-5">
+        <div class="flex items-start justify-between gap-3 mb-3">
+          <div>
+            <h3 class="text-lg font-bold">Alterações</h3>
+            <div class="text-xs text-gray-500 mt-1">Detalhes da alteração registrada</div>
+          </div>
+          <button id="historySmallClose" class="text-gray-500 text-sm">Fechar</button>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3 text-sm">
+          <div><span class="text-gray-500">RID</span><div class="font-medium text-gray-800">#${history.ridNumber || history.ridId || '-'}</div></div>
+          <div><span class="text-gray-500">Data</span><div class="font-medium text-gray-800">${when}</div></div>
+          <div><span class="text-gray-500">Emitente</span><div class="font-medium text-gray-800">${emitterName || '-'}</div></div>
+          <div><span class="text-gray-500">Quem alterou</span><div class="font-medium text-gray-800">${history.changedBy?.name || history.changedBy?.uid || '-'}</div></div>
+        </div>
+
+        <div class="border-t pt-3">
+          ${changesHtml}
+        </div>
+
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    // eventos de fechamento
+    document.getElementById('historySmallClose').addEventListener('click', () => modal.remove());
+    document.getElementById('historySmallBackdrop').addEventListener('click', () => modal.remove());
+
+    // foco pra acessibilidade
+    modal.querySelector('button')?.focus();
+
+  } catch (err) {
+    console.error('Erro openRidFromHistory:', err);
+    showToast ? showToast('Erro ao abrir modal de alterações', 'error') : alert('Erro ao abrir modal de alterações');
+  }
+};
+
 
 async function loadUsers() {
   // Funcionário comum NÃO deve tentar carregar todos os usuários
@@ -2487,77 +2871,10 @@ const monthlyUserStats = Object.values(ridsByUser)
 
       app.innerHTML = `
         <div class="h-full flex flex-col">
-          <!-- Header -->
-          <div class="px-4 md:px-8 py-3 shadow-md" style="background-color: #808080;">
-           <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                <div>
-                <h1 class="system-title text-lg md:text-2xl font-bold text-white">${config.system_title || defaultConfig.system_title}</h1>
-                <p class="company-name text-xs md:text-sm text-gray-300">${config.company_name || defaultConfig.company_name}</p>
-                <p class="text-sm font-semibold text-white mt-1">${currentUserData.name}</p>
-                <p class="text-xs text-gray-300">${currentUserData.userType || (currentUserData.isAdmin ? 'Administrador' : 'Funcionário')}</p>
-              </div>
-              <div class="flex items-center space-x-2">
-            
-                
-                <!-- Menu Hamburguer -->
-                <div class="relative">
-                  <button onclick="toggleHeaderMenu()" class="p-2 rounded-lg hover:bg-gray-700 transition-colors">
-                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
-                    </svg>
-                  </button>
-                 <div id="headerMenu"class="hidden absolute left-0 md:right-0 md:left-auto mt-2 w-48 bg-white rounded-lg shadow-xl z-50 border border-gray-200">
-                    <button onclick="handleLogout()" class="w-full text-left px-4 py-3 hover:bg-gray-100 transition-colors rounded-lg flex items-center space-x-2" style="color: #f87171;">
-                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
-                      </svg>
-                      <span class="font-semibold">Sair</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
 
-          <!-- Navigation Menu -->
-          <div class="bg-white border-b-2 border-gray-200">
-            <div class="px-2 md:px-8">
-              <nav class="flex overflow-x-auto space-x-1 whitespace-nowrap">
-                <button onclick="renderAdminDashboard()" class="px-3 md:px-6 py-3 font-semibold border-b-4 whitespace-nowrap text-sm md:text-base" style="border-color: #a8d5e2; color: #6b9eb0;">
-                  Dashboard
-                </button>
-                <button onclick="renderSearchPage()" class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100 transition-colors whitespace-nowrap text-sm md:text-base text-gray-700">
-                  RID's
-                </button>
-                ${(isAdmin() || isDeveloper()) ? `
-    <button onclick="renderMyRidsPage()"
-  class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100 transition-colors
-         whitespace-nowrap
-         text-sm md:text-base text-gray-700">
-  Meus RIDs
-</button>
-  ` : ''}
-                <button onclick="renderEmployeesPage()" class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100 transition-colors whitespace-nowrap text-sm md:text-base text-gray-700">
-                  Funcionários
-                </button>
-                ${isDeveloper() ? `
-                  <button onclick="renderRequestsPage()" class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100 transition-colors whitespace-nowrap text-sm md:text-base text-gray-700 relative">
-                    Solicitações
-                    <span id="requestsBadge" class="hidden absolute top-1 right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">0</span>
-                  </button>
-                ` : ''}
-                <button onclick="renderReportsPage()" class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100 transition-colors whitespace-nowrap text-sm md:text-base text-gray-700">
-                  Relatórios
-                </button>
-                <button
-  onclick="renderDesignatedPage()"
-  class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100 transition-colors whitespace-nowrap text-sm md:text-base text-gray-700"
->
-  ${isDeveloper() ? 'Centro de Controle' : 'Designadas'}
-</button>
-              </nav>
-            </div>
-          </div>
+          ${renderHeader(config)}
+${renderNavigation('Dashboard')}
+
 
           <!-- Main Content -->
           <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
@@ -6257,6 +6574,227 @@ setTimeout(() => {
 }, 50);
 }
 
+function renderNovaPage() {
+  if (!isDeveloper()) {
+    renderDashboard();
+    return;
+  }
+
+  window.currentPage = 'nova';
+
+  const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
+  const app = document.getElementById('app');
+
+  app.innerHTML = `
+    <div class="h-full flex flex-col">
+      ${renderHeader(config)}
+      ${renderNavigation('nova')}
+
+      <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
+        <div class="max-w-7xl mx-auto px-8 py-8">
+          <div class="flex items-center justify-between mb-6">
+            <h1 class="text-2xl font-bold text-gray-800">Histórico de Alterações</h1>
+          </div>
+
+          <div id="ridHistoryContainer" class="space-y-3">
+            <!-- carregando -->
+            <div id="ridHistoryLoading" class="text-gray-600">Carregando histórico…</div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  `;
+
+  // 🔥 ATIVA O HISTÓRICO AO ABRIR A PÁGINA
+  // garante que não haja listeners duplicados
+  try { stopRidHistoryListener(); } catch (e) { /* ignore */ }
+
+  // inicia o listener que popula `allRidHistory` e chama renderRidHistoryPage()
+  // (função listenRidHistoryRealtime deve existir no seu arquivo)
+  try {
+    listenRidHistoryRealtime();
+  } catch (err) {
+    console.warn('Falha ao iniciar listener de histórico:', err);
+    const container = document.getElementById('ridHistoryContainer');
+    if (container) {
+      container.innerHTML = `<div class="text-red-600">Erro ao carregar histórico. Veja o console.</div>`;
+    }
+  }
+}
+
+
+
+function startRidHistoryListener() {
+  // cancela listener anterior se existir
+  if (window.ridHistoryUnsub) {
+    try { window.ridHistoryUnsub(); } catch(e) {}
+    window.ridHistoryUnsub = null;
+  }
+
+  const db = firebase.firestore(); // assume já inicializado no projeto
+
+  // Query: mais recente primeiro, limitar por exemplo 200 (ajusta se quiser)
+  const q = db.collection('ridhistory')
+    .orderBy('timestamp', 'desc')
+    .limit(200);
+
+  window.ridHistoryUnsub = q.onSnapshot(snapshot => {
+    const items = [];
+    snapshot.forEach(doc => {
+      const d = doc.data();
+      items.push({
+        id: doc.id,
+        ridId: d.ridId || d.rid || '—',
+        changedBy: (d.changedBy && d.changedBy.name) ? d.changedBy.name : (d.changedByName || d.user || 'Desconhecido'),
+        timestamp: d.timestamp ? d.timestamp.toDate() : new Date(),
+        raw: d,
+      });
+    });
+
+    renderRidHistoryList(items);
+  }, err => {
+    console.error('Erro listener ridhistory', err);
+    showToast('Erro ao conectar histórico de RIDs: ' + (err.message || err));
+  });
+}
+
+function renderRidHistoryList(items) {
+  // cria container se não existir
+  let container = document.getElementById('ridHistoryContainer');
+  if (!container) {
+    const listWrapper = document.createElement('div');
+    listWrapper.id = 'ridHistoryContainer';
+    listWrapper.className = 'max-w-7xl mx-auto space-y-3';
+    // injeta abaixo do header/nav (procure o local da sua renderNovaPage onde colocar)
+    const target = document.querySelector('#app .flex-1') || document.getElementById('app');
+    target.prepend(listWrapper);
+    container = listWrapper;
+  }
+
+  // monta HTML simples e leve
+  container.innerHTML = items.map(it => {
+    const time = it.timestamp instanceof Date ? it.timestamp : new Date(it.timestamp);
+    const timeLabel = time.toLocaleString('pt-BR');
+    return `
+      <div class="bg-white rounded-lg shadow-sm p-3 flex items-center justify-between hover:shadow-md transition cursor-pointer"
+           onclick="openRidHistoryModal('${escapeHtml(it.id)}')">
+        <div class="min-w-0">
+          <div class="font-semibold text-sm text-gray-800 truncate">RID #${escapeHtml(it.ridId)}</div>
+          <div class="text-xs text-gray-500 truncate">${escapeHtml(it.changedBy)} • ${escapeHtml(timeLabel)}</div>
+        </div>
+        <div class="text-xs text-gray-400">ver</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function openRidHistoryModal(docId) {
+  const db = firebase.firestore();
+  db.collection('ridhistory').doc(docId).get().then(snap => {
+    if (!snap.exists) {
+      showToast('Registro não encontrado', 'error');
+      return;
+    }
+    const data = snap.data();
+    const changesBlock = renderChangesBlock(data);
+    showModalHTML(`Histórico RID #${escapeHtml(data.ridId || '')}`, changesBlock);
+  }).catch(err => {
+    console.error(err);
+    showToast('Erro ao abrir histórico: ' + (err.message || err), 'error');
+  });
+}
+
+function renderChangesBlock(data) {
+  // aceita dois formatos: object changes {field:{from,to}} ou array changes [{field,from,to}]
+  const changes = data.changes || data.changeSet || data.diff || null;
+
+  if (!changes) {
+    // fallback: mostra o documento inteiro (legível)
+    return `<pre class="text-sm text-gray-700 whitespace-pre-wrap">${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
+  }
+
+  let rows = [];
+
+  if (Array.isArray(changes)) {
+    rows = changes.map(c => ({
+      field: c.field || c.key || '—',
+      from: c.from === undefined ? '' : c.from,
+      to: c.to === undefined ? '' : c.to
+    }));
+  } else {
+    // objeto
+    for (const k of Object.keys(changes)) {
+      const v = changes[k] || {};
+      rows.push({
+        field: k,
+        from: v.from === undefined ? '' : v.from,
+        to: v.to === undefined ? '' : v.to
+      });
+    }
+  }
+
+  if (rows.length === 0) {
+    return `<p class="text-sm text-gray-600">Nenhuma alteração detalhada disponível.</p>`;
+  }
+
+  return `
+    <div class="space-y-3">
+      ${rows.map(r => `
+        <div class="border rounded p-3 bg-gray-50">
+          <div class="text-xs text-gray-500">${escapeHtml(String(r.field))}</div>
+          <div class="mt-1 flex gap-4">
+            <div class="flex-1">
+              <div class="text-xs text-red-600 font-semibold">Antes</div>
+              <div class="text-sm text-gray-800 whitespace-pre-line">${escapeHtml(String(r.from === null ? '' : r.from))}</div>
+            </div>
+            <div class="flex-1">
+              <div class="text-xs text-green-600 font-semibold">Depois</div>
+              <div class="text-sm text-gray-800 whitespace-pre-line">${escapeHtml(String(r.to === null ? '' : r.to))}</div>
+            </div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function showModalHTML(title, bodyHTML) {
+  // remove modal antigo
+  document.querySelectorAll('.rid-history-modal').forEach(n => n.remove());
+
+  const modal = document.createElement('div');
+  modal.className = 'rid-history-modal fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
+  modal.innerHTML = `
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6">
+      <div class="flex items-start justify-between mb-4">
+        <h2 class="text-lg font-bold text-gray-800">${escapeHtml(title)}</h2>
+        <button onclick="document.querySelectorAll('.rid-history-modal').forEach(n=>n.remove())" class="text-gray-500 hover:text-gray-800">Fechar</button>
+      </div>
+      <div>${bodyHTML}</div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+function escapeHtml(s) {
+  if (s === undefined || s === null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// chamar quando sair da página nova para evitar listeners
+function stopRidHistoryListener() {
+  if (window.ridHistoryUnsub) {
+    try { window.ridHistoryUnsub(); } catch(e) {}
+    window.ridHistoryUnsub = null;
+  }
+}
+
 
 async function logRidHistory({
   ridId,
@@ -6413,7 +6951,7 @@ document.querySelector('.modal-backdrop')?.remove();
 if (window.currentPage === 'dashboard') renderDashboard();
 if (window.currentPage === 'search') renderSearchPage();
 if (window.currentPage === 'designated') renderDesignatedPage();
-
+if (window.currentPage === 'nova') renderNovaPage();
 
   } catch (err) {
     console.error(err);
@@ -6711,18 +7249,8 @@ async function loadImageAsBase64(url) {
             </div>
           </div>
           
-          <div class="bg-white border-b-2 border-gray-200">
-            <div class="px-2 md:px-8">
-              <nav class="flex overflow-x-auto space-x-1">
-                <button onclick="renderEmployeeDashboard()" class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100 transition-colors whitespace-nowrap text-sm md:text-base text-gray-700">
-                  Meus RIDs
-                </button>
-                <button onclick="renderEmployeeDesignatedPage()" class="px-3 md:px-6 py-3 font-semibold border-b-4 whitespace-nowrap text-sm md:text-base" style="border-color: #a8d5e2; color: #6b9eb0;">
-                  Designadas
-                </button>
-              </nav>
-            </div>
-          </div>
+          ${renderNavigation('myrids')}
+
 
           <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
             <div class="max-w-7xl mx-auto">
@@ -6769,16 +7297,22 @@ async function loadImageAsBase64(url) {
               </div>
             </div>
           </div>
-          
-          <div class="bg-white border-b-2 border-gray-200">
-            <div class="px-2 md:px-8">
-              <nav class="flex overflow-x-auto space-x-1">
-                <button onclick="renderEmployeeDashboard()" class="px-3 md:px-6 py-3 font-semibold border-b-4 whitespace-nowrap text-sm md:text-base" style="border-color: #a8d5e2; color: #6b9eb0;">
-                  Meus RIDs
-                </button>
-              </nav>
-            </div>
-          </div>
+
+<div class="bg-white border-b border-gray-200">
+  <div class="px-2 md:px-8">
+    <nav class="flex overflow-x-auto space-x-1 whitespace-nowrap">
+      <button
+        onclick="renderEmployeeDashboard()"
+        class="px-3 md:px-6 py-2 font-semibold border-b-4 whitespace-nowrap text-sm md:text-sm"
+        style="border-color: #a8d5e2; color: #6b9eb0;"
+        aria-current="page"
+      >
+        Meus RIDs
+      </button>
+    </nav>
+  </div>
+</div>
+
 
           <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
             <div class="max-w-7xl mx-auto">
@@ -7002,47 +7536,95 @@ ${
       `;
     }
 
-    function renderNavigation(active) {
-      return `
-        <div class="bg-white border-b-2 border-gray-200">
-          <div class="px-2 md:px-8">
-            <nav class="flex overflow-x-auto space-x-1">
-              <button onclick="renderDashboard()" class="px-3 md:px-6 py-3 font-semibold ${active === 'dashboard' ? 'border-b-4' : 'hover:bg-gray-100'} whitespace-nowrap text-sm md:text-base ${active === 'dashboard' ? '' : 'text-gray-700'}" ${active === 'dashboard' ? 'style="border-color: #a8d5e2; color: #6b9eb0;"' : ''}>
-                Dashboard
-              </button>
-              <button onclick="renderSearchPage()" class="px-3 md:px-6 py-3 font-semibold ${active === 'rids' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors whitespace-nowrap text-sm md:text-base ${active === 'rids' ? '' : 'text-gray-700'}" ${active === 'rids' ? 'style="border-color: #a8d5e2; color: #6b9eb0;"' : ''}>
-                RID's
-              </button>
-              ${(isAdmin() || isDeveloper()) ? `
+function renderNavigation(active) {
+  return `
+    <div class="bg-white border-b border-gray-200">
+      <div class="px-2 md:px-8">
+        <nav class="flex overflow-x-auto space-x-1 whitespace-nowrap">
+
+          <!-- Dashboard -->
+          <button
+            onclick="renderDashboard()"
+            class="px-3 md:px-6 py-2 font-semibold ${active === 'dashboard' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'dashboard' ? '' : 'text-gray-700'}"
+            ${active === 'dashboard' ? 'style="border-color: #a8d5e2; color: #6b9eb0;" aria-current="page"' : ''}
+          >
+            Dashboard
+          </button>
+
+          <!-- RIDs -->
+          <button
+            onclick="renderSearchPage()"
+            class="px-3 md:px-6 py-2 font-semibold ${active === 'rids' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'rids' ? '' : 'text-gray-700'}"
+            ${active === 'rids' ? 'style="border-color: #a8d5e2; color: #6b9eb0;" aria-current="page"' : ''}
+          >
+            RID's
+          </button>
+
+          <!-- Meus RIDs (visível só pra admin/dev) -->
+          ${(isAdmin() || isDeveloper()) ? `
+            <button
+              onclick="renderMyRidsPage()"
+              class="px-3 md:px-6 py-2 font-semibold ${active === 'myrids' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'myrids' ? '' : 'text-gray-700'}"
+              ${active === 'myrids' ? 'style="border-color: #a8d5e2; color: #6b9eb0;" aria-current="page"' : ''}
+            >
+              Meus RIDs
+            </button>
+          ` : ''}
+
+          <!-- Funcionários -->
+          <button
+            onclick="renderEmployeesPage()"
+            class="px-3 md:px-6 py-2 font-semibold ${active === 'employees' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'employees' ? '' : 'text-gray-700'}"
+            ${active === 'employees' ? 'style="border-color: #a8d5e2; color: #6b9eb0;" aria-current="page"' : ''}
+          >
+            Funcionários
+          </button>
+
+          <!-- Solicitações (só dev) -->
+          ${isDeveloper() ? `
+            <button
+              onclick="renderRequestsPage()"
+              class="px-3 md:px-6 py-2 font-semibold ${active === 'requests' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'requests' ? '' : 'text-gray-700'} relative"
+              ${active === 'requests' ? 'style="border-color: #a8d5e2; color: #6b9eb0;" aria-current="page"' : ''}
+            >
+              Solicitações
+              <span id="requestsBadge" class="hidden absolute top-1 right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">0</span>
+            </button>
+          ` : ''}
+
+          <!-- Relatórios -->
+          <button
+            onclick="renderReportsPage()"
+            class="px-3 md:px-6 py-2 font-semibold ${active === 'reports' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'reports' ? '' : 'text-gray-700'}"
+            ${active === 'reports' ? 'style="border-color: #a8d5e2; color: #6b9eb0;" aria-current="page"' : ''}
+          >
+            Relatórios
+          </button>
+
+          <!-- Designadas / Centro de Controle -->
+          <button
+            onclick="renderDesignatedPage()"
+            class="px-3 md:px-6 py-2 font-semibold ${active === 'designated' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'designated' ? '' : 'text-gray-700'}"
+            ${active === 'designated' ? 'style="border-color: #a8d5e2; color: #6b9eb0;" aria-current="page"' : ''}
+          >
+            ${isDeveloper() ? 'Centro de Controle' : 'Designadas'}
+          </button>
+
+          ${isDeveloper() ? `
   <button
-    onclick="renderMyRidsPage()"
-    class="px-3 md:px-6 py-3 font-semibold hover:bg-gray-100 transition-colors whitespace-nowrap text-sm md:text-base text-gray-700"
+    onclick="renderNovaPage()"
+    class="px-3 md:px-6 py-2 font-semibold ${active === 'nova' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'nova' ? '' : 'text-gray-700'}"
+    ${active === 'nova' ? 'style="border-color: #a8d5e2; color: #6b9eb0;" aria-current="page"' : ''}
   >
-    Meus RIDs
+    Nova
   </button>
 ` : ''}
-              <button onclick="renderEmployeesPage()" class="px-3 md:px-6 py-3 font-semibold ${active === 'employees' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors whitespace-nowrap text-sm md:text-base ${active === 'employees' ? '' : 'text-gray-700'}" ${active === 'employees' ? 'style="border-color: #a8d5e2; color: #6b9eb0;"' : ''}>
-                Funcionários
-              </button>
-              ${isDeveloper() ? `
-                <button onclick="renderRequestsPage()" class="px-3 md:px-6 py-3 font-semibold ${active === 'requests' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors whitespace-nowrap text-sm md:text-base ${active === 'requests' ? '' : 'text-gray-700'} relative" ${active === 'requests' ? 'style="border-color: #a8d5e2; color: #6b9eb0;"' : ''}>
-                  Solicitações
-                  <span id="requestsBadge" class="hidden absolute top-1 right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">0</span>
-                </button>
-              ` : ''}
-              <button onclick="renderReportsPage()" class="px-3 md:px-6 py-3 font-semibold ${active === 'reports' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors whitespace-nowrap text-sm md:text-base ${active === 'reports' ? '' : 'text-gray-700'}" ${active === 'reports' ? 'style="border-color: #a8d5e2; color: #6b9eb0;"' : ''}>
-                Relatórios
-              </button>
-              <button onclick="renderDesignatedPage()" class="px-3 md:px-6 py-3 font-semibold ${active === 'designated' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors whitespace-nowrap text-sm md:text-base ${active === 'designated' ? '' : 'text-gray-700'}" ${active === 'designated' ? 'style="border-color: #a8d5e2; color: #6b9eb0;"' : ''}>
-  ${isDeveloper() ? 'Centro de Controle' : 'Designadas'}
-</button>
-              </button>
-            </nav>
-          </div>
-        </div>
-      `;
-    }
 
+        </nav>
+      </div>
+    </div>
+  `;
+}
 
     async function updateRequestsBadge() {
       if (!isDeveloper()) return;
