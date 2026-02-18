@@ -950,6 +950,7 @@ function toFirestoreDateFromInput(dateStr) {
 
 
 async function handleLogout() {
+  // 🔌 Para TODOS listeners
   if (window.unsubscribeRids) {
     window.unsubscribeRids();
     window.unsubscribeRids = null;
@@ -960,9 +961,23 @@ async function handleLogout() {
     window.unsubscribeLeader = null;
   }
 
+  // ⭐ faltava esse
+  if (window.ridHistoryUnsub) {
+    window.ridHistoryUnsub();
+    window.ridHistoryUnsub = null;
+  }
+
   await auth.signOut();
   showToast("Logout realizado com sucesso");
 }
+
+function stopRidHistoryListener() {
+  if (window.ridHistoryUnsub) {
+    try { window.ridHistoryUnsub(); } catch(e) {}
+    window.ridHistoryUnsub = null;
+  }
+}
+
 
     // RID Functions
     async function createRid(event) {
@@ -1214,12 +1229,10 @@ for (const key in updates) {
   }
 }
 
-// --- INICIO: grava auditoria na coleção ridhistory ---
+// --- INICIO: grava auditoria na coleção ridHistory ---
 try {
   if (Object.keys(changes).length > 0) {
-
     await db.collection('ridHistory').add({
-
       // 🔹 Identificação do RID
       ridId: ridId,
       ridNumber: rid?.ridNumber || null,
@@ -1259,40 +1272,57 @@ try {
     });
   }
 } catch (err) {
-  console.warn('Erro ao gravar ridhistory:', err);
+  // Se houver problema ao gravar o histórico, logamos mas NÃO interrompemos o fluxo.
+  console.warn('Erro ao gravar ridHistory (não bloqueante):', err);
 }
-// --- FIM: grava auditoria ---
+ // --- FIM: grava auditoria ---
 
-    // 🔔 Notifica admins
-    if (updates.status) {
-      const adminUsers = allUsers.filter(u => u.isAdmin && u.id !== currentUser.uid);
-      for (const admin of adminUsers) {
-        await createNotification(admin.id, {
-          type: 'rid_status_changed',
-          ridId: ridId,
-          ridNumber: rid?.ridNumber || '',
-          title: 'Status da RID Atualizado',
-          message: `RID #${rid?.ridNumber} foi atualizada para: ${updates.status}`,
-          ridLocation: rid?.location || '',
-          deadline: null
-        });
-      }
-    }
+// 🔔 Notifica admins (se houve mudança de status)
+if (updates.status) {
+  try {
+    const adminUsers = (allUsers || []).filter(u => u.isAdmin && (u.uid || u.id) !== currentUser?.uid);
 
-    // 🔔 Notifica responsável
-    if (
-  currentUserData.isDeveloper && // ← só dev
+    const adminPromises = adminUsers.map(admin => {
+      const targetId = admin.uid || admin.id;
+      return createNotification(targetId, {
+        type: 'rid_status_changed',
+        ridId: ridId,
+        ridNumber: rid?.ridNumber || '',
+        title: 'Status da RID atualizado',
+        message: `RID #${rid?.ridNumber} foi atualizada para: ${updates.status}`,
+        ridLocation: rid?.location || '',
+        deadline: null
+      }).catch(e => {
+        console.warn('Erro ao notificar admin', targetId, e);
+      });
+    });
+
+    // dispara em paralelo, não bloqueante (se quiser aguardar, transforme a função em async e use await)
+    Promise.all(adminPromises).catch(e => {
+      console.warn('Erro no Promise.all das notificações admin:', e);
+    });
+  } catch (e) {
+    console.warn('Erro no fluxo de notificação para admins:', e);
+  }
+}
+
+// 🔔 Notifica responsável (se o editor for Developer e leader existe e for diferente do editor)
+// versão não-blocking também
+if (
+  currentUserData?.isDeveloper &&
   rid?.responsibleLeader &&
-  rid.responsibleLeader !== currentUser.uid
+  rid.responsibleLeader !== currentUser?.uid
 ) {
-  await createNotification(rid.responsibleLeader, {
+  createNotification(rid.responsibleLeader, {
     type: 'rid_updated',
     ridId: ridId,
     ridNumber: rid?.ridNumber || '',
-    title: 'RID Atualizada',
-    message: `A RID #${rid?.ridNumber} foi atualizada por ${currentUserData.name}`,
+    title: 'RID atualizada',
+    message: `A RID #${rid?.ridNumber} foi atualizada por ${currentUserData?.name || 'um usuário'}`,
     ridLocation: rid?.location || '',
     deadline: null
+  }).catch(e => {
+    console.warn('Erro ao notificar responsável:', e);
   });
 }
 
@@ -1905,93 +1935,123 @@ function listenRidHistoryRealtime() {
   return window.ridHistoryUnsub;
 }
 
+// versão segura e resiliente de renderRidHistoryPage()
+// substitua totalmente a função anterior por esta
 function renderRidHistoryPage() {
-  const container = document.getElementById('ridHistoryContainer');
-  if (!container) return;
+  try {
+    const container = document.getElementById('ridHistoryContainer');
+    if (!container) return;
 
-  // limpa só o conteúdo interno
-  container.innerHTML = '';
+    // limpa só o conteúdo interno
+    container.innerHTML = '';
 
-  if (!allRidHistory || allRidHistory.length === 0) {
-    container.innerHTML = `<p class="text-gray-600">Nenhuma alteração registrada ainda.</p>`;
-    return;
-  }
+    if (!allRidHistory || allRidHistory.length === 0) {
+      container.innerHTML = `<p class="text-gray-600">Nenhuma alteração registrada ainda.</p>`;
+      return;
+    }
 
-  // helpers de formatação
-  function toDateObject(raw) {
-    if (!raw) return null;
-    // Firestore Timestamp
-    if (typeof raw === 'object' && raw !== null && typeof raw.toDate === 'function') return raw.toDate();
-    // { seconds, nanoseconds }
-    if (typeof raw === 'object' && raw !== null && 'seconds' in raw) return new Date(Number(raw.seconds) * 1000);
-    // Date
-    if (raw instanceof Date) return raw;
-    // string / number
-    const n = Number(raw);
-    if (!isNaN(n)) return new Date(n);
-    const parsed = Date.parse(String(raw));
-    return isNaN(parsed) ? null : new Date(parsed);
-  }
+    // helper seguro de escape (se você já tiver, não faz mal repetir)
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
 
-  function formatDateOnly(raw) {
-    const d = toDateObject(raw);
-    if (!d) return '—';
-    return d.toLocaleDateString('pt-BR');
-  }
+    // helpers de formatação de datas
+    function toDateObject(raw) {
+      if (!raw) return null;
+      try {
+        // Firestore Timestamp
+        if (typeof raw === 'object' && raw !== null && typeof raw.toDate === 'function') return raw.toDate();
+        // { seconds, nanoseconds }
+        if (typeof raw === 'object' && raw !== null && 'seconds' in raw) return new Date(Number(raw.seconds) * 1000);
+        // Date
+        if (raw instanceof Date) return raw;
+        // string / number
+        const n = Number(raw);
+        if (!isNaN(n)) return new Date(n);
+        const parsed = Date.parse(String(raw));
+        return isNaN(parsed) ? null : new Date(parsed);
+      } catch (e) {
+        return null;
+      }
+    }
 
-  function formatTimeOnly(raw) {
-    const d = toDateObject(raw);
-    if (!d) return '—';
-    // HH:MM
-    return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  }
+    function formatDateOnly(raw) {
+      const d = toDateObject(raw);
+      if (!d) return '—';
+      return d.toLocaleDateString('pt-BR');
+    }
 
-  // opcional: ordenar por createdAt desc (mais recentes primeiro)
-  const list = [...allRidHistory].sort((a, b) => {
-    const da = toDateObject(a.createdAt) || new Date(0);
-    const db = toDateObject(b.createdAt) || new Date(0);
-    return db - da;
-  });
+    function formatTimeOnly(raw) {
+      const d = toDateObject(raw);
+      if (!d) return '—';
+      return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    }
 
-  // monta HTML em modo "linha única" estilo tabela responsiva
-  const rows = list.map(h => {
-    const ridNumber = h.ridNumber || h.ridId || '-';
-    const emitter = h.emitterName || h.emitterId || h.emitter || '-';
-    const who = (h.changedBy && (h.changedBy.name || h.changedBy.uid)) || '—';
-    const date = formatDateOnly(h.createdAt);
-    const time = formatTimeOnly(h.createdAt);
-    const histId = h.id || h.ridHistoryId || '';
+    // ordenar por createdAt desc (mais recentes primeiro)
+    const list = [...allRidHistory].sort((a, b) => {
+      const da = toDateObject(a.createdAt) || new Date(0);
+      const db = toDateObject(b.createdAt) || new Date(0);
+      return db - da;
+    });
 
-    return `
-      <div class="bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-3 flex items-center gap-4 text-sm">
-        <!-- RID -->
-        <div class="w-28 flex-none font-semibold text-sky-700 truncate">#${ridNumber}</div>
+    // gerar linhas com cuidado com aspas no onclick (escape seguro)
+    const rows = list.map(h => {
+      const ridNumber = h.ridNumber || h.ridId || '-';
 
-        <!-- Emitente -->
-        <div class="flex-1 text-gray-700 truncate">${escapeHtml(String(emitter))}</div>
+      // emitter: tenta vários campos possíveis
+      const emitter = h.emitterName || h.emitter || h.emitterId || h.emitterCPF || '-';
 
-        <!-- Quem alterou -->
-        <div class="flex-1 text-gray-700 truncate">${escapeHtml(String(who))}</div>
+      // quem alterou: aceita string ou objeto {name, uid} ou campos legacy
+      let who = '—';
+      if (!h.changedBy && (h.changedByName || h.user)) {
+        who = h.changedByName || h.user;
+      } else if (typeof h.changedBy === 'string') {
+        who = h.changedBy;
+      } else if (h.changedBy && typeof h.changedBy === 'object') {
+        who = h.changedBy.name || h.changedBy.uid || h.changedBy.email || h.changedById || '—';
+      }
 
-        <!-- Data -->
-        <div class="w-36 text-gray-600 text-xs">${date}</div>
+      if ((!who || who === '—') && (h.changedByName || h.changedByDisplayName)) {
+        who = h.changedByName || h.changedByDisplayName;
+      }
 
-        <!-- Hora -->
-        <div class="w-20 text-gray-600 text-xs">${time}</div>
+      const date = formatDateOnly(h.createdAt);
+      const time = formatTimeOnly(h.createdAt);
+      const histIdRaw = h.id || h.ridHistoryId || '';
+      // escape simples para dentro de atributo JS
+      const histIdEsc = String(histIdRaw).replace(/'/g, "\\'").replace(/\n/g, '');
 
-        <!-- Botão ver -->
-        <div class="w-24 text-right">
-          <button
-            class="text-xs px-3 py-1 rounded-md border border-orange-300 text-orange-600 bg-orange-50 hover:bg-orange-100 transition-colors"
-            onclick="openRidFromHistory && openRidFromHistory('${histId.replace(/'/g, "\\'")}')">
-            ver
-          </button>
+      return `
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-3 flex items-center gap-4 text-sm">
+          <div class="w-28 flex-none font-semibold text-sky-700 truncate">#${escapeHtml(String(ridNumber))}</div>
+          <div class="flex-1 text-gray-700 truncate">${escapeHtml(String(emitter))}</div>
+          <div class="flex-1 text-gray-700 truncate">${escapeHtml(String(who || '—'))}</div>
+          <div class="w-36 text-gray-600 text-xs">${escapeHtml(String(date))}</div>
+          <div class="w-20 text-gray-600 text-xs">${escapeHtml(String(time))}</div>
+          <div class="w-24 text-right">
+            <button
+              class="text-xs px-3 py-1 rounded-md border border-orange-300 text-orange-600 bg-orange-50 hover:bg-orange-100 transition-colors"
+              onclick="(function(){ if(typeof openRidFromHistory === 'function'){ try{ openRidFromHistory('${histIdEsc}'); }catch(e){ console.warn('openRidFromHistory error', e); } } })();">
+              ver
+            </button>
+          </div>
         </div>
-      </div>
-    `;
-  }).join('');
+      `;
+    }).join('');
 
-  container.innerHTML = rows;
+    container.innerHTML = rows;
+  } catch (err) {
+    // se algo falhar aqui, mostramos mensagem mínima e logamos (não quebra o app)
+    console.error('Erro em renderRidHistoryPage:', err);
+    const container = document.getElementById('ridHistoryContainer');
+    if (container) container.innerHTML = '<p class="text-red-600">Erro ao renderizar histórico. Veja console.</p>';
+  }
 }
 
 // pequeno helper para evitar injeção/quebra de layout com strings
@@ -6621,6 +6681,7 @@ function renderNovaPage() {
       container.innerHTML = `<div class="text-red-600">Erro ao carregar histórico. Veja o console.</div>`;
     }
   }
+  startRidHistoryListener();
 }
 
 
@@ -6628,34 +6689,61 @@ function renderNovaPage() {
 function startRidHistoryListener() {
   // cancela listener anterior se existir
   if (window.ridHistoryUnsub) {
-    try { window.ridHistoryUnsub(); } catch(e) {}
+    try { window.ridHistoryUnsub(); } catch (e) {}
     window.ridHistoryUnsub = null;
   }
 
   const db = firebase.firestore(); // assume já inicializado no projeto
 
-  // Query: mais recente primeiro, limitar por exemplo 200 (ajusta se quiser)
-  const q = db.collection('ridhistory')
-    .orderBy('timestamp', 'desc')
+  // Ajuste: coleção/exact name -> 'ridHistory'
+  // Ajuste: ordena por createdAt (serverTimestamp salvo no add)
+  const q = db.collection('ridHistory')
+    .orderBy('createdAt', 'desc')
     .limit(200);
 
   window.ridHistoryUnsub = q.onSnapshot(snapshot => {
     const items = [];
     snapshot.forEach(doc => {
       const d = doc.data();
+
+      // normaliza createdAt para Date
+      let ts = null;
+      if (d.createdAt) {
+        if (typeof d.createdAt.toDate === 'function') {
+          ts = d.createdAt.toDate();
+        } else if ('seconds' in d.createdAt) {
+          ts = new Date(Number(d.createdAt.seconds) * 1000);
+        } else {
+          // tenta parsear se for string/number
+          const n = Number(d.createdAt);
+          ts = !isNaN(n) ? new Date(n) : new Date(String(d.createdAt));
+        }
+      } else {
+        ts = new Date();
+      }
+
       items.push({
         id: doc.id,
         ridId: d.ridId || d.rid || '—',
-        changedBy: (d.changedBy && d.changedBy.name) ? d.changedBy.name : (d.changedByName || d.user || 'Desconhecido'),
-        timestamp: d.timestamp ? d.timestamp.toDate() : new Date(),
-        raw: d,
+        ridNumber: d.ridNumber || (d.ridNumber === 0 ? '0' : (d.ridNumber || '—')),
+        emitterName: d.emitterName || d.emitter || '—',
+        changedBy: (d.changedBy && (d.changedBy.name || d.changedBy.uid)) ? (d.changedBy.name || d.changedBy.uid) : (d.changedByName || d.user || 'Desconhecido'),
+        createdAt: ts,
+        raw: d
       });
     });
 
-    renderRidHistoryList(items);
+    // atualiza a variável global e renderiza
+    allRidHistory = items;
+    try { renderRidHistoryPage(); } catch (e) { console.error('Erro renderizando histórico:', e); }
   }, err => {
-    console.error('Erro listener ridhistory', err);
-    showToast('Erro ao conectar histórico de RIDs: ' + (err.message || err));
+    console.error('Erro listener ridHistory', err);
+    if (typeof showToast === 'function') {
+      showToast('Erro ao conectar histórico de alterações: ' + (err.message || err), 'error');
+    } else {
+      // fallback visual / console
+      console.warn('Erro ao conectar histórico de alterações:', err);
+    }
   });
 }
 
