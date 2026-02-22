@@ -234,7 +234,221 @@ p, span, h1, h2, h3, h4 {
   .stats-slim-value{ font-size: 20px; }
 }
 
+/* Card Reincidência: visual limpo e moderno */
+.recurrence-card {
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(11,15,22,0.06);
+  padding: 22px;
+  margin-bottom: 24px;
+  border: 1px solid rgba(15,23,42,0.04);
+}
 
+.recurrence-card h2 {
+  font-size: 18px;
+  letter-spacing: -0.02em;
+  margin-bottom: 6px;
+}
+
+.recurrence-card .muted {
+  color: #6b7280;
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+
+/* cada setor (linha) */
+.recurrence-row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  background: #fbfdff;
+  border-radius: 8px;
+  padding: 14px;
+  border: 1px solid rgba(15,23,42,0.03);
+}
+
+/* coluna esquerda: info */
+.recurrence-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.recurrence-left .sector-name {
+  font-weight: 700;
+  color: #0f172a;
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+
+.recurrence-left .occurrences {
+  color: #475569;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+/* descricao curta */
+.recurrence-left .sample {
+  color: #374151;
+  font-size: 13px;
+  line-height: 1.25;
+  max-width: 72ch;
+}
+
+/* coluna direita: pills (IDs) */
+.recurrence-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  white-space: nowrap;
+}
+
+/* pill ID */
+.rid-pill {
+  display: inline-block;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0b57d0;
+  background: rgba(11,87,208,0.06);
+  border: 1px solid rgba(11,87,208,0.12);
+  cursor: pointer;
+  transition: transform .08s ease, box-shadow .12s ease;
+  text-decoration: none;
+}
+
+/* hover / focus */
+.rid-pill:hover, .rid-pill:focus {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(11,87,208,0.08);
+  outline: none;
+}
+
+/* responsivo: empilha em telas pequenas */
+@media (max-width: 880px) {
+  .recurrence-row {
+    flex-direction: column;
+  }
+  .recurrence-right {
+    justify-content: flex-start;
+    gap: 10px;
+  }
+}
+
+/* Reincidência - versão compacta */
+.recurrence-card {
+  background: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 6px 14px rgba(11,15,22,0.05);
+  padding: 12px 16px;
+  margin-bottom: 18px;
+  border: 1px solid rgba(15,23,42,0.04);
+}
+
+.recurrence-card h2 {
+  font-size: 16px;
+  margin: 0 0 6px 0;
+  font-weight: 700;
+}
+
+.recurrence-card .muted {
+  color: #6b7280;
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+
+/* linhas compactas por setor */
+.recurrence-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: #fbfdff;
+  border-radius: 8px;
+  padding: 10px;
+  border: 1px solid rgba(15,23,42,0.03);
+}
+
+/* esquerda: info */
+.recurrence-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.sector-name {
+  font-weight: 700;
+  font-size: 13px;
+  color: #0f172a;
+  margin-bottom: 4px;
+}
+
+.occurrences {
+  color: #475569;
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+
+.sample {
+  color: #374151;
+  font-size: 12px;
+  line-height: 1.2;
+  max-width: 58ch;
+}
+
+/* direita: pills + spark */
+.recurrence-right {
+  display:flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap:6px;
+  white-space: nowrap;
+}
+
+/* pills menores */
+.rid-pill {
+  display:inline-block;
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0b57d0;
+  background: rgba(11,87,208,0.06);
+  border: 1px solid rgba(11,87,208,0.10);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+/* mini barras mensais (spark) */
+.month-spark {
+  display:flex;
+  gap:4px;
+  align-items:center;
+  width: 120px;
+  height: 18px;
+}
+
+.month-bar {
+  height: 8px;
+  background: #e6eefc;
+  border-radius: 3px;
+  flex: 1 1 auto;
+  position: relative;
+  overflow: hidden;
+}
+.month-bar > i {
+  display:block;
+  height:100%;
+  background: linear-gradient(90deg,#0b57d0,#2b9afc);
+  border-radius:3px;
+  width:0%;
+  transition: width .5s ease;
+}
+
+/* responsivo */
+@media (max-width:880px) {
+  .recurrence-row { flex-direction: column; align-items:stretch; }
+  .recurrence-right { align-items:flex-start; flex-direction:row; flex-wrap:wrap; }
+  .month-spark { width: 100%; }
+}
 
   </style>
   <style>@view-transition { navigation: auto; }</style>
@@ -4290,14 +4504,31 @@ const status = document.getElementById('searchStatus')?.value;
 
 let filtered = allRids;
 
-// 🔎 BUSCA POR TEXTO
+// 🔎 BUSCA POR PALAVRAS-CHAVE (inteligente)
 if (text) {
-  filtered = filtered.filter(r =>
-    r.ridNumber?.toLowerCase().includes(text) ||
-    r.emitterName?.toLowerCase().includes(text) ||
-    r.location?.toLowerCase().includes(text) ||
-    r.description?.toLowerCase().includes(text)
-  );
+
+  // normaliza texto (remove acento e caixa)
+  const normalize = (str) =>
+    (str || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+
+  const words = normalize(text).split(' ').filter(Boolean);
+
+  filtered = filtered.filter(r => {
+
+    const content = normalize(`
+      ${r.ridNumber}
+      ${r.emitterName}
+      ${r.location}
+      ${r.description}
+      ${r.sector}
+    `);
+
+    // OR: qualquer palavra encontrada já inclui o RID
+    return words.some(word => content.includes(word));
+  });
 }
 
 // 📅 FILTRO MÊS + ANO
@@ -6511,140 +6742,7 @@ const sectorRanking = Object.entries(sectorRisk)
       <h1 class="text-3xl font-bold text-gray-800">
   Centro de Controle
 </h1>
-
-
-</div> 
-<!-- Botões -->
-<div class="flex justify-end mb-6 space-x-4">
-  <button
-    onclick="toggleDevFilters()"
-    class="flex items-center space-x-2 px-4 py-2 rounded-lg font-semibold text-white hover:opacity-90 transition-opacity text-sm"
-    style="background-color:#b9a2d8;"
-  >
-    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-      <path fill-rule="evenodd" d="M3 3a1 1 0 011-1h12a1 1 0 011 1v3a1 1 0 01-.293.707L12 11.414V15a1 1 0 01-.293.707l-2 2A1 1 0 018 17v-5.586L3.293 6.707A1 1 0 013 6V3z"/>
-    </svg>
-    <span>Filtros</span>
-  </button>
-
-  <button
-    onclick="generateRiskReportPDF()"
-    class="flex items-center space-x-2 px-4 py-2 rounded-lg font-semibold text-white hover:opacity-90 transition-opacity text-sm"
-    style="background-color:#6b9eb0;"
-  >
-    📄 <span>Gerar Relatório</span>
-  </button>
 </div>
-
-<!-- Painel de Filtros -->
-  <div
-  id="devFilterPanel"
-  class="hidden mb-8 bg-white rounded-lg shadow-md p-5 border"
-  style="border-color:#e5e7eb;"
->
-  <div class="flex items-center justify-between mb-4">
-    <h3 class="text-lg font-bold text-gray-600">
-      Filtrar RIDs – Centro de Controle
-    </h3>
-   <button onclick="toggleDevFilters()" class="text-gray-400 hover:text-gray-600">
-      ✕
-    </button>
-  </div>
-
-  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-
-    <!-- MÊS -->
-    <div>
-      <label class="block text-sm font-semibold mb-1 text-gray-600">Mês</label>
-      <select id="devMonth" class="w-full h-11 px-4 border rounded-lg bg-white">
-        <option value="">Mês atual</option>
-        <option value="1">Janeiro</option>
-        <option value="2">Fevereiro</option>
-        <option value="3">Março</option>
-        <option value="4">Abril</option>
-        <option value="5">Maio</option>
-        <option value="6">Junho</option>
-        <option value="7">Julho</option>
-        <option value="8">Agosto</option>
-        <option value="9">Setembro</option>
-        <option value="10">Outubro</option>
-        <option value="11">Novembro</option>
-        <option value="12">Dezembro</option>
-      </select>
-    </div>
-
-    <!-- ANO -->
-    <div>
-      <label class="block text-sm font-semibold mb-1 text-gray-600">Ano</label>
-      <input
-        id="devYear"
-        type="number"
-        placeholder="Ex: 2026"
-        class="w-full h-11 px-4 border rounded-lg bg-white"
-      >
-    </div>
-
-    <!-- SETOR -->
-    <div>
-      <label class="block text-sm font-semibold mb-1 text-gray-600">Setor</label>
-      <select id="devSector" class="w-full h-11 px-4 border rounded-lg bg-white">
-        <option value="">Todos os setores</option>
-        <option value="ADM">ADM</option>
-        <option value="M. MOVEL">M. MOVEL</option>
-        <option value="M. FIXA">M. FIXA</option>
-        <option value="M. ELÉTRICA">M. ELÉTRICA</option>
-        <option value="PRODUÇÃO">PRODUÇÃO</option>
-        <option value="MINA">MINA</option>
-      </select>
-    </div>
-
-    <!-- BOTÕES -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full md:col-span-3">
-      <button
-        onclick="renderDevControlCenter()"
-        class="h-11 w-full rounded-lg font-semibold text-white"
-        style="background-color:#a8d5e2;"
-      >
-        Aplicar
-      </button>
-
-      <button
-        onclick="clearDevFilters()"
-        class="h-11 w-full rounded-lg font-semibold border text-gray-600"
-      >
-        Limpar
-      </button>
-    </div>
-
-  </div>
-
-</div>
-
-
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
-
-  <div class="bg-red-100 rounded-xl p-8 shadow-md flex flex-col justify-between">
-    <p class="text-sm font-bold text-red-700">RIDs Críticas</p>
-    <p class="text-4xl font-bold text-red-900">${critical.length}</p>
-  </div>
-
-  <div class="bg-orange-100 rounded-xl p-6 shadow">
-    <p class="text-sm font-bold text-orange-700">RIDs Ainda Não Corrigidos</p>
-    <p class="text-4xl font-bold text-orange-900">${overdue.length}</p>
-  </div>
-
-  <div class="bg-yellow-100 rounded-xl p-6 shadow">
-    <p class="text-sm font-bold text-yellow-700">Sem Responsável</p>
-    <p class="text-4xl font-bold text-yellow-900">${noLeader.length}</p>
-  </div>
-
-  <div class="bg-gray-200 rounded-xl p-6 shadow">
-    <p class="text-sm font-bold text-gray-700">RIDs Removidos</p>
-    <p class="text-4xl font-bold text-gray-900">${deleted}</p>
-  </div>
-
-</div>
-
 <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
 
   <!-- LIDERANÇA: Lista de Admins e Devs com RIDs corrigidos -->
@@ -6660,51 +6758,63 @@ const sectorRanking = Object.entries(sectorRisk)
   </div>
 
   <!-- RANKING -->
-  <div class="bg-white rounded-xl shadow-lg p-6">
-    <h2 class="text-xl font-bold text-gray-800 mb-4">
-      Setores com mais RIDs Medio, Alto e Critico
-    </h2>
-
-    <div class="space-y-3">
-      ${
-        sectorRanking.length === 0
-        ? `<p class="text-gray-500">Nenhum risco no período</p>`
-        : sectorRanking.map(([sector, total]) => `
-          <div>
-            <div class="flex justify-between text-sm font-semibold text-gray-700">
-              <span>${sector}</span>
-              <span>${total}</span>
-            </div>
-            <div class="w-full bg-gray-200 rounded-full h-2 mt-1">
-              <div 
-                class="bg-red-500 h-2 rounded-full"
-                style="width: ${Math.min(total * 10, 100)}%">
-              </div>
-            </div>
-          </div>
-        `).join('')
-      }
-    </div>
-  </div>
-
-</div>
-
-
-
 <div class="bg-white rounded-xl shadow-lg p-6">
   <h2 class="text-xl font-bold text-gray-800 mb-4">
-    Lista de Risco Operacional
+    Setores com mais RIDs Medio, Alto e Critico
   </h2>
 
-  ${riskList.length === 0
-    ? `<p class="text-gray-500">Nenhum RID crítico no momento</p>`
-    : `
-      <div class="max-h-[600px] overflow-y-auto space-y-4 pr-2">
-        ${renderRidsList(riskList)}
-      </div>
-    `
-  }
+  <div class="space-y-3">
+    ${
+      sectorRanking.length === 0
+      ? `<p class="text-gray-500">Nenhum risco no período</p>`
+      : (() => {
+          // calcula máximo para largura proporcional (mantém mesmo espaço)
+          const max = Math.max(...sectorRanking.map(([_, t]) => t), 1);
+          return sectorRanking.map(([sector, total]) => {
+            const pct = Math.round((total / max) * 100); // 0..100
+            return `
+              <div class="flex items-center gap-3">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center justify-between gap-3">
+                    <p class="text-sm font-semibold text-gray-700 truncate">${sector}</p>
+                    <div class="flex items-baseline gap-2">
+                      <span class="text-sm font-bold text-gray-800">${total}</span>
+                      <span class="text-xs text-gray-400">(${pct}%)</span>
+                    </div>
+                  </div>
+
+                  <div class="w-full bg-gray-100 rounded-full h-2 mt-2 overflow-hidden">
+                    <div
+                      class="h-2 rounded-full transform-gpu"
+                      style="
+                        width: ${pct}%;
+                        background: linear-gradient(90deg, rgba(239,68,68,0.92), rgba(244,114,182,0.06));
+                        box-shadow: 0 6px 10px rgba(239,68,68,0.06), inset 0 -2px 6px rgba(0,0,0,0.03);
+                        transition: width 550ms cubic-bezier(.22,.9,.3,1);
+                      ">
+                    </div>
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('');
+        })()
+    }
+  </div>
 </div>
+<!-- /RANKING -->
+
+</div>
+
+<!-- == CARD: Reincidência (topo do Centro de Controle) -->
+<div id="recurrenceCardContainer" class="recurrence-card" style="display:none;">
+  <h2 class="text-xl font-bold text-gray-800 mb-4">Reincidencia por Setor (mensal)</h2>
+
+  <!-- conteúdo preenchido via JS -->
+  <div id="recurrenceCardContent" class="space-y-3"></div>
+</div>
+<!-- == /CARD: Reincidência -->
+
 
 <!-- CARD: RIDs REMOVIDOS -->
 <div class="bg-gray-100 border-2 border-dashed border-gray-400 rounded-xl p-6 mt-10">
@@ -6783,11 +6893,14 @@ const sectorRanking = Object.entries(sectorRisk)
 
 // Atualiza o card de líderes / corrigidos depois que o DOM existir
 setTimeout(() => {
-  // usa a base filtrada e ignora removidos (mesma lógica do gráfico anterior)
   const chartBase = (window.devFilteredBase || base || [])
     .filter(r => !r.deleted && r.status !== 'EXCLUIDO' && r.status !== 'EXCLUÍDO');
 
   renderLeadersCard(chartBase);
+
+  // Chama o render do card de reincidência (usa window.devFilteredBase ou base)
+  try { renderReincidenciaCard(); } catch (e) { console.warn('Erro ao renderizar reincidencia', e); }
+
 }, 50);
 
 // ==== Função auxiliar atualizada: renderiza o card de líderes com contagem (sem mostrar id) ====
@@ -6862,6 +6975,243 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }}
+
+// === Reincidência: helpers + compute + render ===
+
+function normalizeTextForFingerprint(text) {
+  if (!text) return '';
+  return String(text)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')    // remove acentos
+    .replace(/[^a-z0-9\s]/g, ' ')      // remove pontuação
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function wordsSet(text) {
+  const s = normalizeTextForFingerprint(text);
+  if (!s) return new Set();
+  return new Set(s.split(' ').filter(w => w.length > 2));
+}
+
+function jaccard(aSet, bSet) {
+  if (!aSet || !bSet) return 0;
+  const a = Array.from(aSet);
+  const inter = a.filter(x => bSet.has(x)).length;
+  const union = new Set([...a, ...Array.from(bSet)]).size;
+  return union === 0 ? 0 : inter / union;
+}
+
+/*
+ computeReincidencia:
+ - rids: array de RIDs
+ - opts: { threshold: number (0..1), minClusterSize: integer }
+ Retorna: { sector: [ { clusterKey, count, rids: [...] }, ... ] }
+*/
+function computeReincidencia(rids, opts = {}) {
+  const threshold = typeof opts.threshold === 'number' ? opts.threshold : 0.55;
+  const minClusterSize = typeof opts.minClusterSize === 'number' ? opts.minClusterSize : 2;
+  const clean = (rids || []).filter(r => !r.deleted);
+
+  const bySector = {};
+  clean.forEach(r => {
+    const sector = r.sector || 'SEM SETOR';
+    if (!bySector[sector]) bySector[sector] = [];
+    bySector[sector].push(r);
+  });
+
+  const result = {};
+  Object.keys(bySector).forEach(sector => {
+    const list = bySector[sector];
+    const clusters = [];
+
+    list.forEach(rid => {
+      const desc = rid.description || rid.ridDescription || rid.riskDescription || '';
+      const wset = wordsSet(desc);
+      let placed = false;
+      for (const c of clusters) {
+        const score = jaccard(wset, c.fingerprint);
+        if (score >= threshold) {
+          c.rids.push(rid);
+          c.fingerprint = new Set([...c.fingerprint, ...wset]);
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) clusters.push({ fingerprint: wset, rids: [rid] });
+    });
+
+    const clustersFiltered = clusters
+      .map((c, i) => ({ clusterKey: 'c' + i, count: c.rids.length, rids: c.rids }))
+      .filter(c => c.count >= minClusterSize)
+      .sort((a,b) => b.count - a.count);
+
+    if (clustersFiltered.length > 0) result[sector] = clustersFiltered;
+  });
+
+  return result;
+}
+
+function escapeHtmlSimple(str){
+  if (!str) return '';
+  return String(str)
+    .replaceAll('&','&amp;')
+    .replaceAll('<','&lt;')
+    .replaceAll('>','&gt;')
+    .replaceAll('"','&quot;')
+    .replaceAll("'",'&#39;');
+}
+
+// renderReincidenciaCard: preenche o HTML do card já presente no DOM
+function renderReincidenciaCard() {
+  const container = document.getElementById('recurrenceCardContainer');
+  const content = document.getElementById('recurrenceCardContent');
+  if (!container || !content) return;
+
+  // escolhe o ano: se houver ano selecionado no filtro, usa ele; senão usa ano atual
+  const selectedYearStr = document.getElementById('devYear')?.value;
+  const year = selectedYearStr ? parseInt(selectedYearStr, 10) : (new Date()).getFullYear();
+
+  // pega todos os RIDs DO ANO selecionado (ignora excluídos)
+  const all = (allRids || []).filter(r => {
+    if (r.deleted) return false;
+    const d = (r.emissionDate && typeof r.emissionDate.toDate === 'function') ? r.emissionDate.toDate() : (r.emissionDate ? new Date(r.emissionDate) : null);
+    if (!d || Number.isNaN(d.getTime())) return false;
+    return d.getFullYear() === year;
+  });
+
+  // se não há RIDs no ano, mostra mensagem
+  if (!all || all.length === 0) {
+    container.style.display = 'block';
+    content.innerHTML = `<div class="muted">Nenhum RID registrado em ${year}.</div>`;
+    return;
+  }
+
+  // calcula clusters de reincidência por setor (usa computeReincidencia já existente)
+  const clustersBySector = computeReincidencia(all, { threshold: 0.55, minClusterSize: 2 });
+
+  if (!clustersBySector || Object.keys(clustersBySector).length === 0) {
+    container.style.display = 'block';
+    content.innerHTML = `<div class="muted">Nenhuma reincidência significativa detectada em ${year} com os parâmetros atuais.</div>`;
+    return;
+  }
+
+  // monta contagem mensal: para cada mês (0..11) contamos quantos RIDs que estão em clusters têm emissionMonth=m
+  const monthsCountsBySector = {}; // sector -> [12 counts]
+  Object.keys(clustersBySector).forEach(sector => {
+    const arr = new Array(12).fill(0);
+    clustersBySector[sector].forEach(cluster => {
+      cluster.rids.forEach(r => {
+        const d = (r.emissionDate && typeof r.emissionDate.toDate === 'function') ? r.emissionDate.toDate() : (r.emissionDate ? new Date(r.emissionDate) : null);
+        if (!d || Number.isNaN(d.getTime())) return;
+        const m = d.getMonth(); // 0..11
+        arr[m] = arr[m] + 1;
+      });
+    });
+    monthsCountsBySector[sector] = arr;
+  });
+
+  // helper: calcula tendência e desde que mês (retorna { direction: 'increase'|'decrease'|'stable', sinceMonthIndex: 0..11 or null })
+  function analyzeTrend(counts) {
+    // counts: array length 12
+    const diffs = new Array(12).fill(0);
+    for (let i = 1; i < 12; i++) diffs[i] = counts[i] - counts[i-1];
+
+    // encontra último índice com diff != 0
+    let lastIdx = -1;
+    for (let i = 11; i >= 1; i--) if (diffs[i] !== 0) { lastIdx = i; break; }
+
+    if (lastIdx === -1) return { direction: 'stable', sinceMonthIndex: null };
+
+    const lastSign = Math.sign(diffs[lastIdx]); // 1 or -1
+    // varre pra trás até encontrar sinal oposto
+    let k = lastIdx;
+    while (k >= 1) {
+      if (diffs[k] === 0 || Math.sign(diffs[k]) === lastSign) { k--; continue; }
+      // sinal oposto encontrado
+      break;
+    }
+    // se k < 1 significa que não encontrou oposto => tendência é desde o início do ano
+    const sinceMonthIndex = (k < 1) ? 1 : (k + 1); // month index where change started: month number = sinceMonthIndex (1..11) corresponds to month (sinceMonthIndex) -> we'll report month name of sinceMonthIndex+0
+    // Note: sinceMonthIndex here refers to the month index in diffs where first same-sign diff starts; to get readable month (1..12) we use sinceMonthIndex (month that had the first change to this trend) + 0 gives the month number (month after diff's previous).
+    return { direction: lastSign > 0 ? 'increase' : 'decrease', sinceMonthIndex: sinceMonthIndex }; // sinceMonthIndex between 1..11
+  }
+
+  const monthNames = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+  // monta HTML compacto por setor, calcula totals para ranking se quiser
+  const sectorsSorted = Object.keys(monthsCountsBySector).sort((a,b) => {
+    const tA = monthsCountsBySector[a].reduce((s,x)=>s+x,0);
+    const tB = monthsCountsBySector[b].reduce((s,x)=>s+x,0);
+    return tB - tA;
+  });
+
+  let html = '';
+  sectorsSorted.forEach(sector => {
+    const counts = monthsCountsBySector[sector];
+    const total = counts.reduce((s,x)=>s+x,0);
+    const trend = analyzeTrend(counts);
+
+    // sparkbars: vamos transformar counts em percentuais relativos ao max do ano pra esse setor
+    const maxCount = Math.max(...counts, 1);
+    const bars = counts.map(c => {
+      const pct = Math.round((c / maxCount) * 100); // 0..100
+      return `<div class="month-bar"><i style="width:${pct}%;"></i></div>`;
+    }).join('');
+
+    // pega top cluster summary (como sample)
+    const top = clustersBySector[sector][0];
+    const sampleDesc = escapeHtmlSimple((top.rids[0].description || top.rids[0].ridDescription || '').slice(0,160));
+
+    // pills: mostra até 4 ids (ordena por data)
+    const pills = top.rids
+      .slice()
+      .sort((x,y) => {
+        const dx = (x.emissionDate && typeof x.emissionDate.toDate === 'function') ? x.emissionDate.toDate() : new Date(x.emissionDate || 0);
+        const dy = (y.emissionDate && typeof y.emissionDate.toDate === 'function') ? y.emissionDate.toDate() : new Date(y.emissionDate || 0);
+        return dy - dx;
+      })
+      .slice(0,4)
+      .map(r => {
+        const num = r.ridNumber || r.id || '—';
+        if (typeof window.showRidDetails === 'function') {
+          return `<a class="rid-pill" href="javascript:void(0)" onclick="showRidDetails('${r.id}')" title="Abrir RID ${escapeHtmlSimple(num)}">${escapeHtmlSimple(num)}</a>`;
+        }
+        return `<button class="rid-pill" onclick="(function(){navigator.clipboard?.writeText('${escapeHtmlSimple(String(num))}'); this.innerText='copiado'; setTimeout(()=>this.innerText='${escapeHtmlSimple(String(num))}',900) })()">${escapeHtmlSimple(num)}</button>`;
+      }).join(' ');
+
+    // trend text
+    let trendText = '';
+    if (trend.direction === 'stable') trendText = 'Sem variação recente';
+    else {
+      // sinceMonthIndex is index in diffs (1..11) representing change from month index -> interpret "desde <month>"
+      // we want to say "queda desde <monthName>" meaning the month where the change became visible (month number = sinceMonthIndex+0 ?)
+      const monthIdx = trend.sinceMonthIndex; // 1..11
+      const readableMonth = monthNames[Math.max(0, Math.min(11, monthIdx))];
+      trendText = `${trend.direction === 'increase' ? 'Aumento' : 'Queda'} desde ${readableMonth}`;
+    }
+
+    html += `
+      <div class="recurrence-row" data-sector="${escapeHtmlSimple(sector)}">
+        <div class="recurrence-left">
+          <div class="sector-name">${escapeHtmlSimple(sector)}</div>
+          <div class="occurrences">Ocorrências semelhantes: <strong>${top.count}</strong></div>
+          <div class="sample">${sampleDesc}</div>
+        </div>
+
+        <div class="recurrence-right">
+          <div style="font-size:11px;color:#475569;margin-bottom:4px;">${trendText}</div>
+          <div class="month-spark" aria-hidden="true">${bars}</div>
+          <div style="margin-top:6px;">${pills}</div>
+        </div>
+      </div>
+    `;
+  });
+
+  content.innerHTML = html;
+  container.style.display = 'block';
+}
 
 function renderNovaPage() {
   if (!isDeveloper()) {
