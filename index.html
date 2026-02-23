@@ -986,7 +986,7 @@ function toFirestoreDateFromInput(dateStr) {
       return String(maxNum + 1).padStart(5, '0');
     }
 
-    function getFilteredRids() {
+   function getFilteredRids() {
   const monthSelect = document.getElementById('dashboardMonth');
   const yearInput = document.getElementById('dashboardYear');
   const sectorSelect = document.getElementById('dashboardSector');
@@ -994,25 +994,34 @@ function toFirestoreDateFromInput(dateStr) {
   let filtered = allRids.filter(r => !r.deleted);
 
   const now = new Date();
-  const month = monthSelect?.value
-    ? parseInt(monthSelect.value)
-    : now.getMonth() + 1;
-
-  const year = yearInput?.value
-    ? parseInt(yearInput.value)
-    : now.getFullYear();
+  const monthRaw = monthSelect?.value ?? ''; // "all", "" (mês atual) ou "1".."12"
+  const showAllMonths = monthRaw === 'all';
+  const month = (monthRaw && monthRaw !== 'all') ? parseInt(monthRaw, 10) : (now.getMonth() + 1);
+  const year = yearInput?.value ? parseInt(yearInput, 10) : now.getFullYear();
 
   // 🔹 FILTRO MÊS + ANO
   filtered = filtered.filter(r => {
     if (!r.emissionDate) return false;
-    const d = r.emissionDate.toDate();
+
+    const d = typeof r.emissionDate.toDate === 'function'
+      ? r.emissionDate.toDate()
+      : new Date(r.emissionDate);
+
+    if (!d || isNaN(d.getTime())) return false;
+
+    if (showAllMonths) {
+      // ----> SE "Todos os meses" escolhido: incluir TODOS os RIDs (sem filtrar por mês/ano)
+      return true;
+    }
+
+    // caso contrário: filtro por mês + ano (mês pode ser o atual quando monthRaw === '')
     return (
-      d.getFullYear() === year &&
-      d.getMonth() + 1 === month
+      d.getMonth() + 1 === month &&
+      d.getFullYear() === year
     );
   });
 
-  // 🔹 FILTRO SETOR
+  // 🔹 FILTRO SETOR (mantém igual)
   if (sectorSelect?.value) {
     filtered = filtered.filter(r => r.sector === sectorSelect.value);
   }
@@ -3343,24 +3352,26 @@ ${renderNavigation('Dashboard')}
       Mês
     </label>
     <select
-      id="dashboardMonth"
-      class="w-full h-11 px-4 border rounded-lg bg-white"
-      style="border-color:#9c9494;"
-    >
-      <option value="">Mês atual</option>
-      <option value="1">Janeiro</option>
-      <option value="2">Fevereiro</option>
-      <option value="3">Março</option>
-      <option value="4">Abril</option>
-      <option value="5">Maio</option>
-      <option value="6">Junho</option>
-      <option value="7">Julho</option>
-      <option value="8">Agosto</option>
-      <option value="9">Setembro</option>
-      <option value="10">Outubro</option>
-      <option value="11">Novembro</option>
-      <option value="12">Dezembro</option>
-    </select>
+  id="dashboardMonth"
+  class="w-full h-11 px-4 border rounded-lg bg-white"
+  style="border-color:#9c9494;"
+>
+  <!-- MÊS ATUAL como padrão -->
+  <option value="">Mês atual</option>
+  <option value="all">Todos os meses</option>
+  <option value="1">Janeiro</option>
+  <option value="2">Fevereiro</option>
+  <option value="3">Março</option>
+  <option value="4">Abril</option>
+  <option value="5">Maio</option>
+  <option value="6">Junho</option>
+  <option value="7">Julho</option>
+  <option value="8">Agosto</option>
+  <option value="9">Setembro</option>
+  <option value="10">Outubro</option>
+  <option value="11">Novembro</option>
+  <option value="12">Dezembro</option>
+</select>
   </div>
 
   <!-- ANO -->
