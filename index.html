@@ -629,6 +629,86 @@ body.ui-compact #statusRidsCard {
     font-size:16px;
   }
 }
+
+/* MOBILE: esconder 3 cards específicos + histórico de solicitações */
+@media (max-width: 767px) {
+  /* esconder os 3 cards já marcados */
+  .card-weekly,
+  .card-month-by-user,
+  .card-no-emitter,
+  /* histórico de solicitações usa id dinâmico criado: deleteRequestsCardContainer */
+  #deleteRequestsCardContainer {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+
+  /* evita gaps / quebra de grid quando removemos os cards */
+  .grid, .dashboard-cards-grid, .space-y-6 {
+    grid-auto-rows: min-content;
+  }
+}
+
+/* ===== Mobile: reduzir paddings laterais e gaps para cards ficarem melhores ===== */
+@media (max-width: 767px) {
+
+  /* reduz padding geral do main content (substitui p-8 -> p-4 visualmente) */
+  .flex-1.overflow-auto.p-8 {
+    padding-left: 0.75rem !important;  /* 12px */
+    padding-right: 0.75rem !important; /* 12px */
+    padding-top: 0.75rem !important;
+    padding-bottom: 0.75rem !important;
+  }
+
+  /* wrapper interno (.w-full px-6 2xl:px-16) */
+  .w-full.px-6 {
+    padding-left: 0.5rem !important;  /* 8px */
+    padding-right: 0.5rem !important; /* 8px */
+  }
+
+  /* reduz espaçamento de colunas e gaps dentro do dashboard */
+  .grid.gap-6.mb-8,
+  .grid.grid-cols-2.md\\:grid-cols-6.lg\\:grid-cols-5.gap-3.md\\:gap-5,
+  .grid.grid-cols-1.lg\\:grid-cols-3.gap-6.mb-8 {
+    gap: 0.5rem !important; /* 8px */
+  }
+
+  /* cards: diminuir padding interno e borda arredondada ligeiramente para caber mais */
+  .bg-white.rounded-xl.shadow-lg.p-6,
+  .bg-white.rounded-xl.shadow-lg.p-4,
+  .stats-slim-card {
+    padding: 0.6rem !important; /* ~10px */
+    border-radius: 0.6rem !important;
+  }
+
+  /* stats-slim-value e títulos: ajustar tamanhos para evitar quebra */
+  .stats-slim-title { font-size: 11px !important; }
+  .stats-slim-value { font-size: 14px !important; }
+
+  /* card do gráfico: reduzir margens internas e altura do gráfico */
+  #statusRidsCard { padding: 0.6rem !important; }
+  #statusRidsCard .chart-bar { height: 10px !important; }
+  #statusRidsCard .w-24 { width: 3.2rem !important; } /* 50px */
+
+  /* RIDs list: reduzir padding dos itens para caber mais na largura */
+  .bg-white.rounded-lg.shadow-md.cursor-pointer.p-4 {
+    padding: 0.6rem !important;
+  }
+
+  /* evita overflow horizontal por conta de sombras ou bordas */
+  #app, .h-full, body, html {
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+  }
+
+  /* opcional: torna o conteúdo do painel central mais "encaixado" com largura máxima */
+  .w-full {
+    max-width: 100% !important;
+  }
+}
   </style>
   <style>@view-transition { navigation: auto; }</style>
  </head>
@@ -3765,7 +3845,7 @@ function rejectRidDeletionRequestPrompt(id) {
             </div>
 
             <!-- RIDs da Semana (agora aparece imediatamente abaixo dos stats) -->
-            <div class="bg-white rounded-xl shadow-lg p-6">
+<div class="bg-white rounded-xl shadow-lg p-6 card-weekly">
               <h3 class="text-xl font-bold text-gray-800 mb-6">RIDs da Semana</h3>
               <div class="space-y-3 max-h-[360px] overflow-y-auto pr-2">
                 ${ weekRids.length === 0 ? '<p class="text-gray-500 text-center py-8">Nenhum RID nesta semana</p>' : weekRids.map(rid => `
@@ -3809,7 +3889,7 @@ function rejectRidDeletionRequestPrompt(id) {
             </div>
 
             <!-- RIDs do Mês por Usuário -->
-            <div class="bg-white rounded-xl shadow-lg p-6 mt-6">
+<div class="bg-white rounded-xl shadow-lg p-6 mt-6 card-month-by-user">
               <h3 class="text-xl font-bold text-gray-800 mb-6">RIDs do Mês por Usuário</h3>
               <div class="space-y-3 max-h-[360px] overflow-y-auto pr-2">
                 ${ monthlyUserStats.length === 0 ? '<p class="text-gray-500 text-center py-8">Nenhum RID no período</p>' : monthlyUserStats.map(user => `
@@ -3825,7 +3905,7 @@ function rejectRidDeletionRequestPrompt(id) {
             </div>
 
             <!-- Funcionários sem RID no mês -->
-            <div class="bg-white rounded-xl shadow-lg p-6 mt-6">
+<div class="bg-white rounded-xl shadow-lg p-6 mt-6 card-no-emitter">
               <h3 class="text-xl font-bold text-gray-800 mb-6">Funcionários sem RID no mês</h3>
               ${ employeesWithoutRids.length === 0 ? `
                 <p class="text-sm font-semibold text-green-600 text-center py-6">🎉 Todos os funcionários emitiram RID este mês!</p>
@@ -3852,20 +3932,24 @@ function rejectRidDeletionRequestPrompt(id) {
           <!-- Coluna direita (lateral) — gráficos + top emitters + extras (mantém conteúdo) -->
           <div class="space-y-6">
 
-            <!-- Status dos RIDs (desktop) -->
-            <div id="statusRidsCard" class="bg-white rounded-xl shadow-lg p-6 relative overflow-hidden">
-              <div class="flex items-center justify-between mb-4 md:mb-6">
-                <div class="flex-1">
-                  <h3 class="text-lg md:text-xl font-bold text-gray-800">Status dos RIDs</h3>
-                  <p id="monthGoalDisplay" class="text-sm font-semibold mt-1 text-gray-600"></p>
-                </div>
-                ${isDeveloper() ? `
-                  <button onclick="showGoalModal()" class="p-2 rounded-lg hover:bg-gray-100 transition-colors flex-shrink-0" title="Definir Meta do Mês">
-                    <svg class="w-5 h-5 text-gray-400 hover:text-gray-600" fill="currentColor" viewBox="0 0 20 20"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg>
-                  </button>
-                ` : '' }
-              </div>
+            <!-- Status dos RIDs (desktop + mobile doughnut) -->
+<div id="statusRidsCard" class="bg-white rounded-xl shadow-lg p-6 relative overflow-hidden">
+  <div class="flex items-center justify-between mb-4 md:mb-6">
+    <div class="flex-1">
+      <h3 class="text-lg md:text-xl font-bold text-gray-800">Status dos RIDs</h3>
+      <p id="monthGoalDisplay" class="text-sm font-semibold mt-1 text-gray-600"></p>
+    </div>
+    ${isDeveloper() ? `
+      <button onclick="showGoalModal()" class="p-2 rounded-lg hover:bg-gray-100 transition-colors flex-shrink-0" title="Definir Meta do Mês">
+        <svg class="w-5 h-5 text-gray-400 hover:text-gray-600" fill="currentColor" viewBox="0 0 20 20"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg>
+      </button>
+    ` : '' }
+  </div>
 
+  <!-- CANVAS DO DOUGHNUT (invisível por padrão; mostrado no mobile via CSS) -->
+  <div id="dashboardDoughnutWrapper" style="display:none; width:180px; height:180px; margin:0 auto 12px;">
+    <canvas id="dashboardStatusChart" aria-label="Gráfico de status dos RIDs" role="img"></canvas>
+  </div>
               <div class="space-y-6">
                 <!-- EM ANDAMENTO -->
                 <div class="flex items-center space-x-4">
