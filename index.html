@@ -710,41 +710,80 @@ body.ui-compact #statusRidsCard {
   }
 }
 
-/* ===== Mobile: mostrar doughnut redondo e esconder barras ===== */
+/* =========================================
+   STATUS DOS RIDs — MOBILE ORGANIZADO
+   ========================================= */
 @media (max-width: 767px) {
-  /* Esconde os blocos de barra e mostra o canvas */
-  .status-bars { display: none !important; }
 
-  /* Mostra o wrapper do doughnut no mobile (visível só no celular) */
-  #dashboardDoughnutWrapper {
-    display: block !important;
-    width: 180px !important; /* ajusta conforme preferir */
-    height: 180px !important;
-    margin-left: auto !important;
-    margin-right: auto !important;
-    padding: 6px !important;
+  /* esconde espaçamento padrão grande do card */
+  #statusRidsCard .space-y-6 > * {
+    margin: 8px 0 !important;
   }
 
-  /* Força o canvas ocupar todo o wrapper e ficar redondo */
-  #dashboardDoughnutWrapper canvas,
-  #dashboardStatusChart {
+  /* cada linha vira uma grade fixa */
+  #statusRidsCard .flex.items-center.space-x-4 {
+    display: grid !important;
+    grid-template-columns: auto 1fr auto !important;
+    align-items: center !important;
+    gap: 10px !important;
+    white-space: nowrap !important;
+  }
+
+  /* título nunca quebra */
+  #statusRidsCard .w-32,
+  #statusRidsCard .text-sm.font-bold.text-gray-700 {
+    width: auto !important;
+    min-width: 120px !important;
+    font-size: 12px !important;
+    white-space: nowrap !important;
+  }
+
+  /* container da barra ocupa todo espaço central */
+  #statusRidsCard .flex-1.flex.items-center.space-x-3 {
+    display: contents !important;
+  }
+
+  /* trilho da barra (sempre mesmo tamanho) */
+  #statusRidsCard .bg-gray-200.rounded-lg.h-12 {
     width: 100% !important;
+    height: 12px !important;
+    border-radius: 999px !important;
+    background: #e9eef3 !important;
+    overflow: hidden !important;
+  }
+
+  /* barra colorida interna */
+  #statusRidsCard .chart-bar {
     height: 100% !important;
-    display: block !important;
+    border-radius: 999px !important;
   }
 
-  /* Ajustes visuais do card quando mostrar o doughnut */
-  #statusRidsCard {
-    padding-bottom: 12px !important;
+  /* número + porcentagem ficam grudados à direita */
+  #statusRidsCard .w-24.flex-shrink-0.text-right {
+    width: auto !important;
+    min-width: 70px !important;
+    text-align: right !important;
+    display: flex !important;
+    justify-content: flex-end !important;
+    gap: 6px !important;
+    font-size: 13px !important;
   }
 
-  /* Torna o card do gráfico mais compacto no mobile */
-  #statusRidsCard .text-2xl { font-size: 1.05rem !important; } /* números laterais um pouco menores */
-}
+  #statusRidsCard .text-2xl {
+    font-size: 14px !important;
+    font-weight: 700 !important;
+  }
 
-/* Desktop: garante que o wrapper do doughnut não atrapalhe */
-@media (min-width: 768px) {
-  #dashboardDoughnutWrapper { display: none !important; }
+  #statusRidsCard .text-lg {
+    font-size: 12px !important;
+    font-weight: 600 !important;
+  }
+
+  /* remove altura gigante herdada do desktop */
+  #statusRidsCard .h-12 {
+    height: 12px !important;
+  }
+
 }
   </style>
   <style>@view-transition { navigation: auto; }</style>
