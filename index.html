@@ -450,6 +450,185 @@ p, span, h1, h2, h3, h4 {
   .month-spark { width: 100%; }
 }
 
+/* --------- Estilo base para cards (uniformiza) --------- */
+.card-base {
+  border-radius: 14px;
+  box-shadow: 0 12px 28px rgba(11,15,22,0.06);
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+  border: 1px solid rgba(15,23,42,0.04);
+}
+
+/* stats slim (os cards do topo) */
+.stats-slim-card {
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+
+/* ícone pequeno */
+.stats-slim-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  box-shadow: inset 0 -4px 8px rgba(0,0,0,0.02);
+}
+
+/* título e número */
+.stats-slim-title { font-size: 12px; color: #475569; margin:0; }
+.stats-slim-value { font-size: 18px; font-weight:700; margin:0; color: #0f172a; }
+
+/* cards grandes (painéis com padding) */
+.panel-card {
+  padding: 18px;
+}
+
+/* RIDs list, inner card */
+.bg-white.rounded-lg.shadow-md.p-4 {
+  padding: 12px;
+  border-radius: 12px;
+  box-shadow: 0 10px 22px rgba(11,15,22,0.04);
+}
+
+/* legenda/labels pequenas */
+.leader-card .legend-item, .panel-card .subtitle {
+  color: #6b7280;
+  font-size: 13px;
+}
+
+/* suaviza cores do gráfico estilo barra (opcional) */
+.chart-bar { border-radius: 8px; }
+
+/* --------- Compact mode (aplica-se automaticamente em telas pequenas) ---------
+   A classe .ui-compact será adicionada dinamicamente no body quando a tela for pequena.
+   No mobile reduz paddings, fontes, espaços e torna os cards visivelmente menores.
+--------------------------------------------------------------------- */
+body.ui-compact .stats-slim-card {
+  padding: 8px 10px;
+  min-height: 46px;
+  gap: 8px;
+}
+
+body.ui-compact .stats-slim-icon { width: 34px; height: 34px; border-radius: 8px; }
+body.ui-compact .stats-slim-title { font-size: 11px; }
+body.ui-compact .stats-slim-value { font-size: 15px; }
+
+body.ui-compact .panel-card { padding: 10px; }
+body.ui-compact .bg-white.rounded-xl.shadow-lg.p-6 { padding: 10px; border-radius: 10px; }
+body.ui-compact .bg-white.rounded-xl.shadow-lg.p-6 h3 { font-size: 15px; }
+body.ui-compact .space-y-10 { gap: 12px; }
+
+/* lista de RIDs: compacta */
+body.ui-compact .space-y-3 .bg-white.rounded-lg.shadow-md {
+  padding: 8px;
+}
+
+/* ajustar o canvas/altura dos gráficos no mobile */
+@media (max-width: 767px) {
+  #leaderMonthlyChart, #dashboardStatusChart, #leaderAssignedChart {
+    height: 160px !important;
+  }
+}
+
+/* harmoniza o painel lateral: reduz tamanho em mobile quando .ui-compact */
+body.ui-compact #statusRidsCard {
+  padding: 10px;
+}
+
+/* pequenas melhorias visuais no hover (desktop) */
+@media (min-width: 768px) {
+  .card-base:hover { transform: translateY(-4px); box-shadow: 0 18px 38px rgba(11,15,22,0.07); }
+}
+
+/* =========================
+   CARD BASE
+========================= */
+.stats-slim-card{
+  display:flex;
+  align-items:center;
+  padding:10px 14px;
+  border-radius:12px;
+  min-height:60px;
+  box-shadow:0 6px 18px rgba(14,30,37,.06);
+  box-sizing:border-box;
+}
+
+/* linha interna */
+.stats-slim-row{
+  display:flex;
+  align-items:center;
+  width:100%;
+}
+
+/* =========================
+   ESQUERDA (icone + titulo)
+========================= */
+.stats-slim-left{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex:0 1 auto;
+  min-width:0;
+}
+
+/* icone */
+.stats-slim-icon{
+  width:26px;
+  height:26px;
+  min-width:26px;
+  border-radius:7px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+.stats-slim-icon svg{
+  width:15px;
+  height:15px;
+}
+
+/* titulo */
+.stats-slim-title{
+  font-size:14px;
+  font-weight:700;
+  line-height:1.2;
+  white-space:nowrap;
+  margin:0;
+}
+
+/* =========================
+   NUMERO (sempre direita)
+========================= */
+.stats-slim-value{
+  margin-left:auto;
+  font-size:17px;
+  font-weight:900;
+  text-align:right;
+}
+
+/* =========================
+   GRID (6 CARDS SEM QUEBRAR)
+========================= */
+@media (min-width:768px){
+  .stats-slim-card{
+    padding:10px 12px;
+  }
+}
+
+/* evita quebrar layout em telas menores */
+@media (max-width:900px){
+  .stats-slim-title{
+    font-size:13px;
+  }
+  .stats-slim-value{
+    font-size:16px;
+  }
+}
   </style>
   <style>@view-transition { navigation: auto; }</style>
  </head>
@@ -856,6 +1035,51 @@ unsubscribeLeader = db.collection("rids")
 window.ridHistoryUnsub = null;
 
 
+// ================= DELETE REQUESTS (histórico dashboard) =================
+let allDeleteRequests = [];
+let unsubscribeDeleteRequests = null;
+
+// Inicia listener de deleteRequests apenas para as solicitações do usuário logado
+// Recebe o uid do usuário atual (currentUser.uid)
+function startDeleteRequestsListener(userUid) {
+
+  if (window.unsubscribeDeleteRequests) return;
+  if (!userUid) return;
+
+  const allowDev = (typeof isDeveloper === 'function' && isDeveloper());
+  const allowAdmin = (typeof isAdmin === 'function' && isAdmin());
+  if (!allowDev && !allowAdmin) return;
+
+  // 🔵 SEM where → nunca precisa de índice
+  window.unsubscribeDeleteRequests = db.collection('deleteRequests')
+    .orderBy('createdAt', 'desc')
+    .onSnapshot(snapshot => {
+
+      const allDocs = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+
+      // 🔴 filtragem real por usuário
+      allDeleteRequests = allDocs.filter(d =>
+        d.requesterId === userUid
+      );
+
+      if (typeof renderDeleteRequestsCard === 'function')
+        renderDeleteRequestsCard();
+
+    }, err => {
+      console.warn('Erro ao carregar deleteRequests:', err);
+    });
+}
+
+function stopDeleteRequestsListener() {
+  if (unsubscribeDeleteRequests) {
+    unsubscribeDeleteRequests();
+    unsubscribeDeleteRequests = null;
+  }
+}
+
     // Utility Functions
     function getUserNameById(uid) {
   const user = allUsers.find(u => u.id === uid);
@@ -1192,6 +1416,13 @@ async function handleLogout() {
 
   await auth.signOut();
   showToast("Logout realizado com sucesso");
+}
+
+function stopDeleteRequestsListener() {
+  if (window.unsubscribeDeleteRequests) {
+    try { window.unsubscribeDeleteRequests(); } catch(e) {}
+    window.unsubscribeDeleteRequests = null;
+  }
 }
 
 function stopRidHistoryListener() {
@@ -3100,22 +3331,106 @@ function showDashboardCorrectedTooltip(doMes, atrasadas) {
 
 window.showDashboardCorrectedTooltip = showDashboardCorrectedTooltip;
 
+function renderDeleteRequestsCard() {
+  const container = document.getElementById('deleteRequestsCardContainer');
+  if (!container) return;
 
-    function renderAdminDashboard() {
-  // 🔒 TRAVA ABSOLUTA DE ROLE
+  if (!allDeleteRequests.length) {
+    container.innerHTML = `
+      <div class="bg-white rounded-xl shadow-md p-4">
+        <div class="font-bold text-gray-800">Histórico de solicitações</div>
+        <div class="text-xs text-gray-500 mt-2">Nenhuma solicitação ainda.</div>
+      </div>
+    `;
+    return;
+  }
+
+  const html = allDeleteRequests.slice(0, 12).map(req => {
+
+    const status = req.status || 'pending';
+
+    let badge =
+      status === 'approved'
+        ? '<span class="text-green-600 font-bold text-xs">APROVADO</span>'
+      : status === 'rejected'
+        ? '<span class="text-red-600 font-bold text-xs">REJEITADO</span>'
+        : '<span class="text-yellow-600 font-bold text-xs">PENDENTE</span>';
+
+    const rejection =
+      status === 'rejected' && req.rejectionReason
+        ? `<div class="text-xs text-red-500 mt-1"><b>Motivo:</b> ${escapeHtmlSimple(req.rejectionReason)}</div>`
+        : '';
+
+    const decision =
+      status !== 'pending'
+        ? `<div class="text-xs text-gray-500 mt-1">
+             ${req.decisionBy ? 'Por: ' + escapeHtmlSimple(req.decisionBy) : ''}
+             ${req.decisionAt ? ' • ' + new Date(req.decisionAt.seconds*1000).toLocaleString() : ''}
+           </div>`
+        : '';
+
+    const isDashboard = window.currentPage === 'dashboard';
+
+const actions =
+  !isDashboard && status === 'pending'
+    ? `
+    <div class="flex gap-2 mt-2">
+      <button onclick="approveRidDeletionRequest('${req.id}')" class="px-2 py-1 text-xs border rounded bg-green-50">Aprovar</button>
+      <button onclick="rejectRidDeletionRequestPrompt('${req.id}')" class="px-2 py-1 text-xs border rounded bg-red-50">Rejeitar</button>
+    </div>`
+    : '';
+
+    return `
+      <div class="border-b last:border-b-0 p-3">
+        <div class="flex justify-between">
+          <div class="font-semibold text-sm">RID ${req.ridNumber || req.ridId}</div>
+          ${badge}
+        </div>
+
+        <div class="text-xs text-gray-600 mt-1">${escapeHtmlSimple(req.reason || '')}</div>
+        ${decision}
+        ${rejection}
+        ${actions}
+      </div>
+    `;
+  }).join('');
+
+  container.innerHTML = `
+    <div class="bg-white rounded-xl shadow-md">
+      <div class="px-4 py-3 border-b font-bold text-gray-800">
+        Histórico de Solicitações (${allDeleteRequests.length})
+      </div>
+      ${html}
+    </div>
+  `;
+}
+
+function rejectRidDeletionRequestPrompt(id) {
+  const reason = prompt('Digite o motivo da rejeição:');
+  if (!reason) return;
+
+  db.collection('deleteRequests').doc(id).update({
+    status: 'rejected',
+    rejectionReason: reason,
+    decisionBy: currentUser?.displayName || currentUser?.email || '',
+    decisionAt: firebase.firestore.FieldValue.serverTimestamp()
+  });
+}
+
+ function renderAdminDashboard() {
+  // marca a página atual (usado por renderDeleteRequestsCard para ocultar botões)
+  window.currentPage = 'dashboard';
+
+  // 🔒 TRAVA ABSOLUTA DE ROLE (verifica antes de montar a UI)
   if (!currentUserData?.isAdmin && !currentUserData?.isDeveloper) {
     console.warn("⛔ Acesso negado à dashboard admin");
     renderEmployeeDashboard();
     return;
   }
 
-  window.currentPage = 'dashboard';
-
   const filteredRids = getFilteredRids();
 
-  const employeesWithoutRids =
-    getEmployeesWithoutRidsThisMonth(allUsers, filteredRids);
-
+  const employeesWithoutRids = getEmployeesWithoutRidsThisMonth(allUsers, filteredRids);
   const totalRids = filteredRids.length;
 
   if (currentUserData?.isAdmin || currentUserData?.isDeveloper) {
@@ -3123,693 +3438,553 @@ window.showDashboardCorrectedTooltip = showDashboardCorrectedTooltip;
   }
 
   const openRids = filteredRids.filter(r => r.status === 'EM ANDAMENTO').length;
-const overdueRids = filteredRids.filter(r => r.status === 'VENCIDO').length;
+  const overdueRids = filteredRids.filter(r => r.status === 'VENCIDO').length;
 
-// 📅 Mês/ano “ativo” no dashboard (se não tiver filtro ainda, usa mês atual)
-const dashMonth = Number(document.getElementById('dashboardMonth')?.value) || (new Date().getMonth() + 1);
-const dashYear  = Number(document.getElementById('dashboardYear')?.value)  || (new Date().getFullYear());
+  // 📅 Mês/ano “ativo” no dashboard (se não tiver filtro ainda, usa mês atual)
+  const dashMonth = Number(document.getElementById('dashboardMonth')?.value) || (new Date().getMonth() + 1);
+  const dashYear  = Number(document.getElementById('dashboardYear')?.value)  || (new Date().getFullYear());
 
-const toDateSafe = (v) => {
-  if (!v) return null;
-  if (v instanceof Date) return v;
-  if (typeof v.toDate === 'function') return v.toDate();
-  const parsed = new Date(v);
-  return isNaN(parsed.getTime()) ? null : parsed;
-};
+  const toDateSafe = (v) => {
+    if (!v) return null;
+    if (v instanceof Date) return v;
+    if (typeof v.toDate === 'function') return v.toDate();
+    const parsed = new Date(v);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  };
 
-const isInMonthYear = (d, m, y) => !!d && (d.getMonth() + 1) === m && d.getFullYear() === y;
-const isBeforeMonthYear = (d, m, y) => {
-  if (!d) return false;
-  const dm = d.getMonth() + 1;
-  const dy = d.getFullYear();
-  return (dy < y) || (dy === y && dm < m);
-};
+  const isInMonthYear = (d, m, y) => !!d && (d.getMonth() + 1) === m && d.getFullYear() === y;
+  const isBeforeMonthYear = (d, m, y) => {
+    if (!d) return false;
+    const dm = d.getMonth() + 1;
+    const dy = d.getFullYear();
+    return (dy < y) || (dy === y && dm < m);
+  };
 
-// ✅ STATUS DOS RIDs (CARD) — SOMENTE OS CRIADOS NO MÊS (createdAt)
-const dashSector = document.getElementById('dashboardSector')?.value || '';
+  // ✅ STATUS DOS RIDs (CARD) — SOMENTE OS CRIADOS NO MÊS (createdAt)
+  const dashSector = document.getElementById('dashboardSector')?.value || '';
 
-const ridsMesCreatedAt = allRids
-  .filter(r => !r.deleted)
-  .filter(r => {
-    if (dashSector) return r.sector === dashSector;
-    return true;
-  })
-  .filter(r => {
-    const c = toDateSafe(r.createdAt);
-    return isInMonthYear(c, dashMonth, dashYear);
-  });
+  const ridsMesCreatedAt = allRids
+    .filter(r => !r.deleted)
+    .filter(r => {
+      if (dashSector) return r.sector === dashSector;
+      return true;
+    })
+    .filter(r => {
+      const c = toDateSafe(r.createdAt);
+      return isInMonthYear(c, dashMonth, dashYear);
+    });
 
-const totalRidsStatus = ridsMesCreatedAt.length;
-const openRidsStatus = ridsMesCreatedAt.filter(r => r.status === 'EM ANDAMENTO').length;
-const overdueRidsStatus = ridsMesCreatedAt.filter(r => r.status === 'VENCIDO').length;
-const correctedRidsStatus = ridsMesCreatedAt.filter(r => {
-  const st = String(r.status || '').toUpperCase();
-  return st === 'CORRIGIDO' || st === 'ENCERRADO';
-}).length;
-
-
-// 🚨 ATRASADOS (meses anteriores) — pendentes
-const atrasadosCount = allRids
-  .filter(r => !r.deleted)
-  .filter(r => {
-    const em = toDateSafe(r.emissionDate);
-    if (!isBeforeMonthYear(em, dashMonth, dashYear)) return false;
-
+  const totalRidsStatus = ridsMesCreatedAt.length;
+  const openRidsStatus = ridsMesCreatedAt.filter(r => r.status === 'EM ANDAMENTO').length;
+  const overdueRidsStatus = ridsMesCreatedAt.filter(r => r.status === 'VENCIDO').length;
+  const correctedRidsStatus = ridsMesCreatedAt.filter(r => {
     const st = String(r.status || '').toUpperCase();
-    return st !== 'CORRIGIDO' && st !== 'ENCERRADO' && st !== 'EXCLUIDO';
+    return st === 'CORRIGIDO' || st === 'ENCERRADO';
   }).length;
 
-// ✅ CORRIGIDAS DO MÊS (inclui atrasados resolvidos agora) — usa conclusionDate
-const correctedRids = allRids
-  .filter(r => !r.deleted)
-  .filter(r => {
-    const st = String(r.status || '').toUpperCase();
-    if (st !== 'CORRIGIDO' && st !== 'ENCERRADO') return false;
+  // 🚨 ATRASADOS (meses anteriores) — pendentes
+  const atrasadosCount = allRids
+    .filter(r => !r.deleted)
+    .filter(r => {
+      const em = toDateSafe(r.emissionDate);
+      if (!isBeforeMonthYear(em, dashMonth, dashYear)) return false;
+      const st = String(r.status || '').toUpperCase();
+      return st !== 'CORRIGIDO' && st !== 'ENCERRADO' && st !== 'EXCLUIDO';
+    }).length;
 
-    const cd = toDateSafe(r.conclusionDate);
-    return isInMonthYear(cd, dashMonth, dashYear);
+  // ✅ CORRIGIDAS DO MÊS (inclui atrasados resolvidos agora) — usa conclusionDate
+  const correctedInMonthList = allRids
+    .filter(r => !r.deleted)
+    .filter(r => {
+      const st = String(r.status || '').toUpperCase();
+      if (st !== 'CORRIGIDO' && st !== 'ENCERRADO') return false;
+      if (dashSector && r.sector !== dashSector) return false;
+      const cd = toDateSafe(r.conclusionDate);
+      return isInMonthYear(cd, dashMonth, dashYear);
+    });
+
+  const corrigidasMesAtual = correctedInMonthList.length;
+  const corrigidasAtrasadasNesteMes = correctedInMonthList.filter(r => {
+    const created = toDateSafe(r.createdAt);
+    return isBeforeMonthYear(created, dashMonth, dashYear);
   }).length;
-  
-  // ✅ Corrigidas do mês (lista) — pra quebrar entre "do mês" e "atrasados corrigidos agora"
-const correctedInMonthList = allRids
-  .filter(r => !r.deleted)
-  .filter(r => {
-    const st = String(r.status || '').toUpperCase();
-    if (st !== 'CORRIGIDO' && st !== 'ENCERRADO') return false;
+  const corrigidasDoMes = corrigidasMesAtual - corrigidasAtrasadasNesteMes;
 
-    // respeita setor do dashboard
-    if (dashSector && r.sector !== dashSector) return false;
+  // ✅ ENCERRADOS DO MÊS
+  const encerradosRids = allRids
+    .filter(r => !r.deleted)
+    .filter(r => String(r.status || '').toUpperCase() === 'ENCERRADO')
+    .filter(r => {
+      const cd = toDateSafe(r.conclusionDate);
+      return isInMonthYear(cd, dashMonth, dashYear);
+    }).length;
 
-    const cd = toDateSafe(r.conclusionDate);
-    return isInMonthYear(cd, dashMonth, dashYear);
+  // 🗑️ REMOVIDOS DO MÊS
+  const removidosRids = allRids
+    .filter(r => {
+      if (dashSector) return r.sector === dashSector;
+      return true;
+    })
+    .filter(r => (r.deleted === true) || (String(r.status || '').toUpperCase() === 'EXCLUIDO') || (String(r.status || '').toUpperCase() === 'EXCLUÍDO'))
+    .filter(r => {
+      const dd = toDateSafe(r.deletedAt);
+      return isInMonthYear(dd, dashMonth, dashYear);
+    }).length;
+
+  const encerradosEremovidosTotal = encerradosRids + removidosRids;
+
+  // semana útil
+  const now = new Date();
+  const day = now.getDay();
+  const diffToMonday = (day === 0 ? 6 : day - 1);
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - diffToMonday);
+  weekStart.setHours(0,0,0,0);
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 5);
+  weekEnd.setHours(23,59,59,999);
+
+  const weekRids = allRids
+    .filter(r => !r.deleted)
+    .filter(r => r.createdAt && typeof r.createdAt.toDate === 'function')
+    .filter(r => {
+      const created = r.createdAt.toDate();
+      return created >= weekStart && created <= weekEnd;
+    });
+
+  // RIDs por usuário
+  const ridsByUser = {};
+  filteredRids.forEach(rid => {
+    const userId = rid.emitterId || rid.emitterName;
+    if (!ridsByUser[userId]) ridsByUser[userId] = { name: rid.emitterName, count: 0 };
+    ridsByUser[userId].count++;
   });
+  const monthlyUserStats = Object.values(ridsByUser)
+    .filter(u => u && typeof u.name === 'string' && u.name.trim() !== '')
+    .sort((a,b) => b.count - a.count);
 
-// ✅ Total corrigidas no mês (mantém igual ao seu correctedRids, mas agora consistente com setor)
-const corrigidasMesAtual = correctedInMonthList.length;
-
-// ✅ Dentre as corrigidas do mês, quais eram atrasadas (criadas antes do mês/ano atual)?
-const corrigidasAtrasadasNesteMes = correctedInMonthList.filter(r => {
-  const created = toDateSafe(r.createdAt);
-  return isBeforeMonthYear(created, dashMonth, dashYear);
-}).length;
-
-// ✅ Corrigidas "do próprio mês" (criadas no mês e corrigidas no mês)
-const corrigidasDoMes = corrigidasMesAtual - corrigidasAtrasadasNesteMes;
-
-  // ✅ ENCERRADOS DO MÊS (somente ENCERRADO) — usa conclusionDate
-const encerradosRids = allRids
-  .filter(r => !r.deleted)
-  .filter(r => String(r.status || '').toUpperCase() === 'ENCERRADO')
-  .filter(r => {
-    const cd = toDateSafe(r.conclusionDate);
-    return isInMonthYear(cd, dashMonth, dashYear);
-  }).length;
-
-// 🗑️ REMOVIDOS DO MÊS (usa deletedAt) + respeita setor
-const removidosRids = allRids
-  .filter(r => {
-    // setor do dashboard
-    if (dashSector) return r.sector === dashSector;
-    return true;
-  })
-  .filter(r => (r.deleted === true) || (String(r.status || '').toUpperCase() === 'EXCLUIDO') || (String(r.status || '').toUpperCase() === 'EXCLUÍDO'))
-  .filter(r => {
-    const dd = toDateSafe(r.deletedAt);
-    return isInMonthYear(dd, dashMonth, dashYear);
-  }).length;
-
-// ✅ Total que aparece no card
-const encerradosEremovidosTotal = encerradosRids + removidosRids;
-
-
-// ✅ Semana útil: segunda (00:00) até sábado (23:59:59) — usando createdAt
-const now = new Date();
-
-// 0=domingo, 1=segunda ... 6=sábado
-const day = now.getDay();
-
-// volta até segunda (domingo volta 6)
-const diffToMonday = (day === 0 ? 6 : day - 1);
-
-const weekStart = new Date(now);
-weekStart.setDate(now.getDate() - diffToMonday);
-weekStart.setHours(0, 0, 0, 0);
-
-// sábado (segunda + 5)
-const weekEnd = new Date(weekStart);
-weekEnd.setDate(weekStart.getDate() + 5);
-weekEnd.setHours(23, 59, 59, 999);
-
-// pega do sistema todo (não do filtro do dashboard)
-// ✅ IGNORA emissionDate e usa só createdAt
-const weekRids = allRids
-  .filter(r => !r.deleted)
-  .filter(r => r.createdAt && typeof r.createdAt.toDate === 'function')
-  .filter(r => {
-    const created = r.createdAt.toDate();
-    return created >= weekStart && created <= weekEnd;
+  const emitterCount = {};
+  filteredRids.forEach(rid => {
+    emitterCount[rid.emitterName] = (emitterCount[rid.emitterName] || 0) + 1;
   });
+  const topEmitters = Object.entries(emitterCount).sort((a,b) => b[1]-a[1]).slice(0,3);
 
+  const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
+  const app = document.getElementById('app');
 
+  // ---------- TEMPLATE (sem placeholder duplicado) ----------
+  app.innerHTML = `
+  <div class="h-full flex flex-col">
 
-      // 📊 RIDs do MÊS por usuário
-const ridsByUser = {};
+    ${renderHeader(config)}
+    ${renderNavigation('Dashboard')}
 
-filteredRids.forEach(rid => {
-  const userId = rid.emitterId || rid.emitterName;
+    <!-- Main Content -->
+    <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
+      <div class="w-full px-6 2xl:px-16">
 
-  if (!ridsByUser[userId]) {
-    ridsByUser[userId] = {
-      name: rid.emitterName,
-      count: 0
-    };
-  }
+        <div class="flex items-center justify-between mb-8">
+          <h1 class="text-3xl font-bold text-gray-800">Dashboard</h1>
 
-  ridsByUser[userId].count++;
-});
+          <!-- Botão de Filtros -->
+          <button
+            onclick="toggleDevFilters()"
+            class="flex items-center space-x-2 px-6 py-3 rounded-lg font-semibold text-white hover:opacity-90"
+            style="background-color:#c4a8e0;"
+          >
+            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M3 3h14l-5 6v6l-4-2v-4L3 3z"/>
+            </svg>
+            <span>Filtros</span>
+          </button>
+        </div>
 
-// transforma em array e ordena (maior → menor)
-const monthlyUserStats = Object.values(ridsByUser)
-  .filter(u => u && typeof u.name === 'string' && u.name.trim() !== '')
-  .sort((a, b) => b.count - a.count);
+        <!-- Painel de Filtros (Oculto por padrão) -->
+        <div id="devFilterPanel" class="hidden mb-8 bg-white rounded-xl shadow-lg p-6 border-2">
+          <!-- (mantive o mesmo conteúdo de filtros que você já tinha) -->
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-bold" style="color: #808080;">Filtrar RIDs por Período</h3>
+            <button onclick="toggleDevFilters()" class="text-gray-400 hover:text-gray-600">
+              <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+              </svg>
+            </button>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+            <!-- Mês / Ano / Setor / Botões (mesmo markup) -->
+            <div>
+              <label class="block text-sm font-semibold mb-1 text-gray-600">Mês</label>
+              <select id="dashboardMonth" class="w-full h-11 px-4 border rounded-lg bg-white" style="border-color:#9c9494;">
+                <option value="">Mês atual</option>
+                <option value="all">Todos os meses</option>
+                <option value="1">Janeiro</option>
+                <option value="2">Fevereiro</option>
+                <option value="3">Março</option>
+                <option value="4">Abril</option>
+                <option value="5">Maio</option>
+                <option value="6">Junho</option>
+                <option value="7">Julho</option>
+                <option value="8">Agosto</option>
+                <option value="9">Setembro</option>
+                <option value="10">Outubro</option>
+                <option value="11">Novembro</option>
+                <option value="12">Dezembro</option>
+              </select>
+            </div>
 
+            <div>
+              <label class="block text-sm font-semibold mb-1 text-gray-600">Ano</label>
+              <input type="number" id="dashboardYear" placeholder="Ex: 2026" min="2020" max="2100"
+                     class="w-full h-11 px-4 border rounded-lg" style="border-color:#9c9494;">
+            </div>
 
+            <div>
+              <label class="block text-sm font-semibold mb-1 text-gray-600">Setor</label>
+              <select id="dashboardSector" class="w-full h-11 px-4 border rounded-lg bg-white" style="border-color:#9c9494;">
+                <option value="">Todos os setores</option>
+                <option value="ADM">ADM</option>
+                <option value="M. MOVEL">M. MOVEL</option>
+                <option value="M. FIXA">M. FIXA</option>
+                <option value="M. ELÉTRICA">M. ELÉTRICA</option>
+                <option value="PRODUÇÃO">PRODUÇÃO</option>
+                <option value="MINA">MINA</option>
+              </select>
+            </div>
 
-      const emitterCount = {};
-      filteredRids.forEach(rid => {
-        emitterCount[rid.emitterName] = (emitterCount[rid.emitterName] || 0) + 1;
-      });
-      const topEmitters = Object.entries(emitterCount)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3);
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full">
+              <button onclick="filterDashboard()" class="bg-blue-300 text-white px-6 py-2 rounded-lg font-semibold">Aplicar</button>
+              <button onclick="clearDashboardFilters()" class="h-11 px-6 rounded-lg font-semibold border text-gray-600">Limpar</button>
+            </div>
+          </div>
+        </div>
 
-      const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
+        <!-- ===== LAYOUT REORDENADO (APENAS POSIÇÃO DOS BLOCOS EXISTENTES) ===== -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
 
-      const app = document.getElementById('app');
+          <!-- Coluna esquerda (maior) — mantém listas operacionais e RIDs semanais aqui -->
+          <div class="lg:col-span-2 space-y-6">
 
-      app.innerHTML = `
-        <div class="h-full flex flex-col">
-
-          ${renderHeader(config)}
-${renderNavigation('Dashboard')}
-
-
-          <!-- Main Content -->
-          <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
-            <div class="max-w-7xl mx-auto">
-
-              <div class="flex items-center justify-between mb-8">
-                <h1 class="text-3xl font-bold text-gray-800">Dashboard</h1>
-                
-                <!-- Botão de Filtros -->
-                <button
-  onclick="toggleDevFilters()"
-  class="flex items-center space-x-2 px-6 py-3 rounded-lg font-semibold text-white hover:opacity-90"
-  style="background-color:#c4a8e0;"
->
-  <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-    <path fill-rule="evenodd" d="M3 3h14l-5 6v6l-4-2v-4L3 3z"/>
-  </svg>
-  <span>Filtros</span>
-</button>
+            <!-- Stats Cards (SLIM) - mantidos -->
+         <div class="grid grid-cols-2 md:grid-cols-6 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-5">
+              <!-- TOTAL -->
+              <div class="stats-slim-card card-hover">
+                <div class="stats-slim-row">
+                  <div class="stats-slim-left">
+                    <div class="stats-slim-icon" style="background-color:#a8d5e2;">
+                      <svg class="text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z"/>
+                        <path fill-rule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clip-rule="evenodd"/>
+                      </svg>
+                    </div>
+                    <p class="stats-slim-title">Total</p>
+                  </div>
+                  <p class="stats-slim-value text-gray-800">${totalRids}</p>
+                </div>
               </div>
 
-              <!-- Painel de Filtros (Oculto por padrão) -->
-              <div id="devFilterPanel" class="hidden mb-8 bg-white rounded-xl shadow-lg p-6 border-2">
-                <div class="flex items-center justify-between mb-4">
-                  <h3 class="text-lg font-bold" style="color: #808080;">Filtrar RIDs por Período</h3>
-                  <button onclick="toggleDevFilters()" class="text-gray-400 hover:text-gray-600">
-                    <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-                      <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
-                    </svg>
-                  </button>
+              <!-- EM ANDAMENTO -->
+              <div class="stats-slim-card card-hover" style="background:#fffbeb;">
+                <div class="stats-slim-row">
+                  <div class="stats-slim-left">
+                    <div class="stats-slim-icon" style="background-color:#ffd9a0;">
+                      <svg class="text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/>
+                      </svg>
+                    </div>
+                    <p class="stats-slim-title">Pendente</p>
+                  </div>
+                  <p class="stats-slim-value text-orange-600">${openRids}</p>
                 </div>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+              </div>
 
-  <!-- MÊS -->
-  <div>
-    <label class="block text-sm font-semibold mb-1 text-gray-600">
-      Mês
-    </label>
-    <select
-  id="dashboardMonth"
-  class="w-full h-11 px-4 border rounded-lg bg-white"
-  style="border-color:#9c9494;"
->
-  <!-- MÊS ATUAL como padrão -->
-  <option value="">Mês atual</option>
-  <option value="all">Todos os meses</option>
-  <option value="1">Janeiro</option>
-  <option value="2">Fevereiro</option>
-  <option value="3">Março</option>
-  <option value="4">Abril</option>
-  <option value="5">Maio</option>
-  <option value="6">Junho</option>
-  <option value="7">Julho</option>
-  <option value="8">Agosto</option>
-  <option value="9">Setembro</option>
-  <option value="10">Outubro</option>
-  <option value="11">Novembro</option>
-  <option value="12">Dezembro</option>
-</select>
-  </div>
+              <!-- VENCIDAS -->
+              <div class="stats-slim-card card-hover" style="background:#fef2f2;">
+                <div class="stats-slim-row">
+                  <div class="stats-slim-left">
+                    <div class="stats-slim-icon" style="background-color:#ef4444;">
+                      <svg class="text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+                      </svg>
+                    </div>
+                    <p class="stats-slim-title">Vencidas</p>
+                  </div>
+                  <p class="stats-slim-value text-red-600">${overdueRids}</p>
+                </div>
+              </div>
 
-  <!-- ANO -->
-  <div>
-    <label class="block text-sm font-semibold mb-1 text-gray-600">
-      Ano
-    </label>
-    <input
-      type="number"
-      id="dashboardYear"
-      placeholder="Ex: 2026"
-      min="2020"
-      max="2100"
-      class="w-full h-11 px-4 border rounded-lg"
-      style="border-color:#9c9494;"
-    >
-  </div>
+              <!-- CORRIGIDAS -->
+              <div class="stats-slim-card card-hover" style="background:#f0fdf4;"
+                   onmouseenter="showDashboardCorrectedTooltip(${corrigidasDoMes}, ${corrigidasAtrasadasNesteMes})"
+                   onmousemove="moveDeletedRidTooltip(event)"
+                   onmouseleave="hideDeletedRidTooltip()">
+                <div class="stats-slim-row">
+                  <div class="stats-slim-left">
+                    <div class="stats-slim-icon" style="background-color:#22c55e;">
+                      <svg class="text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                      </svg>
+                    </div>
+                    <p class="stats-slim-title">Corrigidas</p>
+                  </div>
+                  <p class="stats-slim-value text-green-600">${corrigidasMesAtual}</p>
+                </div>
+              </div>
 
-  <!-- SETOR -->
-  <div>
-    <label class="block text-sm font-semibold mb-1 text-gray-600">
-      Setor
-    </label>
-    <select
-      id="dashboardSector"
-      class="w-full h-11 px-4 border rounded-lg bg-white"
-      style="border-color:#9c9494;"
-    >
-      <option value="">Todos os setores</option>
-      <option value="ADM">ADM</option>
-      <option value="M. MOVEL">M. MOVEL</option>
-      <option value="M. FIXA">M. FIXA</option>
-      <option value="M. ELÉTRICA">M. ELÉTRICA</option>
-      <option value="PRODUÇÃO">PRODUÇÃO</option>
-      <option value="MINA">MINA</option>
-    </select>
-  </div>
+              <!-- ATRASADOS -->
+              <div class="stats-slim-card card-hover" style="background:#fff1f2;">
+                <div class="stats-slim-row">
+                  <div class="stats-slim-left">
+                    <div class="stats-slim-icon" style="background-color:#fca5a5;">
+                      <svg class="text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M7 2a1 1 0 0 1 1 1v1h8V3a1 1 0 1 1 2 0v1h1a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3h1V3a1 1 0 0 1 1-1Zm13 8H4v9a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-9ZM6 6H5a1 1 0 0 0-1 1v1h16V7a1 1 0 0 0-1-1h-1v1a1 1 0 1 1-2 0V6H8v1a1 1 0 1 1-2 0V6Z"/>
+                      </svg>
+                    </div>
+                    <p class="stats-slim-title">Atrasados</p>
+                  </div>
+                  <p class="stats-slim-value text-red-700">${atrasadosCount}</p>
+                </div>
+              </div>
 
-  <!-- BOTÕES -->
-  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full">
+              <!-- ENCERRADOS + REMOVIDOS -->
+              <div class="stats-slim-card card-hover" style="background:#f3f4f6;"
+                   onmouseenter="showDashboardClosedRemovedTooltip(${encerradosRids}, ${removidosRids})"
+                   onmousemove="moveDeletedRidTooltip(event)"
+                   onmouseleave="hideDeletedRidTooltip()">
+                <div class="stats-slim-row">
+                  <div class="stats-slim-left">
+                    <div class="stats-slim-icon" style="background-color:#9ca3af;">
+                      <svg class="text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                      </svg>
+                    </div>
+                    <p class="stats-slim-title leading-tight">Removidos</p>
+                  </div>
+                  <p class="stats-slim-value text-gray-700">${encerradosEremovidosTotal}</p>
+                </div>
+              </div>
+            </div>
 
-    <button
-  onclick="filterDashboard()"
-  class="bg-blue-300 text-white px-6 py-2 rounded-lg font-semibold"
->
-  Aplicar
-</button>
-
-
-    <button
-      onclick="clearDashboardFilters()"
-      class="h-11 px-6 rounded-lg font-semibold border text-gray-600"
-    >
-      Limpar
-    </button>
-  </div>
-
-</div>
-</div>
-
-        <!-- Stats Cards (SLIM + ÍCONE PEQUENO - estilo IMG 1) -->
-<div class="grid grid-cols-2 md:grid-cols-6 gap-3 md:gap-5 mb-6">
-
-  <!-- TOTAL -->
-  <div class="stats-slim-card card-hover">
-    <div class="stats-slim-row">
-      <div class="stats-slim-left">
-        <div class="stats-slim-icon" style="background-color:#a8d5e2;">
-          <svg class="text-white" fill="currentColor" viewBox="0 0 20 20">
-            <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z"/>
-            <path fill-rule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clip-rule="evenodd"/>
-          </svg>
-        </div>
-        <p class="stats-slim-title">Total</p>
-      </div>
-      <p class="stats-slim-value text-gray-800">${totalRids}</p>
-    </div>
-  </div>
-
-  <!-- EM ANDAMENTO -->
-  <div class="stats-slim-card card-hover" style="background:#fffbeb;">
-    <div class="stats-slim-row">
-      <div class="stats-slim-left">
-        <div class="stats-slim-icon" style="background-color:#ffd9a0;">
-          <svg class="text-white" fill="currentColor" viewBox="0 0 20 20">
-            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/>
-          </svg>
-        </div>
-        <p class="stats-slim-title">Em andamento</p>
-      </div>
-      <p class="stats-slim-value text-orange-600">${openRids}</p>
-    </div>
-  </div>
-
-  <!-- VENCIDAS -->
-  <div class="stats-slim-card card-hover" style="background:#fef2f2;">
-    <div class="stats-slim-row">
-      <div class="stats-slim-left">
-        <div class="stats-slim-icon" style="background-color:#ef4444;">
-          <svg class="text-white" fill="currentColor" viewBox="0 0 20 20">
-            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
-          </svg>
-        </div>
-        <p class="stats-slim-title">Vencidas</p>
-      </div>
-      <p class="stats-slim-value text-red-600">${overdueRids}</p>
-    </div>
-  </div>
-
-<!-- CORRIGIDAS -->
-<div
-  class="stats-slim-card card-hover"
-  style="background:#f0fdf4;"
-  onmouseenter="showDashboardCorrectedTooltip(${corrigidasDoMes}, ${corrigidasAtrasadasNesteMes})"
-  onmousemove="moveDeletedRidTooltip(event)"
-  onmouseleave="hideDeletedRidTooltip()"
->
-  <div class="stats-slim-row">
-    <div class="stats-slim-left">
-      <div class="stats-slim-icon" style="background-color:#22c55e;">
-        <svg class="text-white" fill="currentColor" viewBox="0 0 20 20">
-          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-        </svg>
-      </div>
-      <p class="stats-slim-title">Corrigidas</p>
-    </div>
-    <p class="stats-slim-value text-green-600">${corrigidasMesAtual}</p>
-  </div>
-</div>
-
-
-  <!-- ATRASADOS -->
-  <div class="stats-slim-card card-hover" style="background:#fff1f2;">
-    <div class="stats-slim-row">
-      <div class="stats-slim-left">
-        <div class="stats-slim-icon" style="background-color:#fca5a5;">
-          <svg class="text-white" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M7 2a1 1 0 0 1 1 1v1h8V3a1 1 0 1 1 2 0v1h1a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3h1V3a1 1 0 0 1 1-1Zm13 8H4v9a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-9ZM6 6H5a1 1 0 0 0-1 1v1h16V7a1 1 0 0 0-1-1h-1v1a1 1 0 1 1-2 0V6H8v1a1 1 0 1 1-2 0V6Z"/>
-          </svg>
-        </div>
-        <p class="stats-slim-title">Atrasados</p>
-      </div>
-      <p class="stats-slim-value text-red-700">${atrasadosCount}</p>
-    </div>
-  </div>
-
-<!-- ENCERRADOS + REMOVIDOS -->
-<div
-  class="stats-slim-card card-hover"
-  style="background:#f3f4f6;"
-  onmouseenter="showDashboardClosedRemovedTooltip(${encerradosRids}, ${removidosRids})"
-  onmousemove="moveDeletedRidTooltip(event)"
-  onmouseleave="hideDeletedRidTooltip()"
->
-  <div class="stats-slim-row">
-    <div class="stats-slim-left">
-      <div class="stats-slim-icon" style="background-color:#9ca3af;">
-        <svg class="text-white" fill="currentColor" viewBox="0 0 20 20">
-          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-        </svg>
-      </div>
-      <p class="stats-slim-title leading-tight">
-  Encerrados e<br>Removidos
-</p>
-    </div>
-    <p class="stats-slim-value text-gray-700">${encerradosEremovidosTotal}</p>
-  </div>
-</div>
-
-
-
-</div>
-
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 mb-8">
-                <!-- Chart -->
-                <div 
- id="statusRidsCard"
- class="hidden md:block bg-white rounded-xl shadow-lg p-6 relative overflow-hidden">
-  <div class="flex items-center justify-between mb-4 md:mb-6">
-    <div class="flex-1">
-      <h3 class="text-lg md:text-xl font-bold text-gray-800">Status dos RIDs</h3>
-      <p id="monthGoalDisplay" class="text-sm font-semibold mt-1 text-gray-600"></p>
-    </div>
-    ${isDeveloper() ? `
-      <button onclick="showGoalModal()" class="p-2 rounded-lg hover:bg-gray-100 transition-colors flex-shrink-0" title="Definir Meta do Mês">
-        <svg class="w-5 h-5 text-gray-400 hover:text-gray-600" fill="currentColor" viewBox="0 0 20 20">
-          <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/>
-        </svg>
-      </button>
-    ` : ''}
-  </div>
-
-  <div class="space-y-6">
-    <!-- EM ANDAMENTO -->
-    <div class="flex items-center space-x-4">
-      <div class="w-32 flex-shrink-0">
-        <p class="text-sm font-bold text-gray-700">EM ANDAMENTO</p>
-      </div>
-      <div class="flex-1 flex items-center space-x-3">
-        <div class="flex-1 bg-gray-200 rounded-lg h-12 relative overflow-hidden">
-          <div class="bg-orange-500 h-full rounded-lg chart-bar transition-all duration-500"
-               style="width: ${totalRidsStatus > 0 ? (openRidsStatus / totalRidsStatus) * 100 : 0}%"></div>
-        </div>
-        <div class="w-24 flex-shrink-0 text-right">
-          <span class="text-2xl font-bold text-gray-800">${openRidsStatus}</span>
-          <span class="text-lg font-semibold text-orange-600 ml-2">
-            (${totalRidsStatus > 0 ? Math.round((openRidsStatus / totalRidsStatus) * 100) : 0}%)
-          </span>
-        </div>
-      </div>
-    </div>
-
-    <!-- VENCIDO -->
-    <div class="flex items-center space-x-4">
-      <div class="w-32 flex-shrink-0">
-        <p class="text-sm font-bold text-gray-700">VENCIDO</p>
-      </div>
-      <div class="flex-1 flex items-center space-x-3">
-        <div class="flex-1 bg-gray-200 rounded-lg h-12 relative overflow-hidden">
-          <div class="bg-red-500 h-full rounded-lg chart-bar transition-all duration-500"
-               style="width: ${totalRidsStatus > 0 ? (overdueRidsStatus / totalRidsStatus) * 100 : 0}%"></div>
-        </div>
-        <div class="w-24 flex-shrink-0 text-right">
-          <span class="text-2xl font-bold text-gray-800">${overdueRidsStatus}</span>
-          <span class="text-lg font-semibold text-red-600 ml-2">
-            (${totalRidsStatus > 0 ? Math.round((overdueRidsStatus / totalRidsStatus) * 100) : 0}%)
-          </span>
-        </div>
-      </div>
-    </div>
-
-    <!-- CORRIGIDO -->
-    <div class="flex items-center space-x-4">
-      <div class="w-32 flex-shrink-0">
-        <p class="text-sm font-bold text-gray-700">CORRIGIDO</p>
-      </div>
-      <div class="flex-1 flex items-center space-x-3">
-        <div class="flex-1 bg-gray-200 rounded-lg h-12 relative overflow-hidden">
-          <div class="bg-green-500 h-full rounded-lg chart-bar transition-all duration-500"
-               style="width: ${totalRidsStatus > 0 ? (correctedRidsStatus / totalRidsStatus) * 100 : 0}%"></div>
-        </div>
-        <div class="w-24 flex-shrink-0 text-right">
-          <span class="text-2xl font-bold text-gray-800">${correctedRidsStatus}</span>
-          <span class="text-lg font-semibold text-green-600 ml-2">
-            (${totalRidsStatus > 0 ? Math.round((correctedRidsStatus / totalRidsStatus) * 100) : 0}%)
-          </span>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-
-                <!-- Top Emitters -->
-                <div class="rounded-xl shadow-lg p-4 md:p-6 bg-white">
-                  <h3 class="text-lg md:text-xl font-bold mb-4 md:mb-6 text-gray-800">Top 3 Emissores</h3>
-                  <div class="space-y-4">
-                    ${topEmitters.length === 0 ? '<p class="text-gray-500 text-center py-8">Nenhum emissor no período</p>' : topEmitters.map(([name, count], index) => `
-                      <div class="flex items-center justify-between p-3 rounded-lg bg-gray-100">
-                        <div class="flex items-center">
-                          <span class="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold mr-3" style="background-color: #ffd9a0;">
-                            ${index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}
-                          </span>
-                          <span class="font-semibold text-gray-800">${name}</span>
-                        </div>
-                        <span class="text-xl font-bold" style="color: #6b9eb0;">${count}</span>
+            <!-- RIDs da Semana (agora aparece imediatamente abaixo dos stats) -->
+            <div class="bg-white rounded-xl shadow-lg p-6">
+              <h3 class="text-xl font-bold text-gray-800 mb-6">RIDs da Semana</h3>
+              <div class="space-y-3 max-h-[360px] overflow-y-auto pr-2">
+                ${ weekRids.length === 0 ? '<p class="text-gray-500 text-center py-8">Nenhum RID nesta semana</p>' : weekRids.map(rid => `
+                  <div class="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow cursor-pointer p-4" onclick="showRidDetails('${rid.id}')">
+                    <div class="flex items-center justify-between w-full">
+                      <div class="block md:hidden">
+                        <p class="text-sm font-bold text-gray-800">RID #${rid.ridNumber}</p>
+                        <p class="text-xs text-gray-600">${rid.emitterName}</p>
                       </div>
-                    `).join('')}
+
+                      <div class="hidden md:flex items-center space-x-6 flex-1">
+                        <div class="flex items-center space-x-2">
+                          <span class="text-xs font-bold text-gray-500">Nº</span>
+                          <span class="px-4 py-2 text-white font-bold rounded-lg text-base" style="background-color: #a8d5e2;">${rid.ridNumber}</span>
+                        </div>
+
+                        <div class="w-40 min-w-0">
+                          <span class="text-sm font-semibold text-gray-800">${rid.emitterName}</span>
+                        </div>
+
+                        <div class="flex-1 min-w-0">
+                          <span class="text-sm text-gray-600">${rid.description.substring(0, 50)}...</span>
+                        </div>
+
+                        <div class="w-32">
+                          <span class="text-sm font-semibold text-gray-800">${rid.unit}</span>
+                        </div>
+
+                        <div class="w-32">
+                          <span class="px-3 py-1 rounded-lg font-bold text-xs ${getRiskColor(rid.riskClassification)}">${rid.riskClassification}</span>
+                        </div>
+
+                        <div class="w-32">
+                          <span class="px-3 py-1 rounded-lg font-bold text-xs ${getStatusColor(rid.status)}">${rid.status}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                `).join('') }
+              </div>
+            </div>
+
+            <!-- RIDs do Mês por Usuário -->
+            <div class="bg-white rounded-xl shadow-lg p-6 mt-6">
+              <h3 class="text-xl font-bold text-gray-800 mb-6">RIDs do Mês por Usuário</h3>
+              <div class="space-y-3 max-h-[360px] overflow-y-auto pr-2">
+                ${ monthlyUserStats.length === 0 ? '<p class="text-gray-500 text-center py-8">Nenhum RID no período</p>' : monthlyUserStats.map(user => `
+                  <div class="flex items-center justify-between p-4 rounded-lg bg-gray-100">
+                    <div class="flex items-center gap-3">
+                      <div class="w-10 h-10 rounded-full bg-[#a8d5e2] text-white font-bold flex items-center justify-center">${user.name?.charAt(0) || '?'}</div>
+                      <span class="font-semibold text-gray-800">${user.name || 'Usuário'}</span>
+                    </div>
+                    <span class="text-xl font-bold text-[#6b9eb0]">${user.count}</span>
+                  </div>
+                `).join('') }
+              </div>
+            </div>
+
+            <!-- Funcionários sem RID no mês -->
+            <div class="bg-white rounded-xl shadow-lg p-6 mt-6">
+              <h3 class="text-xl font-bold text-gray-800 mb-6">Funcionários sem RID no mês</h3>
+              ${ employeesWithoutRids.length === 0 ? `
+                <p class="text-sm font-semibold text-green-600 text-center py-6">🎉 Todos os funcionários emitiram RID este mês!</p>
+              ` : `
+                <div class="space-y-3 max-h-[360px] overflow-y-auto pr-2">
+                  ${ employeesWithoutRids.map(u => `
+                    <div class="flex items-center justify-between p-4 rounded-lg bg-red-50">
+                      <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-full bg-red-500 text-white font-bold flex items-center justify-center">${u.name?.charAt(0) || '?'}</div>
+                        <div>
+                          <p class="font-semibold text-gray-800">${u.name}</p>
+                          <p class="text-xs text-gray-500">${ u.lastDate ? `Último RID em ${u.lastDate.toLocaleDateString('pt-BR')}` : 'Nenhum RID Emitido Pelo Usuario' }</p>
+                        </div>
+                      </div>
+                      <span class="text-sm font-bold text-red-600">${u.daysWithout !== null ? `${u.daysWithout} dias` : '—'}</span>
+                    </div>
+                  `).join('') }
+                </div>
+              ` }
+            </div>
+
+          </div>
+
+          <!-- Coluna direita (lateral) — gráficos + top emitters + extras (mantém conteúdo) -->
+          <div class="space-y-6">
+
+            <!-- Status dos RIDs (desktop) -->
+            <div id="statusRidsCard" class="bg-white rounded-xl shadow-lg p-6 relative overflow-hidden">
+              <div class="flex items-center justify-between mb-4 md:mb-6">
+                <div class="flex-1">
+                  <h3 class="text-lg md:text-xl font-bold text-gray-800">Status dos RIDs</h3>
+                  <p id="monthGoalDisplay" class="text-sm font-semibold mt-1 text-gray-600"></p>
+                </div>
+                ${isDeveloper() ? `
+                  <button onclick="showGoalModal()" class="p-2 rounded-lg hover:bg-gray-100 transition-colors flex-shrink-0" title="Definir Meta do Mês">
+                    <svg class="w-5 h-5 text-gray-400 hover:text-gray-600" fill="currentColor" viewBox="0 0 20 20"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg>
+                  </button>
+                ` : '' }
+              </div>
+
+              <div class="space-y-6">
+                <!-- EM ANDAMENTO -->
+                <div class="flex items-center space-x-4">
+                  <div class="w-32 flex-shrink-0"><p class="text-sm font-bold text-gray-700">EM ANDAMENTO</p></div>
+                  <div class="flex-1 flex items-center space-x-3">
+                    <div class="flex-1 bg-gray-200 rounded-lg h-12 relative overflow-hidden">
+                      <div class="bg-orange-500 h-full rounded-lg chart-bar transition-all duration-500" style="width: ${totalRidsStatus > 0 ? (openRidsStatus / totalRidsStatus) * 100 : 0}%"></div>
+                    </div>
+                    <div class="w-24 flex-shrink-0 text-right">
+                      <span class="text-2xl font-bold text-gray-800">${openRidsStatus}</span>
+                      <span class="text-lg font-semibold text-orange-600 ml-2">(${totalRidsStatus > 0 ? Math.round((openRidsStatus / totalRidsStatus) * 100) : 0}%)</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- VENCIDO -->
+                <div class="flex items-center space-x-4">
+                  <div class="w-32 flex-shrink-0"><p class="text-sm font-bold text-gray-700">VENCIDO</p></div>
+                  <div class="flex-1 flex items-center space-x-3">
+                    <div class="flex-1 bg-gray-200 rounded-lg h-12 relative overflow-hidden">
+                      <div class="bg-red-500 h-full rounded-lg chart-bar transition-all duration-500" style="width: ${totalRidsStatus > 0 ? (overdueRidsStatus / totalRidsStatus) * 100 : 0}%"></div>
+                    </div>
+                    <div class="w-24 flex-shrink-0 text-right">
+                      <span class="text-2xl font-bold text-gray-800">${overdueRidsStatus}</span>
+                      <span class="text-lg font-semibold text-red-600 ml-2">(${totalRidsStatus > 0 ? Math.round((overdueRidsStatus / totalRidsStatus) * 100) : 0}%)</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- CORRIGIDO -->
+                <div class="flex items-center space-x-4">
+                  <div class="w-32 flex-shrink-0"><p class="text-sm font-bold text-gray-700">CORRIGIDO</p></div>
+                  <div class="flex-1 flex items-center space-x-3">
+                    <div class="flex-1 bg-gray-200 rounded-lg h-12 relative overflow-hidden">
+                      <div class="bg-green-500 h-full rounded-lg chart-bar transition-all duration-500" style="width: ${totalRidsStatus > 0 ? (correctedRidsStatus / totalRidsStatus) * 100 : 0}%"></div>
+                    </div>
+                    <div class="w-24 flex-shrink-0 text-right">
+                      <span class="text-2xl font-bold text-gray-800">${correctedRidsStatus}</span>
+                      <span class="text-lg font-semibold text-green-600 ml-2">(${totalRidsStatus > 0 ? Math.round((correctedRidsStatus / totalRidsStatus) * 100) : 0}%)</span>
+                    </div>
                   </div>
                 </div>
               </div>
-<!-- 📱 MOBILE: Status dos RIDs (igual ao de barras do PC) -->
-<div id="statusRidsCardMobile" class="md:hidden bg-white rounded-xl shadow-lg p-4 mb-6 relative overflow-hidden">
-  <h3 class="text-lg font-bold text-gray-800 mb-1">
-    Status dos RIDs
-  </h3>
-<p id="monthGoalDisplayMobile" class="text-xs font-semibold mt-1"></p>
-  <div class="relative w-full" style="height:220px;">
-    <canvas id="dashboardStatusChart"></canvas>
-  </div>
-</div>
+            </div>
 
-              <div class="space-y-10">
-
-             <!-- Week  RIDs -->
-              <div class="bg-white rounded-xl shadow-lg p-6">
-                <h3 class="text-xl font-bold text-gray-800 mb-6">RIDs da Semana</h3>
-               <div class="space-y-3 max-h-[360px] overflow-y-auto pr-2">
-                  ${weekRids.length === 0 ? '<p class="text-gray-500 text-center py-8">Nenhum RID nesta semana</p>' : weekRids.map(rid => `
-                    <div class="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow cursor-pointer p-4"onclick="showRidDetails('${rid.id}')"
-')">
-                      <div class="flex items-center justify-between w-full">
-
-  <!-- 📱 MOBILE (somente RID + Emitente) -->
-  <div class="block md:hidden">
-    <p class="text-sm font-bold text-gray-800">
-      RID #${rid.ridNumber}
-    </p>
-    <p class="text-xs text-gray-600">
-      ${rid.emitterName}
-    </p>
-  </div>
-
-  <!-- 🖥️ DESKTOP (layout completo atual) -->
-  <div class="hidden md:flex items-center space-x-6 flex-1">
-    <div class="flex items-center space-x-2">
-      <span class="text-xs font-bold text-gray-500">Nº</span>
-      <span class="px-4 py-2 text-white font-bold rounded-lg text-base" style="background-color: #a8d5e2;">
-        ${rid.ridNumber}
-      </span>
-    </div>
-
-    <div class="w-40 min-w-0">
-      <span class="text-sm font-semibold text-gray-800">
-        ${rid.emitterName}
-      </span>
-    </div>
-
-    <div class="flex-1 min-w-0">
-      <span class="text-sm text-gray-600">
-        ${rid.description.substring(0, 50)}...
-      </span>
-    </div>
-
-    <div class="w-32">
-      <span class="text-sm font-semibold text-gray-800">
-        ${rid.unit}
-      </span>
-    </div>
-
-    <div class="w-32">
-      <span class="px-3 py-1 rounded-lg font-bold text-xs ${getRiskColor(rid.riskClassification)}">
-        ${rid.riskClassification}
-      </span>
-    </div>
-
-    <div class="w-32">
-      <span class="px-3 py-1 rounded-lg font-bold text-xs ${getStatusColor(rid.status)}">
-        ${rid.status}
-      </span>
-    </div>
-  </div>
-
-</div>
-
+            <!-- Top Emitters (mantido) -->
+            <div class="rounded-xl shadow-lg p-4 md:p-6 bg-white">
+              <h3 class="text-lg md:text-xl font-bold mb-4 md:mb-6 text-gray-800">Top 3 Emissores</h3>
+              <div class="space-y-4">
+                ${topEmitters.length === 0 ? '<p class="text-gray-500 text-center py-8">Nenhum emissor no período</p>' : topEmitters.map(([name, count], index) => `
+                  <div class="flex items-center justify-between p-3 rounded-lg bg-gray-100">
+                    <div class="flex items-center">
+                      <span class="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold mr-3" style="background-color: #ffd9a0;">
+                        ${index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}
+                      </span>
+                      <span class="font-semibold text-gray-800">${name}</span>
                     </div>
-                  `).join('')}
-                </div>
+                    <span class="text-xl font-bold" style="color: #6b9eb0;">${count}</span>
+                  </div>
+                `).join('')}
               </div>
-
-
-              <!-- RIDs do Mês por Usuário -->
-<div class="bg-white rounded-xl shadow-lg p-6 mt-6">
-  <h3 class="text-xl font-bold text-gray-800 mb-6">
-    RIDs do Mês por Usuário
-  </h3>
-
-  <div class="space-y-3 max-h-[360px] overflow-y-auto pr-2">
-
-    ${
-      monthlyUserStats.length === 0
-        ? '<p class="text-gray-500 text-center py-8">Nenhum RID no período</p>'
-        : monthlyUserStats.map(user => `
-          <div class="flex items-center justify-between p-4 rounded-lg bg-gray-100">
-            <div class="flex items-center gap-3">
-              <div class="w-10 h-10 rounded-full bg-[#a8d5e2] text-white font-bold flex items-center justify-center">
-                ${user.name?.charAt(0) || '?'}
-              </div>
-              <span class="font-semibold text-gray-800">
-                ${user.name || 'Usuário'}
-              </span>
             </div>
-
-            <span class="text-xl font-bold text-[#6b9eb0]">
-              ${user.count}
-            </span>
-          </div>
-        `).join('')
-    }
+      </div>
+    </div>
   </div>
-</div>
+`;
+// rebuild charts async
+  setTimeout(() => {
+    try { renderDashboardStatusChart(openRids, overdueRids, correctedRids); } catch(e) {}
+  }, 0);
 
-<!-- 🚫 Funcionários sem RID no mês -->
-<div class="bg-white rounded-xl shadow-lg p-6 mt-6">
-  <h3 class="text-xl font-bold text-gray-800 mb-6">
-    Funcionários sem RID no mês
-  </h3>
+  if (isDeveloper()) updateRequestsBadge();
 
-  ${
-    employeesWithoutRids.length === 0
-      ? `
-        <p class="text-sm font-semibold text-green-600 text-center py-6">
-          🎉 Todos os funcionários emitiram RID este mês!
-        </p>
-      `
-      : `
-        <div class="space-y-3 max-h-[360px] overflow-y-auto pr-2">
-          ${employeesWithoutRids.map(u => `
-            <div class="flex items-center justify-between p-4 rounded-lg bg-red-50">
-              <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-full bg-red-500 text-white font-bold flex items-center justify-center">
-                  ${u.name?.charAt(0) || '?'}
-                </div>
-                <div>
-                  <p class="font-semibold text-gray-800">${u.name}</p>
-                  <p class="text-xs text-gray-500">
-                    ${
-                      u.lastDate
-                        ? `Último RID em ${u.lastDate.toLocaleDateString('pt-BR')}`
-                        : 'Nenhum RID Emitido Pelo Usuario'
-                    }
-                  </p>
-                </div>
-              </div>
+  // ---------- garante placeholder correto (após app.innerHTML) ----------
+  (function ensureDeleteRequestsPlaceholder() {
+    // remove duplicatas antigas por segurança
+    const old = document.getElementById('deleteRequestsCardContainer');
+    if (old) old.remove();
 
-              <span class="text-sm font-bold text-red-600">
-                ${u.daysWithout !== null ? `${u.daysWithout} dias` : '—'}
-              </span>
-            </div>
-          `).join('')}
-        </div>
-      `
+    const statusCard = document.getElementById('statusRidsCard');
+    const rightCol = statusCard ? statusCard.parentElement : document.querySelector('.space-y-6') || document.getElementById('app');
+
+    const container = document.createElement('div');
+    container.id = 'deleteRequestsCardContainer';
+    container.className = 'bg-white rounded-xl shadow-md p-4 mb-4';
+    container.innerHTML = `
+      <div class="font-bold text-gray-800">Histórico de solicitações</div>
+      <div class="text-xs text-gray-500 mt-2">Carregando...</div>
+    `;
+
+    rightCol.appendChild(container);
+  })();
+
+  // ---------- inicia listener (apenas 1x) e popula o card ----------
+  if (currentUser && currentUser.uid && typeof startDeleteRequestsListener === 'function') {
+    // idempotente: a função evita múltiplos listeners
+    startDeleteRequestsListener(currentUser.uid);
   }
-</div>
 
+  // força re-render do card com os dados atuais
+  if (typeof renderDeleteRequestsCard === 'function') renderDeleteRequestsCard();
 
-            </div>
-          </div>
-        </div>
-      `;
-setTimeout(() => {
-  renderDashboardStatusChart(openRids, overdueRids, correctedRids);
-}, 0);
-
-      if (isDeveloper()) {
-        updateRequestsBadge();
-      }
+  // ajustes de compact mode e listeners de resize (mantidos)
+  (function(){
+    function updateCompactMode() {
+      const isCompact = window.innerWidth < 768;
+      if (isCompact) document.body.classList.add('ui-compact');
+      else document.body.classList.remove('ui-compact');
     }
+    updateCompactMode();
+    window.addEventListener('resize', debounce(updateCompactMode, 120));
+
+    function debounce(fn, wait){ let t; return function(){ clearTimeout(t); t = setTimeout(()=>fn.apply(this,arguments), wait); }; }
+    window.addEventListener('resize', debounce(() => {
+      try { if (typeof buildLeaderMonthlyHistory === 'function' && document.getElementById('leaderMonthlyChart')) buildLeaderMonthlyHistory(); } catch(e){}
+      try { if (typeof renderLeaderAssignedChart === 'function' && document.getElementById('leaderAssignedChart')) renderLeaderAssignedChart(); } catch(e){}
+    }, 220));
+  })();
+}
 
     // ✅ Plugin: risquinho + % fora do doughnut
 const doughnutPercentCallouts = {
@@ -3973,7 +4148,7 @@ const myPerfHTML = renderMyPerformancePanelHTML(myStats);
 
       <!-- Main Content -->
       <div class="flex-1 overflow-auto p-8" style="background-color:#dfdfdf;">
-        <div class="max-w-5xl mx-auto">
+        <div class="w-full px-6 2xl:px-16">
 ${myPerfHTML}
 
           <h1 class="text-3xl font-bold text-gray-800 mb-6">
@@ -4194,7 +4369,7 @@ const atrasados = allRids
           ${renderNavigation('rids')}
           
           <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
-            <div class="max-w-7xl mx-auto">
+            <div class="w-full px-6 2xl:px-16">
 <div class="flex items-center justify-between gap-3 mb-6">
   <h1 class="font-bold text-gray-800 text-2xl sm:text-3xl">
     <span class="block sm:hidden">RIDs</span>
@@ -5283,7 +5458,7 @@ function cancelarEncerramento(button) {
           ${renderNavigation('employees')}
           
           <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
-            <div class="max-w-7xl mx-auto">
+            <div class="w-full px-6 2xl:px-16">
               <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
 
   <h1 class="text-2xl md:text-3xl font-bold text-gray-800 leading-tight">
@@ -5646,7 +5821,7 @@ const ridRequests = await Promise.all(
           ${renderNavigation('requests')}
           
           <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
-            <div class="max-w-7xl mx-auto">
+            <div class="w-full px-6 2xl:px-16">
      <h1 class="text-3xl font-bold text-gray-800 mb-8">
   Solicitações Pendentes
 </h1>
@@ -6568,7 +6743,7 @@ if (designatedRiskMode) {
       ${renderNavigation('designated')}
       
       <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
-        <div class="max-w-7xl mx-auto">
+       <div class="w-full px-6 2xl:px-16">
 
           <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-8 gap-4">
   <h1 class="text-3xl font-bold text-gray-800">
@@ -8366,49 +8541,97 @@ function renderNavigation(active) {
       document.getElementById('loginTab').style.color = '#6b7280';
     }
 
-   auth.onAuthStateChanged(async (user) => {
+ auth.onAuthStateChanged(async (user) => {
   if (user) {
+    // usuário logado
     currentUser = user;
 
     const userDoc = await db.collection('users').doc(user.uid).get();
     currentUserData = userDoc.data();
 
-    // 🔥 Cancela listener antigo
+    // 🔥 Cancela listener antigo de RIDs (já existente)
     if (window.unsubscribeRids) {
-      window.unsubscribeRids();
+      try { window.unsubscribeRids(); } catch(e) {}
       window.unsubscribeRids = null;
+    }
+
+    // 🔥 Cancela listener antigo de deleteRequests (novo - evita erro ao trocar usuário)
+    if (window.unsubscribeDeleteRequests) {
+      try { window.unsubscribeDeleteRequests(); } catch(e) {}
+      window.unsubscribeDeleteRequests = null;
     }
 
     // 🔥 Ativa o listener correto e renderiza a tela certa
     if (currentUserData.isAdmin || currentUserData.isDeveloper) {
       await loadUsers();
       await loadMonthlyGoal();
+
+      // listener principal de RIDs (mantém seu padrão)
       window.unsubscribeRids = listenRidsRealtimeAdmin();
+
+      // inicia listener de deleteRequests (salva unsubscribe em window.unsubscribeDeleteRequests)
+      if (typeof startDeleteRequestsListener === 'function') {
+  startDeleteRequestsListener(user.uid);
+      } else {
+        // fallback: cria manualmente (caso não tenha sido adicionada antes)
+        window.unsubscribeDeleteRequests = db.collection('deleteRequests')
+          .orderBy('createdAt', 'desc')
+          .onSnapshot(snapshot => {
+            allDeleteRequests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            if (typeof renderDeleteRequestsCard === 'function') renderDeleteRequestsCard();
+          }, err => {
+            console.warn('Erro ao carregar deleteRequests:', err);
+            if (typeof showToast === 'function') showToast('Erro ao carregar solicitações de remoção', 'error');
+          });
+      }
+
       renderAdminDashboard();
+
     } else {
+      // usuário comum: garante listener de RIDs do employee
       window.unsubscribeRids = listenRidsRealtimeEmployee();
       renderEmployeeDashboard();
+
+      // Como usuário não é admin/dev, não iniciamos listener de deleteRequests.
+      // Mas vamos garantir que o card do dashboard (se estiver visível) mostre estado vazio/informativo.
+      if (typeof renderDeleteRequestsCard === 'function') renderDeleteRequestsCard();
     }
 
+    // notificações e carregamentos adicionais
     startLeaderNotifications();
     await loadNotifications();
 
   } else {
-    if (unsubscribeLeader) {
-      unsubscribeLeader();
-      unsubscribeLeader = null;
+    // usuário deslogado: cleanup geral de listeners
+
+    if (window.unsubscribeLeader) {
+      try { window.unsubscribeLeader(); } catch(e) {}
+      window.unsubscribeLeader = null;
     }
+
+    if (window.unsubscribeRids) {
+      try { window.unsubscribeRids(); } catch(e) {}
+      window.unsubscribeRids = null;
+    }
+
+    if (window.unsubscribeDeleteRequests) {
+      try { window.unsubscribeDeleteRequests(); } catch(e) {}
+      window.unsubscribeDeleteRequests = null;
+    }
+
+    // Se tiver outros unsubscribes no projeto, garanta que também sejam limpos aqui
 
     currentUser = null;
     currentUserData = null;
+
+    // renderiza login
     document.getElementById('app').innerHTML = renderLoginPage();
   }
+
+  // 🔗 expõe funções para o HTML (onclick) — deixa disponível em qualquer estado
+  window.searchRids = searchRids;
+  window.clearSearchFilters = clearSearchFilters;
 });
-
-
-    // 🔗 expõe funções para o HTML (onclick)
-window.searchRids = searchRids;
-window.clearSearchFilters = clearSearchFilters;
 
   </script>
  <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9b7b0bbed6eaf200',t:'MTc2NzM2NTE4Ni4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script>
