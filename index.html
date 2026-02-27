@@ -709,6 +709,43 @@ body.ui-compact #statusRidsCard {
     max-width: 100% !important;
   }
 }
+
+/* ===== Mobile: mostrar doughnut redondo e esconder barras ===== */
+@media (max-width: 767px) {
+  /* Esconde os blocos de barra e mostra o canvas */
+  .status-bars { display: none !important; }
+
+  /* Mostra o wrapper do doughnut no mobile (visível só no celular) */
+  #dashboardDoughnutWrapper {
+    display: block !important;
+    width: 180px !important; /* ajusta conforme preferir */
+    height: 180px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    padding: 6px !important;
+  }
+
+  /* Força o canvas ocupar todo o wrapper e ficar redondo */
+  #dashboardDoughnutWrapper canvas,
+  #dashboardStatusChart {
+    width: 100% !important;
+    height: 100% !important;
+    display: block !important;
+  }
+
+  /* Ajustes visuais do card quando mostrar o doughnut */
+  #statusRidsCard {
+    padding-bottom: 12px !important;
+  }
+
+  /* Torna o card do gráfico mais compacto no mobile */
+  #statusRidsCard .text-2xl { font-size: 1.05rem !important; } /* números laterais um pouco menores */
+}
+
+/* Desktop: garante que o wrapper do doughnut não atrapalhe */
+@media (min-width: 768px) {
+  #dashboardDoughnutWrapper { display: none !important; }
+}
   </style>
   <style>@view-transition { navigation: auto; }</style>
  </head>
