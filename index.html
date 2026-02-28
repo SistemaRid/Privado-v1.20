@@ -1146,9 +1146,22 @@ unsubscribeLeader = db.collection("rids")
     let allRidHistory = [];
     window.ridHistoryUnsub = null;
 
+// ===== BLOQUEIO DE AUTO RENDER (contador seguro) =====
+window.preventAutoRenderCount = window.preventAutoRenderCount || 0;
 
+window.blockAutoRender = function() {
+  window.preventAutoRenderCount = (window.preventAutoRenderCount || 0) + 1;
+  console.debug && console.debug('blockAutoRender ->', window.preventAutoRenderCount);
+};
 
+window.unblockAutoRender = function() {
+  window.preventAutoRenderCount = Math.max(0, (window.preventAutoRenderCount || 1) - 1);
+  console.debug && console.debug('unblockAutoRender ->', window.preventAutoRenderCount);
+};
 
+window.isAutoRenderBlocked = function() {
+  return (window.preventAutoRenderCount || 0) > 0;
+};
 
     // Default Config
     const defaultConfig = {
@@ -2326,45 +2339,252 @@ await ridRef.update({
       }
     }
 
-    async function requestRidDeletion(ridId, reason) {
+   // Substitua sua função atual por esta versão
+// Substitua sua função requestRidDeletion por esta versão
+async function requestRidDeletion(ridId, reason) {
+  // helper: tenta fechar modais conhecidos / overlays
+  function closePossibleModals() {
+    // lista de ids/classes que seu projeto pode usar para modais
+    const possibleSelectors = [
+      '#rid-detail-modal',            // exemplo: modal do RID
+      '#request-rid-modal',           // exemplo: modal de "Solicitar Remoção"
+      '#delete-request-modal',        // variação possível
+      `#reject-modal-${ridId}`,       // modal de recusa (se aberto para este rid)
+      '.modal',                       // qualquer modal que use essa classe
+      '.overlay',                     // overlays genéricos
+      '[data-modal="true"]'           // seletor genérico se usar data-modal
+    ];
+
+    // remove elementos que casarem
+    possibleSelectors.forEach(sel => {
       try {
-        const rid = allRids.find(r => r.id === ridId);
-        await db.collection('deleteRequests').add({
-  ridId: ridId,
+        document.querySelectorAll(sel).forEach(el => {
+          el.remove();
+        });
+      } catch (e) {
+        // ignore
+      }
+    });
 
-  // ✅ NOVO: salva o número e a descrição do RID na hora da solicitação
-  ridNumber: rid?.ridNumber || null,
-  ridDescription: rid?.description || null,
+    // também procura por elementos com ids que comecem com 'reject-modal-' (variante)
+    try {
+      document.querySelectorAll('[id^="reject-modal-"]').forEach(el => el.remove());
+    } catch (e) {}
 
-  requesterId: currentUser.uid,
-  requesterName: currentUserData.name,
-  reason: reason,
-  status: 'pending',
-  createdAt: firebase.firestore.FieldValue.serverTimestamp()
-});
-        
-        // Notify all developers about the deletion request (only developers can approve)
-        const developerUsers = allUsers.filter(u => u.isDeveloper);
-        for (const dev of developerUsers) {
-          await createNotification(dev.id, {
-            type: 'deletion_request',
-            ridId: ridId,
-            ridNumber: rid.ridNumber,
-            title: 'Nova Solicitação de Exclusão',
-            message: `${currentUserData.name} solicitou exclusão do RID #${rid.ridNumber}`,
-            ridLocation: rid.location,
-            deadline: null
-          });
+    // restaura scroll da página (caso tenha sido travado)
+    try { document.documentElement.style.overflow = ''; } catch (e) {}
+  }
+
+  try {
+    // busca dado canônico do RID direto no Firestore (mais seguro que usar allRids)
+    const ridDoc = await db.collection('rids').doc(ridId).get();
+    if (!ridDoc.exists) {
+      showToast('RID não encontrado.', 'error');
+      return;
+    }
+    const rid = { id: ridDoc.id, ...ridDoc.data() };
+
+    // tenta obter o nome do emitente (opcional)
+    let emitterName = rid.emitterName || null;
+    if (!emitterName && rid.emitterId) {
+      try {
+        const userDoc = await db.collection('users').doc(rid.emitterId).get();
+        if (userDoc.exists) {
+          const u = userDoc.data();
+          emitterName = u?.name || u?.displayName || u?.fullName || null;
         }
-        
-        showToast('Solicitação de exclusão enviada aos desenvolvedores!');
-      } catch (error) {
-        showToast('Erro ao solicitar exclusão: ' + error.message, 'error');
+      } catch (err) {
+        console.warn('Não foi possível buscar usuário do emitterId:', err);
       }
     }
 
+    // grava a solicitação incluindo a descrição e o nome do emitter (se quiser manter)
+    const docRef = await db.collection('deleteRequests').add({
+      ridId: ridId,
+      ridNumber: rid?.ridNumber || null,
+      ridDescription: rid?.description || null,
+      ridEmitterName: emitterName,
+      requesterId: currentUser.uid,
+      requesterName: currentUserData.name,
+      reason: reason,
+      status: 'pending',
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+
+    // Notify developers (se tiver essa lógica)
+    const developerUsers = (Array.isArray(allUsers) ? allUsers : []).filter(u => u.isDeveloper);
+    for (const dev of developerUsers) {
+      try {
+        await createNotification(dev.id, {
+          type: 'deletion_request',
+          ridId: ridId,
+          ridNumber: rid.ridNumber,
+          title: 'Nova Solicitação de Exclusão',
+          message: `${currentUserData.name} solicitou exclusão do RID #${rid.ridNumber}`,
+          ridLocation: rid.location || null,
+          deadline: null
+        });
+      } catch (e) {
+        console.warn('Erro ao notificar dev', e);
+      }
+    }
+
+    // FECHAR MODAIS: garante que qualquer overlay/modal relacionado seja removido
+    closePossibleModals();
+
+    // atualizar UI
+    if (typeof renderRequestsPage === 'function') renderRequestsPage();
+    showToast('Solicitação de exclusão enviada aos desenvolvedores!');
+  } catch (error) {
+    console.error('requestRidDeletion erro:', error);
+    showToast('Erro ao solicitar exclusão: ' + (error.message || error), 'error');
+  } finally {
+    // seguro: garante que modais não fiquem travados nem overflow ativo
+    try { document.documentElement.style.overflow = ''; } catch (e) {}
+  }
+}
+
+// modal de rejeitar rid
+function openRejectModal(requestId, onConfirmed) {
+  // evita abrir múltiplos modais iguais
+  if (document.getElementById(`reject-modal-${requestId}`)) return;
+
+  // background overlay
+  const overlay = document.createElement('div');
+  overlay.id = `reject-modal-${requestId}`;
+  overlay.className = 'fixed inset-0 z-50 flex items-center justify-center p-4';
+  overlay.style.background = 'rgba(0,0,0,0.5)';
+
+  // modal container
+  const modal = document.createElement('div');
+  modal.className = 'w-full max-w-lg bg-white rounded-2xl shadow-xl p-6 relative';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+
+  // header
+  const header = document.createElement('div');
+  header.className = 'flex items-start justify-between mb-4';
+  header.innerHTML = `
+    <div>
+      <h3 class="text-lg font-semibold">Motivo da recusa</h3>
+      <p class="text-sm text-gray-500">Informe por que está rejeitando esta solicitação.</p>
+    </div>
+    <button type="button" aria-label="Fechar modal" class="ml-4 text-gray-400 hover:text-gray-600" id="reject-modal-close-${requestId}">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+    </button>
+  `;
+
+  // body (textarea)
+  const body = document.createElement('div');
+  body.className = 'mb-4';
+  body.innerHTML = `
+    <label class="block text-sm font-medium text-gray-700 mb-2">Motivo<span class="text-red-500 ml-1">*</span></label>
+  `;
+  const textarea = document.createElement('textarea');
+  textarea.className = 'w-full border rounded-md p-3 resize-y min-h-[90px] focus:outline-none focus:ring-2 focus:ring-indigo-300';
+  textarea.placeholder = 'Descreva o motivo da recusa...';
+  textarea.maxLength = 1000;
+  textarea.setAttribute('aria-label', 'Motivo da recusa');
+  body.appendChild(textarea);
+
+  // footer (buttons)
+  const footer = document.createElement('div');
+  footer.className = 'flex items-center justify-end space-x-3';
+  footer.innerHTML = `
+    <button type="button" id="reject-modal-cancel-${requestId}" class="px-4 py-2 rounded-lg text-sm font-medium border hover:opacity-90">Cancelar</button>
+    <button type="button" id="reject-modal-confirm-${requestId}" class="px-4 py-2 rounded-lg text-sm font-semibold bg-red-600 text-white hover:opacity-95">Recusar</button>
+  `;
+
+  // montagem
+  modal.appendChild(header);
+  modal.appendChild(body);
+  modal.appendChild(footer);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  // prevent background scroll
+  const previousOverflow = document.documentElement.style.overflow;
+  document.documentElement.style.overflow = 'hidden';
+
+  // foco inicial
+  textarea.focus();
+
+  // helper: remover modal
+  function closeModal() {
+    document.documentElement.style.overflow = previousOverflow || '';
+    const el = document.getElementById(`reject-modal-${requestId}`);
+    if (el) el.remove();
+  }
+
+  // ação de cancelar / fechar
+  document.getElementById(`reject-modal-close-${requestId}`).addEventListener('click', closeModal);
+  document.getElementById(`reject-modal-cancel-${requestId}`).addEventListener('click', closeModal);
+
+  // fechar com ESC
+  function onKeyDown(e) {
+    if (e.key === 'Escape') closeModal();
+  }
+  document.addEventListener('keydown', onKeyDown);
+
+  // confirmar recusa
+  document.getElementById(`reject-modal-confirm-${requestId}`).addEventListener('click', async () => {
+    const reason = textarea.value.trim();
+    if (!reason) {
+      // simples feedback inline
+      textarea.focus();
+      textarea.classList.add('ring-2', 'ring-red-200');
+      setTimeout(() => textarea.classList.remove('ring-2', 'ring-red-200'), 1200);
+      return;
+    }
+
+    // desativa botões enquanto grava
+    const confirmBtn = document.getElementById(`reject-modal-confirm-${requestId}`);
+    const cancelBtn = document.getElementById(`reject-modal-cancel-${requestId}`);
+    confirmBtn.disabled = true;
+    cancelBtn.disabled = true;
+    confirmBtn.classList.add('opacity-60', 'cursor-not-allowed');
+
+    try {
+      // se você já tem uma função rejectRidDeletionRequest(requestId, reason) use-a.
+      // Senão, abaixo tem um exemplo simples de gravação no Firestore (comente/ajuste conforme seu projeto).
+      if (typeof rejectRidDeletionRequest === 'function') {
+        await rejectRidDeletionRequest(requestId, reason);
+      } else {
+        // Exemplo genérico: atualiza o deleteRequest para 'rejected'
+        await db.collection('deleteRequests').doc(requestId).update({
+          status: 'rejected',
+          reviewedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          reviewedBy: {
+            uid: currentUser.uid,
+            name: currentUserData?.name || ''
+          },
+          rejectionReason: reason
+        });
+      }
+
+      // callback opcional
+      if (typeof onConfirmed === 'function') {
+        try { onConfirmed(requestId, reason); } catch (err) { /* swallow */ }
+      }
+
+      showToast('Solicitação rejeitada com sucesso!');
+      closeModal();
+    } catch (err) {
+      console.error('Erro ao rejeitar solicitação:', err);
+      showToast('Erro ao rejeitar: ' + (err.message || err), 'error');
+      confirmBtn.disabled = false;
+      cancelBtn.disabled = false;
+      confirmBtn.classList.remove('opacity-60', 'cursor-not-allowed');
+    } finally {
+      document.removeEventListener('keydown', onKeyDown);
+    }
+  });
+}
+
     // ✅ Deleta (exclusão lógica) um RID e grava o motivo corretamente
 async function deleteRid(ridId, reason) {
+  window.blockAutoRender();
+  try {
   const ridRef = db.collection('rids').doc(ridId);
   const ridSnap = await ridRef.get();
 
@@ -2404,14 +2624,19 @@ Removido por: ${currentUserData?.name || 'DEV'}`;
     emailSentAt: null,
     lastNotifiedLeader: null
   });
+  } finally {
+    window.unblockAutoRender();
+  }
 }
 
 // se quiser garantir acesso global (não é obrigatório, mas ajuda)
 window.deleteRid = deleteRid;
 
 
-     // ✅ APROVAR solicitação de remoção de RID (DEV)
 async function approveRidDeletionRequest(requestId) {
+  // bloqueia (contador)
+  window.blockAutoRender();
+
   try {
     if (!isDeveloper()) {
       showToast('Acesso negado', 'error');
@@ -2420,7 +2645,6 @@ async function approveRidDeletionRequest(requestId) {
 
     const reqRef = db.collection('deleteRequests').doc(requestId);
     const reqSnap = await reqRef.get();
-
     if (!reqSnap.exists) {
       showToast('Solicitação não encontrada', 'error');
       return;
@@ -2428,14 +2652,14 @@ async function approveRidDeletionRequest(requestId) {
 
     const req = reqSnap.data();
     const ridId = req?.ridId;
-    const reason = (req?.reason || '').trim() || 'Aprovado sem motivo informado';
+    const reason = (req?.reason || '').trim() || 'Aprovado';
 
     if (!ridId) {
       showToast('Solicitação inválida (ridId ausente)', 'error');
       return;
     }
 
-    // 1) marca request como aprovada
+    // 1) marca como approved (opcional antes da exclusão)
     await reqRef.update({
       status: 'approved',
       reviewedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -2445,32 +2669,60 @@ async function approveRidDeletionRequest(requestId) {
       }
     });
 
-    // 2) executa a exclusão REAL do RID (sem usar "updates")
-    await deleteRid(ridId, reason);
+    // 2) garante que deleteRid rode com block ativo.
+    //    se deleteRid faz várias escritas, é bom que ela não libere o render por dentro.
+    if (typeof deleteRid === 'function') {
+      await deleteRid(ridId, reason);
+    } else {
+      // fallback - tenta apagar se não tiver sua função custom
+      await db.collection('rids').doc(ridId).delete();
+    }
 
-    // 3) recarrega a página de solicitações
-    renderRequestsPage();
-
-    showToast('Solicitação aprovada e o RID foi excluído!');
+    showToast('Solicitação aprovada e RID removido!');
   } catch (error) {
-    showToast('Erro ao aprovar solicitação: ' + error.message, 'error');
+    console.error('Erro approveRidDeletionRequest:', error);
+    showToast('Erro ao aprovar solicitação: ' + (error.message || error), 'error');
+  } finally {
+    // pequena espera pra snapshots se estabilizarem (evita piscar)
+    setTimeout(() => {
+      try {
+        // libera o bloqueio
+        window.unblockAutoRender();
+
+        // força página de solicitações e re-render único e definitivo
+        window.currentPage = 'requests'; // garanta que sua lógica de rotas use esse id; ajuste se for outro
+        if (typeof renderRequestsPage === 'function') renderRequestsPage();
+
+        // opcional: atualiza o card também
+        if (typeof renderDeleteRequestsCard === 'function') renderDeleteRequestsCard();
+      } catch (e) {
+        console.warn('Erro ao finalizar approveRidDeletionRequest:', e);
+      }
+    }, 300); // 300ms é mais seguro; se estiver lento, pode reduzir a 150ms
   }
 }
+window.approveRidDeletionRequest = approveRidDeletionRequest;
 
-// ❌ REJEITAR solicitação de remoção de RID (DEV)
-async function rejectRidDeletionRequest(requestId) {
+
+// Função que realiza a rejeição no Firestore.
+// Se `reason` for undefined, abre o modal (UX amigável).
+async function rejectRidDeletionRequest(requestId, reason) {
   try {
     if (!isDeveloper()) {
       showToast('Acesso negado', 'error');
       return;
     }
 
-    const rejectReason =
-      prompt('Motivo da rejeição (opcional):')?.trim() || null;
+    // Se não recebeu reason, abre o modal pra digitar
+    if (typeof reason === 'undefined') {
+      openRejectModal(requestId);
+      return;
+    }
 
+    // reason pode ser null (opcional) — grava conforme seu fluxo atual
     await db.collection('deleteRequests').doc(requestId).update({
       status: 'rejected',
-      rejectReason,
+      rejectionReason: reason, // campo nomeado para ficar consistente com modal
       reviewedAt: firebase.firestore.FieldValue.serverTimestamp(),
       reviewedBy: {
         uid: currentUser.uid,
@@ -2478,10 +2730,168 @@ async function rejectRidDeletionRequest(requestId) {
       }
     });
 
+    // atualiza UI
     renderRequestsPage();
     showToast('Solicitação rejeitada!');
   } catch (error) {
-    showToast('Erro ao rejeitar solicitação: ' + error.message, 'error');
+    console.error('Erro rejectRidDeletionRequest:', error);
+    showToast('Erro ao rejeitar solicitação: ' + (error.message || error), 'error');
+  }
+}
+
+/**
+ * openRejectModal(requestId, options)
+ * - mostra modal para digitar motivo da recusa
+ * - options = { showRidDescription: true } -> tenta mostrar ridDescription salvo em deleteRequests
+ *
+ * Uso:
+ *  openRejectModal('abc123', { showRidDescription: true });
+ */
+function openRejectModal(requestId, options = {}) {
+  if (document.getElementById(`reject-modal-${requestId}`)) return;
+
+  // overlay
+  const overlay = document.createElement('div');
+  overlay.id = `reject-modal-${requestId}`;
+  overlay.className = 'fixed inset-0 z-50 flex items-center justify-center p-4';
+  overlay.style.background = 'rgba(0,0,0,0.5)';
+
+  // modal
+  const modal = document.createElement('div');
+  modal.className = 'w-full max-w-lg bg-white rounded-2xl shadow-xl p-6 relative';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+
+  // header
+  const header = document.createElement('div');
+  header.className = 'flex items-start justify-between mb-4';
+  header.innerHTML = `
+    <div>
+      <h3 class="text-lg font-semibold">Motivo da recusa</h3>
+      <p class="text-sm text-gray-500">Informe por que está rejeitando esta solicitação.</p>
+    </div>
+    <button type="button" aria-label="Fechar modal" class="ml-4 text-gray-400 hover:text-gray-600" id="reject-modal-close-${requestId}">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+    </button>
+  `;
+
+  // container body (vai preencher depois possivelmente com descrição)
+  const body = document.createElement('div');
+  body.className = 'mb-4';
+
+  // placeholder - descrição do RID (se disponível)
+  const descWrapper = document.createElement('div');
+  descWrapper.className = 'mb-3 text-sm text-gray-700';
+  descWrapper.id = `reject-modal-desc-${requestId}`;
+  // inicialmente vazio; se options pedir, vamos tentar buscar
+  body.appendChild(descWrapper);
+
+  // label + textarea
+  const label = document.createElement('label');
+  label.className = 'block text-sm font-medium text-gray-700 mb-2';
+  label.innerHTML = 'Motivo <span class="text-red-500">*</span>';
+  body.appendChild(label);
+
+  const textarea = document.createElement('textarea');
+  textarea.className = 'w-full border rounded-md p-3 resize-y min-h-[90px] focus:outline-none focus:ring-2 focus:ring-indigo-300';
+  textarea.placeholder = 'Descreva o motivo da recusa...';
+  textarea.maxLength = 1000;
+  textarea.setAttribute('aria-label', 'Motivo da recusa');
+  body.appendChild(textarea);
+
+  // footer
+  const footer = document.createElement('div');
+  footer.className = 'flex items-center justify-end space-x-3 mt-4';
+  footer.innerHTML = `
+    <button type="button" id="reject-modal-cancel-${requestId}" class="px-4 py-2 rounded-lg text-sm font-medium border hover:opacity-90">Cancelar</button>
+    <button type="button" id="reject-modal-confirm-${requestId}" class="px-4 py-2 rounded-lg text-sm font-semibold bg-red-600 text-white hover:opacity-95">Recusar</button>
+  `;
+
+  // montar
+  modal.appendChild(header);
+  modal.appendChild(body);
+  modal.appendChild(footer);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  // trava scroll
+  const previousOverflow = document.documentElement.style.overflow;
+  document.documentElement.style.overflow = 'hidden';
+  textarea.focus();
+
+  // helper fechar
+  function closeModal() {
+    document.documentElement.style.overflow = previousOverflow || '';
+    const el = document.getElementById(`reject-modal-${requestId}`);
+    if (el) el.remove();
+    document.removeEventListener('keydown', onKeyDown);
+  }
+
+  // events
+  document.getElementById(`reject-modal-close-${requestId}`).addEventListener('click', closeModal);
+  document.getElementById(`reject-modal-cancel-${requestId}`).addEventListener('click', closeModal);
+
+  function onKeyDown(e) {
+    if (e.key === 'Escape') closeModal();
+  }
+  document.addEventListener('keydown', onKeyDown);
+
+  // se quiser mostrar a descrição do RID salva na deleteRequests, tenta buscar
+  if (options.showRidDescription) {
+    db.collection('deleteRequests').doc(requestId).get()
+      .then(doc => {
+        if (!doc.exists) return;
+        const data = doc.data();
+        const text = data?.ridDescription ? `<strong>RID:</strong> ${escapeHtml(data.ridDescription)}` : '';
+        if (text) {
+          descWrapper.innerHTML = `<div class="text-xs text-gray-600 mb-2">Contexto:</div><div class="p-3 rounded border text-sm bg-gray-50">${text}</div>`;
+        }
+      })
+      .catch(err => {
+        console.warn('Não foi possível buscar ridDescription:', err);
+      });
+  }
+
+  // confirmar
+  document.getElementById(`reject-modal-confirm-${requestId}`).addEventListener('click', async () => {
+    const reason = textarea.value.trim();
+    if (!reason) {
+      textarea.focus();
+      textarea.classList.add('ring-2', 'ring-red-200');
+      setTimeout(() => textarea.classList.remove('ring-2', 'ring-red-200'), 1200);
+      return;
+    }
+
+    const confirmBtn = document.getElementById(`reject-modal-confirm-${requestId}`);
+    const cancelBtn = document.getElementById(`reject-modal-cancel-${requestId}`);
+    confirmBtn.disabled = true;
+    cancelBtn.disabled = true;
+    confirmBtn.classList.add('opacity-60', 'cursor-not-allowed');
+
+    try {
+      // chama a função de gravação (a mesma que você usa em outros lugares)
+      await rejectRidDeletionRequest(requestId, reason);
+
+      // feedback e fechar modal
+      closeModal();
+    } catch (err) {
+      console.error('Erro ao recusar:', err);
+      showToast('Erro ao recusar: ' + (err.message || err), 'error');
+      confirmBtn.disabled = false;
+      cancelBtn.disabled = false;
+      confirmBtn.classList.remove('opacity-60', 'cursor-not-allowed');
+    }
+  });
+
+  // util: escape simples pra evitar XSS se for exibir descrição
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 }
 
@@ -2490,29 +2900,29 @@ window.approveRidDeletionRequest = approveRidDeletionRequest;
 window.rejectRidDeletionRequest = rejectRidDeletionRequest;
 
 
-    // Data Loading Functions
+// Data Loading Functions
 function listenRidsRealtimeAdmin() {
   return db.collection('rids')
     .orderBy('createdAt', 'desc')
     .limit(1000)
     .onSnapshot(
       snapshot => {
-        allRids = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
+        // atualiza dados sempre (mantém state consistente)
+        allRids = snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data()) }));
 
+        // se houver bloqueio ativo (contador), não faz renders — apenas atualiza o state
+        if (typeof window.isAutoRenderBlocked === 'function' && window.isAutoRenderBlocked()) {
+          return;
+        }
+
+        // Caso contrário, renderiza as páginas relevantes
         if (window.currentPage === 'dashboard') renderDashboard();
         if (window.currentPage === 'search') renderSearchPage();
         if (window.currentPage === 'designated') renderDesignatedPage();
         if (window.currentPage === 'nova') renderNovaPage();
-        if (currentUserData?.isAdmin || currentUserData?.isDeveloper) {
-          updateGoalDisplay();
-        }
       },
       error => {
-        console.error("🔥 Erro Firestore RIDs:", error);
-        showToast("Sem permissão para carregar RIDs", "error");
+        console.error("Erro no listener de RIDs:", error);
       }
     );
 }
@@ -3491,6 +3901,17 @@ function renderDeleteRequestsCard() {
   const container = document.getElementById('deleteRequestsCardContainer');
   if (!container) return;
 
+  // escape simples
+  function escapeHtmlSimple (str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   if (!allDeleteRequests.length) {
     container.innerHTML = `
       <div class="bg-white rounded-xl shadow-md p-4">
@@ -3501,64 +3922,195 @@ function renderDeleteRequestsCard() {
     return;
   }
 
-  const html = allDeleteRequests.slice(0, 12).map(req => {
+  // badge de status
+  function statusBadge(status) {
+    const s = (status || 'pending').toString().toLowerCase();
+    if (s === 'approved' || s === 'aprovado') {
+      return '<span class="inline-block text-xs font-semibold px-3 py-1 rounded-full bg-green-50 text-green-700">APROVADO</span>';
+    }
+    if (s === 'rejected' || s === 'rejeitado') {
+      return '<span class="inline-block text-xs font-semibold px-3 py-1 rounded-full bg-red-50 text-red-700">REJEITADO</span>';
+    }
+    return '<span class="inline-block text-xs font-semibold px-3 py-1 rounded-full bg-yellow-50 text-yellow-700">PENDENTE</span>';
+  }
 
+  const isDashboard = window.currentPage === 'dashboard';
+
+  // monta linhas (renderizamos todas, mas o wrapper controla a rolagem)
+  const rows = allDeleteRequests.map(req => {
+    const ridNumber = req.ridNumber || req.ridId || '—';
+    const emitter = req.ridEmitterName || req.emitterName || req.requesterName || '—';
     const status = req.status || 'pending';
+    const desc = (req.ridDescription || '').toString().replace(/\n/g, ' ').trim();
+    const reqReason = (req.reason || '').toString().replace(/\n/g, ' ').trim();
+    const rejectionReason = (req.rejectionReason || req.rejectReason || req.rejection || '').toString().replace(/\n/g, ' ').trim();
 
-    let badge =
-      status === 'approved'
-        ? '<span class="text-green-600 font-bold text-xs">APROVADO</span>'
-      : status === 'rejected'
-        ? '<span class="text-red-600 font-bold text-xs">REJEITADO</span>'
-        : '<span class="text-yellow-600 font-bold text-xs">PENDENTE</span>';
-
-    const rejection =
-      status === 'rejected' && req.rejectionReason
-        ? `<div class="text-xs text-red-500 mt-1"><b>Motivo:</b> ${escapeHtmlSimple(req.rejectionReason)}</div>`
-        : '';
-
-    const decision =
-      status !== 'pending'
-        ? `<div class="text-xs text-gray-500 mt-1">
-             ${req.decisionBy ? 'Por: ' + escapeHtmlSimple(req.decisionBy) : ''}
-             ${req.decisionAt ? ' • ' + new Date(req.decisionAt.seconds*1000).toLocaleString() : ''}
+    const actions =
+      !isDashboard && (status === 'pending' || status.toLowerCase() === 'pending')
+        ? `<div class="flex items-center gap-2 ml-3">
+             <button onclick="approveRidDeletionRequest('${req.id}')" class="px-2 py-1 text-xs rounded border bg-green-50 text-green-700 hover:opacity-90">Aprovar</button>
+             <button onclick="rejectRidDeletionRequest('${req.id}')" class="px-2 py-1 text-xs rounded border bg-red-50 text-red-700 hover:opacity-90">Rejeitar</button>
            </div>`
         : '';
 
-    const isDashboard = window.currentPage === 'dashboard';
-
-const actions =
-  !isDashboard && status === 'pending'
-    ? `
-    <div class="flex gap-2 mt-2">
-      <button onclick="approveRidDeletionRequest('${req.id}')" class="px-2 py-1 text-xs border rounded bg-green-50">Aprovar</button>
-      <button onclick="rejectRidDeletionRequestPrompt('${req.id}')" class="px-2 py-1 text-xs border rounded bg-red-50">Rejeitar</button>
-    </div>`
-    : '';
-
     return `
-      <div class="border-b last:border-b-0 p-3">
-        <div class="flex justify-between">
-          <div class="font-semibold text-sm">RID ${req.ridNumber || req.ridId}</div>
-          ${badge}
+      <div
+        class="flex items-center justify-between px-4 py-3 border-b last:border-b-0 req-row"
+        data-req-id="${escapeHtmlSimple(req.id)}"
+        data-rid-number="${escapeHtmlSimple(ridNumber)}"
+        data-emitter="${escapeHtmlSimple(emitter)}"
+        data-desc="${escapeHtmlSimple(desc)}"
+        data-req-reason="${escapeHtmlSimple(reqReason)}"
+        data-rejection="${escapeHtmlSimple(rejectionReason)}"
+        data-status="${escapeHtmlSimple(status)}"
+        tabindex="0"
+        role="button"
+        aria-label="Solicitação RID ${escapeHtmlSimple(ridNumber)} - ${escapeHtmlSimple(emitter)}"
+      >
+        <div class="flex items-center gap-4 min-w-0">
+          <div class="w-28 text-sm font-semibold text-gray-800 truncate">RID ${escapeHtmlSimple(ridNumber)}</div>
+          <div class="min-w-0">
+            <div class="text-sm text-gray-600 truncate">${escapeHtmlSimple(emitter)}</div>
+          </div>
         </div>
 
-        <div class="text-xs text-gray-600 mt-1">${escapeHtmlSimple(req.reason || '')}</div>
-        ${decision}
-        ${rejection}
-        ${actions}
+        <div class="flex items-center gap-3 ml-4">
+          <div>${statusBadge(status)}</div>
+          ${actions}
+        </div>
       </div>
     `;
   }).join('');
 
+  // === Aqui: wrapper com rolagem interna limitada a 15 itens ===
+  // Ajuste maxHeight se suas linhas forem mais altas/baixas.
+  // 15 linhas * ~48px = 720px (valor aproximado). Se souber a altura exata da sua linha, ajuste.
+  const listMaxHeight = 772; // px — altere pra 15 * altura_da_linha se necessário
+
   container.innerHTML = `
-    <div class="bg-white rounded-xl shadow-md">
+    <div class="bg-white rounded-xl shadow-md w-full max-w-4xl mx-auto">
       <div class="px-4 py-3 border-b font-bold text-gray-800">
-        Histórico de Solicitações (${allDeleteRequests.length})
+        Histórico de Solicitações <span class="text-sm text-gray-400">(${allDeleteRequests.length})</span>
       </div>
-      ${html}
+
+      <div id="deleteRequestsListInner" class="overflow-y-auto" style="max-height: ${listMaxHeight}px;">
+        ${rows}
+      </div>
     </div>
   `;
+
+  // --- POPOVER LOGIC (mesma lógica anterior) ---
+  let popover = document.getElementById('req-hover-popover');
+  if (!popover) {
+    popover = document.createElement('div');
+    popover.id = 'req-hover-popover';
+    popover.className = 'pointer-events-none fixed z-50 max-w-md bg-white rounded-xl shadow-xl border p-4 text-sm';
+    popover.style.display = 'none';
+    popover.style.transition = 'opacity 120ms ease';
+    document.body.appendChild(popover);
+  }
+
+  let showTimer = null;
+  let hideTimer = null;
+
+  function buildPopoverContent(dataset) {
+    const lines = [];
+
+    if (dataset.desc) {
+      lines.push(`
+        <div class="text-xs font-semibold text-blue-500 mb-1">Descrição do RID</div>
+        <div class="text-sm text-blue-700 mb-3 leading-snug">${escapeHtmlSimple(dataset.desc)}</div>
+      `);
+    }
+
+    if (dataset['reqReason']) {
+      lines.push(`
+        <div class="text-xs font-semibold text-orange-500 mb-1">Motivo da solicitação</div>
+        <div class="text-sm text-orange-700 mb-3 leading-snug">${escapeHtmlSimple(dataset['reqReason'])}</div>
+      `);
+    }
+
+    if (dataset.rejection && dataset.rejection.trim()) {
+      lines.push(`
+        <div class="text-xs font-semibold text-red-500 mb-1">Motivo da rejeição</div>
+        <div class="text-sm text-red-700 leading-snug">${escapeHtmlSimple(dataset.rejection)}</div>
+      `);
+    }
+
+    if (!lines.length) {
+      lines.push('<div class="text-sm text-gray-500">Sem detalhes.</div>');
+    }
+
+    return lines.join('');
+  }
+
+  function positionPopover(target) {
+    const rect = target.getBoundingClientRect();
+    const pw = popover.offsetWidth;
+    const ph = popover.offsetHeight;
+    const margin = 8;
+
+    // tentar acima, senão abaixo
+    let top = rect.top - ph - margin;
+    let left = rect.left + (rect.width / 2) - (pw / 2);
+
+    if (top < 8) top = rect.bottom + margin;
+    const maxLeft = window.innerWidth - pw - 8;
+    if (left < 8) left = 8;
+    if (left > maxLeft) left = maxLeft;
+
+    popover.style.top = `${Math.max(8, top + window.scrollY)}px`;
+    popover.style.left = `${Math.max(8, left + window.scrollX)}px`;
+  }
+
+  // attach listeners nas linhas
+  const containerInner = document.getElementById('deleteRequestsListInner');
+  if (!containerInner) return;
+  const rowsEls = containerInner.querySelectorAll('.req-row');
+
+  rowsEls.forEach(el => {
+    const ds = {
+      desc: el.dataset.desc || '',
+      reqReason: el.dataset.reqReason || '',
+      rejection: el.dataset.rejection || '',
+      status: el.dataset.status || ''
+    };
+
+    function onEnter() {
+      clearTimeout(hideTimer);
+      showTimer = setTimeout(() => {
+        popover.innerHTML = buildPopoverContent(ds);
+        popover.style.display = 'block';
+        popover.style.opacity = '0';
+        // repaint para transição
+        // eslint-disable-next-line no-unused-expressions
+        popover.offsetWidth;
+        popover.style.opacity = '1';
+        positionPopover(el);
+      }, 120);
+    }
+
+    function onLeave() {
+      clearTimeout(showTimer);
+      hideTimer = setTimeout(() => {
+        popover.style.opacity = '0';
+        setTimeout(() => { popover.style.display = 'none'; }, 140);
+      }, 80);
+    }
+
+    el.addEventListener('mouseenter', onEnter);
+    el.addEventListener('mouseleave', onLeave);
+    el.addEventListener('focus', onEnter);
+    el.addEventListener('blur', onLeave);
+  });
+
+  // fecha popover se rolar a página (bom pra UX)
+  document.addEventListener('scroll', () => {
+    if (popover && popover.style.display === 'block') {
+      popover.style.display = 'none';
+      popover.style.opacity = '0';
+    }
+  }, { passive: true });
 }
 
 function rejectRidDeletionRequestPrompt(id) {
@@ -3574,6 +4126,7 @@ function rejectRidDeletionRequestPrompt(id) {
 }
 
  function renderAdminDashboard() {
+  console.debug && console.debug('renderDashboard called — currentPage=', window.currentPage, 'preventAutoRenderCount=', window.preventAutoRenderCount);
   // marca a página atual (usado por renderDeleteRequestsCard para ocultar botões)
   window.currentPage = 'dashboard';
 
@@ -5926,6 +6479,7 @@ function cancelarEncerramento(button) {
     }
 
     async function renderRequestsPage() {
+       console.debug && console.debug('renderRequestsPage called — currentPage=', window.currentPage, 'preventAutoRenderCount=', window.preventAutoRenderCount);
       if (!isDeveloper()) {
         showToast('Acesso negado', 'error');
         renderAdminDashboard();
@@ -8733,16 +9287,25 @@ function renderNavigation(active) {
       if (typeof startDeleteRequestsListener === 'function') {
   startDeleteRequestsListener(user.uid);
       } else {
-        // fallback: cria manualmente (caso não tenha sido adicionada antes)
-        window.unsubscribeDeleteRequests = db.collection('deleteRequests')
-          .orderBy('createdAt', 'desc')
-          .onSnapshot(snapshot => {
-            allDeleteRequests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            if (typeof renderDeleteRequestsCard === 'function') renderDeleteRequestsCard();
-          }, err => {
-            console.warn('Erro ao carregar deleteRequests:', err);
-            if (typeof showToast === 'function') showToast('Erro ao carregar solicitações de remoção', 'error');
-          });
+ window.unsubscribeDeleteRequests = db.collection('deleteRequests')
+  .orderBy('createdAt', 'desc')
+  .onSnapshot(snapshot => {
+    // atualiza estado sempre
+    const allDocs = snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data()) }));
+
+    // filtragem real por usuário logado
+    allDeleteRequests = allDocs.filter(d => d.requesterId === user.uid);
+
+    // se houver bloqueio de render ativo, não renderiza (apenas atualiza estado)
+    if (typeof window.isAutoRenderBlocked === 'function' && window.isAutoRenderBlocked()) return;
+
+    // renderiza o card (se definido)
+    if (typeof renderDeleteRequestsCard === 'function') {
+      renderDeleteRequestsCard();
+    }
+  }, err => {
+    console.warn('Erro ao carregar deleteRequests:', err);
+  });
       }
 
       renderAdminDashboard();
