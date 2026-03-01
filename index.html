@@ -926,32 +926,140 @@ function renderRidsSection(title, count, innerHtml, open = true) {
   `;
 }
 
-
+// ---------- VERSÃO CORRIGIDA (substitui listenRidsRealtimeEmployee inteira) ----------
 function listenRidsRealtimeEmployee() {
-  return db.collection("rids")
-    .where("emitterId", "==", currentUser.uid)
-    .onSnapshot(
-      snapshot => {
-        allRids = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
+  if (!currentUser || !currentUser.uid) {
+    console.warn('listenRidsRealtimeEmployee: usuário não disponível');
+    return () => {};
+  }
 
-        // opcional: ordena no cliente (não precisa de índice)
-        allRids.sort((a, b) => {
-          const ta = a.createdAt?.toMillis?.() || 0;
-          const tb = b.createdAt?.toMillis?.() || 0;
-          return tb - ta;
-        });
+  // cancela listeners antigos, se houver
+  if (window.unsubscribeRids) {
+    try { window.unsubscribeRids(); } catch(e) {}
+    window.unsubscribeRids = null;
+  }
 
-        renderEmployeeDashboard();
-      },
-      error => {
-        console.error("Erro ao carregar RIDs do funcionário:", error);
-        showToast("Erro ao carregar suas RIDs", "error");
+  const myUid = currentUser.uid;
+  const myCpf = currentUserData?.cpf ? String(currentUserData.cpf).trim() : null;
+
+  // mapa para acumular DocumentSnapshots (key = doc.id)
+  const docsMap = new Map();
+  const unsubs = [];
+
+  function normDoc(doc) {
+    return { id: doc.id, ...doc.data() };
+  }
+
+  function mergeAndPublish() {
+    const byRid = new Map();
+    const byId = new Map();
+
+    docsMap.forEach(doc => {
+      const d = normDoc(doc);
+      const ridNumber = (d.ridNumber || '').toString().trim();
+      const key = ridNumber || d.id;
+
+      if (key && byRid.has(key)) {
+        const exist = byRid.get(key);
+        const existScore = (Object.keys(exist).length) + ((exist.createdAt && exist.createdAt.toMillis) ? exist.createdAt.toMillis()/1e13 : 0);
+        const newScore = (Object.keys(d).length) + ((d.createdAt && d.createdAt.toMillis) ? d.createdAt.toMillis()/1e13 : 0);
+        if (newScore > existScore) byRid.set(key, d);
+      } else if (key) {
+        byRid.set(key, d);
+      } else {
+        if (!byId.has(d.id)) byId.set(d.id, d);
       }
-    );
+    });
+
+    const combined = [...Array.from(byRid.values()), ...Array.from(byId.values())];
+
+    combined.sort((a,b) => {
+      const ta = (a.createdAt && a.createdAt.toMillis) ? a.createdAt.toMillis() : (a.emissionDate && a.emissionDate.toMillis ? a.emissionDate.toMillis() : 0);
+      const tb = (b.createdAt && b.createdAt.toMillis) ? b.createdAt.toMillis() : (b.emissionDate && b.emissionDate.toMillis ? b.emissionDate.toMillis() : 0);
+      return tb - ta;
+    });
+
+    window.allRids = combined;
+
+    // publica UI uma única vez na próxima iteração do loop
+    setTimeout(() => {
+      try {
+        if (window.currentPage === 'dashboard') renderDashboard();
+        if (window.currentPage === 'search') renderSearchPage();
+        if (window.currentPage === 'designated') renderDesignatedPage();
+        if (typeof renderRidsListUI === 'function') renderRidsListUI(combined);
+      } catch (e) {
+        console.warn('Erro ao re-renderizar após mesclar RIDs:', e);
+      }
+    }, 0);
+  }
+
+  // Listener A: emitterId == uid
+  try {
+    const q1 = db.collection('rids').where('emitterId', '==', myUid);
+    const unsub1 = q1.onSnapshot(snap => {
+      snap.docs.forEach(d => docsMap.set(d.id, d));
+      mergeAndPublish();
+    }, err => {
+      console.warn('Erro listener emitterId:', err);
+    });
+    unsubs.push(unsub1);
+  } catch (e) {
+    console.warn('Erro iniciando listener emitterId:', e);
+  }
+
+  // Lista de nomes de campo possíveis usados para CPF pelo site público
+  const cpfFieldCandidates = ['emitterCpf', 'cpf', 'emitter_document', 'emitterDocument', 'document'];
+
+  // Listener(s) por CPF (cria apenas se myCpf existir)
+  if (myCpf) {
+    const createdFields = new Set();
+    cpfFieldCandidates.forEach(fieldName => {
+      // evita criar duas queries para o mesmo fieldName
+      if (createdFields.has(fieldName)) return;
+      try {
+        const q = db.collection('rids').where(fieldName, '==', myCpf);
+        const unsub = q.onSnapshot(snap => {
+          snap.docs.forEach(d => docsMap.set(d.id, d));
+          mergeAndPublish();
+        }, err => {
+          // erros aqui são só log (campo pode não existir)
+          console.debug(`Erro listener cpf field ${fieldName}:`, err && err.code ? err.code : err);
+        });
+        unsubs.push(unsub);
+        createdFields.add(fieldName);
+      } catch (e) {
+        console.debug('Ignorando listener cpf field', fieldName, e);
+      }
+    });
+  }
+
+  // Listener opcional: _importedFrom == 'public-site' (se vocês usarem essa marcação)
+  try {
+    const qImport = db.collection('rids').where('_importedFrom', '==', 'public-site');
+    const unsubImport = qImport.onSnapshot(snap => {
+      snap.docs.forEach(d => docsMap.set(d.id, d));
+      mergeAndPublish();
+    }, err => {
+      console.debug('Listener _importedFrom erro (pode exigir índice):', err);
+    });
+    unsubs.push(unsubImport);
+  } catch (e) {
+    console.debug('Ignorando listener _importedFrom:', e);
+  }
+
+  // função para cancelar todos os listeners
+  window.unsubscribeRids = function() {
+    unsubs.forEach(u => {
+      try { u && u(); } catch(e){}
+    });
+    window.unsubscribeRids = null;
+  };
+
+  window.allRidsStarted = true;
+  return window.unsubscribeRids;
 }
+// ---------- FIM DA SUBSTITUIÇÃO ----------
 
 // =========================
 // 📊 MEU DESEMPENHO (FUNCIONÁRIO)
@@ -5035,6 +5143,93 @@ ${
   `;
 }
 
+// ---------- INÍCIO: cole esta função globalmente (uma vez) ----------
+function startRidsListener(userUid) {
+  if (!userUid) return;
+
+  // evita múltiplos listeners
+  if (window.unsubscribeRidsListener) {
+    try { window.unsubscribeRidsListener(); } catch(e){};
+    window.unsubscribeRidsListener = null;
+  }
+
+  const tsToMillis = (v) => {
+    if (!v) return 0;
+    if (typeof v.toMillis === 'function') return v.toMillis();
+    return (new Date(v)).getTime();
+  };
+
+  // queries que combinam RIDs do público + privado
+  const queries = [];
+  queries.push(db.collection('rids').where('emitterId', '==', userUid));
+  const userCpf = window.currentUserData?.cpf?.trim();
+  if (userCpf) queries.push(db.collection('rids').where('emitterCpf', '==', userCpf));
+  queries.push(db.collection('rids').where('_importedFrom', '==', 'public-site'));
+
+  // usa onSnapshot em cada query e mescla em memória (tempo real)
+  const snapshotsState = {}; // mapa temporário por query index
+
+  function mergeAndPublish() {
+    const docs = [];
+    Object.values(snapshotsState).forEach(arr => arr.forEach(d => docs.push(d)));
+    const mapByRidNumber = new Map();
+    const mapById = new Map();
+
+    docs.forEach(doc => {
+      const d = doc.data();
+      const ridNumber = (d.ridNumber || '').toString().trim();
+      const id = doc.id;
+      // normaliza objeto
+      const payload = { ...d, id };
+
+      const key = ridNumber || id;
+      if (key && mapByRidNumber.has(key)) {
+        const existing = mapByRidNumber.get(key);
+        const existingScore = (Object.keys(existing).length) + (tsToMillis(existing.createdAt) || 0)/1e13;
+        const newScore = (Object.keys(payload).length) + (tsToMillis(payload.createdAt) || 0)/1e13;
+        if (newScore > existingScore) mapByRidNumber.set(key, payload);
+      } else if (key) {
+        mapByRidNumber.set(key, payload);
+      } else {
+        if (!mapById.has(id)) mapById.set(id, payload);
+      }
+    });
+
+    const combined = [...Array.from(mapByRidNumber.values()), ...Array.from(mapById.values())];
+
+    combined.sort((a,b) => {
+      const ta = tsToMillis(a.createdAt) || tsToMillis(a.emissionDate) || 0;
+      const tb = tsToMillis(b.createdAt) || tsToMillis(b.emissionDate) || 0;
+      return tb - ta;
+    });
+
+    // publica globalmente
+    window.allRids = combined;
+    if (typeof renderRidsListUI === 'function') renderRidsListUI(combined);
+    // se você só usa renderSearchPage -> re-renderiza para atualizar contadores
+    if (window.currentPage === 'search') renderSearchPage();
+  }
+
+  // subscreve cada query
+  const unsubscribes = queries.map((q, idx) => {
+    const unsub = q.onSnapshot(snap => {
+      snapshotsState[idx] = snap.docs;
+      mergeAndPublish();
+    }, err => {
+      console.error('Listener rid query erro:', err);
+    });
+    return unsub;
+  });
+
+  window.unsubscribeRidsListener = function() {
+    unsubscribes.forEach(u => u && u());
+    window.unsubscribeRidsListener = null;
+  };
+
+  // flag pra saber que o listener foi iniciado
+  window.allRidsStarted = true;
+}
+// ---------- FIM: cole esta função globalmente ----------
 
     function renderSearchPage() {
       document.body.style.overflow = 'hidden';
@@ -5044,29 +5239,62 @@ ${
       const currentMonth = now.getMonth() + 1;
       const currentYear = now.getFullYear();
       
+      // ---------- INÍCIO: garantir que o listener de RIDs esteja ativo ----------
+if (!window.allRidsStarted) {
+  // tenta pegar uid do usuário logado (ajuste se sua app usa outro nome)
+  const uid = (window.currentUser && window.currentUser.uid) || (firebase && firebase.auth && firebase.auth().currentUser && firebase.auth().currentUser.uid);
+  if (uid) {
+    startRidsListener(uid);
+  } else {
+    // se não tiver uid ainda, aguarda auth e inicia quando disponível
+    if (firebase && firebase.auth) {
+      firebase.auth().onAuthStateChanged(u => {
+        if (u) startRidsListener(u.uid);
+      });
+    }
+  }
+}
+// ---------- FIM: garantir que o listener de RIDs esteja ativo ----------
+
     // ✅ mês/ano selecionado (se vazio, cai no mês atual)
 const selectedMonth = Number(document.getElementById('searchMonth')?.value) || currentMonth;
 const selectedYear  = Number(document.getElementById('searchYear')?.value)  || currentYear;
 
-// 🔵 RIDs do mês selecionado (qualquer status)
+// Normaliza datas de RID (acomoda createdAt/emissionDate como Timestamp ou string)
+function getRidDate(r) {
+  if (!r) return null;
+  if (r.emissionDate && typeof r.emissionDate.toDate === 'function') return r.emissionDate.toDate();
+  if (r.createdAt && typeof r.createdAt.toDate === 'function') return r.createdAt.toDate();
+  if (typeof r.emissionDate === 'string' && r.emissionDate) {
+    const d = new Date(r.emissionDate);
+    if (!isNaN(d)) return d;
+  }
+  if (typeof r.createdAt === 'string' && r.createdAt) {
+    const d = new Date(r.createdAt);
+    if (!isNaN(d)) return d;
+  }
+  return null;
+}
+
+// 🔵 RIDs do mês selecionado (qualquer status) — agora aceita múltiplos formatos de data
 const currentMonthRids = allRids
   .filter(r => !r.deleted)
-  .filter(r => r.emissionDate && typeof r.emissionDate.toDate === 'function')
   .filter(r => {
-    const d = r.emissionDate.toDate();
-    return (d.getMonth() + 1) === selectedMonth && d.getFullYear() === selectedYear;
+    const d = getRidDate(r);
+    if (!d) return false;
+    return (d.getMonth() + 1) === Number(selectedMonth) && d.getFullYear() === Number(selectedYear);
   });
 
 // 🚨 Atrasados pendentes = emitidos antes do mês selecionado e ainda não resolvidos
 const atrasados = allRids
   .filter(r => !r.deleted)
-  .filter(r => r.emissionDate && typeof r.emissionDate.toDate === 'function')
   .filter(r => {
-    const d = r.emissionDate.toDate();
+    const d = getRidDate(r);
+    if (!d) return false;
 
     const isBefore =
-      (d.getFullYear() < selectedYear) ||
-      (d.getFullYear() === selectedYear && (d.getMonth() + 1) < selectedMonth);
+      (d.getFullYear() < Number(selectedYear)) ||
+      (d.getFullYear() === Number(selectedYear) && (d.getMonth() + 1) < Number(selectedMonth));
 
     if (!isBefore) return false;
 
