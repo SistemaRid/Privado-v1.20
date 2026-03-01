@@ -809,6 +809,9 @@ body.ui-compact #statusRidsCard {
 
 let unsubscribeLeader = null;
 
+// evita ReferenceError para handlers inline que leem a lista antes da inicialização
+window.myDesignatedRids = window.myDesignatedRids || [];
+
 // =========================
 // DATA SEGURA PARA RID
 // =========================
@@ -7608,18 +7611,58 @@ function renderDesignatedPage() {
     return;
   }
 
-  // 🔹 RIDs designadas para mim (exceto corrigidas)
- const myDesignatedRids = allRids.filter(r =>
-  r.responsibleLeader === currentUser.uid &&
-  r.status !== 'CORRIGIDO' &&
-  !r.deleted &&
-  r.status !== 'EXCLUIDO'
-);
+  // === garantir que as listas existam antes de usá-las (evita TDZ / ReferenceError) ===
+  const myDesignatedAll = (allRids || []).filter(r =>
+    r && r.responsibleLeader === currentUser.uid &&
+    !r.deleted &&
+    String(r.status || '').toUpperCase() !== 'EXCLUIDO'
+  );
 
-  // 🔃 cópia ordenável
+  // RIDs visíveis na lista (não corrigidas)
+  const myDesignatedRids = myDesignatedAll.filter(r => String(r.status || '').toUpperCase() !== 'CORRIGIDO');
+
+  // expõe global para handlers inline que porventura leiam isso antes (proteção)
+  window.myDesignatedRids = myDesignatedRids;
+
+  // cópia ordenável (agora segura)
   let orderedRids = [...myDesignatedRids];
 
-  // 🔃 ordenação por status
+  // ===== Sparkline: Correções por mês (ano atual, Jan..Dez) =====
+  // gera labels do ano atual (jan..dez) e conta corrigidos por mês
+  (function prepareYearlyCorrections() {
+    const year = new Date().getFullYear();
+    const labels = [];
+    const counts = new Array(12).fill(0);
+
+    // rótulos em pt-BR (abreviados sem ponto): Jan, Fev, Mar...
+    const monthNames = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    for (let m = 0; m < 12; m++) labels.push(monthNames[m]);
+
+    // percorre todos os RIDs designados a você (myDesignatedAll) e conta os corrigidos do ano
+    (myDesignatedAll || []).forEach(r => {
+      if (String(r.status || '').toUpperCase() !== 'CORRIGIDO') return;
+
+      // determina data de conclusão (conclusionDate -> updatedAt -> createdAt)
+      let d = null;
+      if (r.conclusionDate && typeof r.conclusionDate.toDate === 'function') d = r.conclusionDate.toDate();
+      else if (r.conclusionDate) d = new Date(r.conclusionDate);
+      else if (r.updatedAt && typeof r.updatedAt.toDate === 'function') d = r.updatedAt.toDate();
+      else if (r.createdAt && typeof r.createdAt.toDate === 'function') d = r.createdAt.toDate();
+      else if (r.createdAt) d = new Date(r.createdAt);
+      if (!d || isNaN(d.getTime())) return;
+
+      if (d.getFullYear() !== year) return; // só conta para o ano atual
+      const mi = d.getMonth(); // 0..11
+      counts[mi] = (counts[mi] || 0) + 1;
+    });
+
+    // expõe para o render (usamos window apenas como passagem de dados local)
+    window.__yearCorrLabels = labels;
+    window.__yearCorrValues = counts;
+    window.__yearCorrTotal = counts.reduce((s, v) => s + v, 0);
+  })();
+
+  // 🔃 ordenação por status (mantém seu comportamento)
   if (designatedSortMode === 'EM_ANDAMENTO') {
     orderedRids.sort((a, b) => {
       if (a.status === 'EM ANDAMENTO' && b.status !== 'EM ANDAMENTO') return -1;
@@ -7637,48 +7680,86 @@ function renderDesignatedPage() {
   }
 
   // 🔢 contadores
+  // usa as listas já calculadas acima (myDesignatedAll e myDesignatedRids)
   const myTotalRids = myDesignatedRids.length;
+  const myPendingRids = myDesignatedRids.filter(r => String(r.status || '').toUpperCase() === 'EM ANDAMENTO').length;
+  const myOverdueRids = myDesignatedRids.filter(r => String(r.status || '').toUpperCase() === 'VENCIDO').length;
 
-  const myPendingRids = myDesignatedRids.filter(
-    r => r.status === 'EM ANDAMENTO'
-  ).length;
+  // ====== NOVAS MÉTRICAS DE CORRIGIDOS ======
+  // Corrigidos (total) — considera status CORRIGIDO
+  const myCorrigidosTotal = (myDesignatedAll || []).filter(r => String(r.status || '').toUpperCase() === 'CORRIGIDO').length;
 
-  const myOverdueRids = myDesignatedRids.filter(
-    r => r.status === 'VENCIDO'
-  ).length;
+  // Corrigidos (mês) — usa conclusionDate quando disponível, senão tenta createdAt
+  (function computeMonthCorrigidos() {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
-// 🔃 prioriza APENAS o risco selecionado
-if (designatedRiskMode) {
+    let count = 0;
+    (myDesignatedAll || []).forEach(r => {
+      if (String(r.status || '').toUpperCase() !== 'CORRIGIDO') return;
 
-  const normalizeRisk = (value) => {
-    if (!value) return '';
-    return value
-      .toString()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toUpperCase()
-      .replace('RISCO', '')
-      .trim();
-  };
+      // prefere conclusionDate (Timestamp) -> fallback para conclusionDate string -> fallback updatedAt -> fallback createdAt
+      let d = null;
+      if (r.conclusionDate && typeof r.conclusionDate.toDate === 'function') {
+        d = r.conclusionDate.toDate();
+      } else if (r.conclusionDate) {
+        d = new Date(r.conclusionDate);
+      } else if (r.updatedAt && typeof r.updatedAt.toDate === 'function') {
+        d = r.updatedAt.toDate();
+      } else if (r.createdAt && typeof r.createdAt.toDate === 'function') {
+        d = r.createdAt.toDate();
+      } else if (r.createdAt) {
+        d = new Date(r.createdAt);
+      }
 
-  const selectedRisk = normalizeRisk(designatedRiskMode);
+      if (!d || isNaN(d.getTime())) return;
+      if (d >= monthStart && d <= monthEnd) count++;
+    });
 
-  orderedRids.sort((a, b) => {
-    const aIsSelected =
-      normalizeRisk(a.riskClassification) === selectedRisk;
-    const bIsSelected =
-      normalizeRisk(b.riskClassification) === selectedRisk;
+    // expõe variável final temporária
+    window.__myCorrigidosThisMonth = count;
+  })();
 
-    if (aIsSelected && !bIsSelected) return -1;
-    if (!aIsSelected && bIsSelected) return 1;
-    return 0; // mantém ordem relativa do resto
-  });
-}
+  const myCorrigidosMonth = window.__myCorrigidosThisMonth || 0;
 
+  // ====== RENDER DOS CARDS DE CONTADORES (adicionado Corrigidos mês + total) ======
+  /* usa responsive grid: 5 colunas no desktop, quebra automaticamente em telas menores */
+
+  // 🔃 prioriza APENAS o risco selecionado
+  if (designatedRiskMode) {
+
+    const normalizeRisk = (value) => {
+      if (!value) return '';
+      return value
+        .toString()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toUpperCase()
+        .replace('RISCO', '')
+        .trim();
+    };
+
+    const selectedRisk = normalizeRisk(designatedRiskMode);
+
+    orderedRids.sort((a, b) => {
+      const aIsSelected =
+        normalizeRisk(a.riskClassification) === selectedRisk;
+      const bIsSelected =
+        normalizeRisk(b.riskClassification) === selectedRisk;
+
+      if (aIsSelected && !bIsSelected) return -1;
+      if (!aIsSelected && bIsSelected) return 1;
+      return 0; // mantém ordem relativa do resto
+    });
+  }
 
   const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
   const app = document.getElementById('app');
 
+  // --------------------------
+  // HTML: inclui sparkline dentro da template
+  // --------------------------
   app.innerHTML = `
     <div class="h-full flex flex-col">
       ${renderHeader(config)}
@@ -7688,69 +7769,81 @@ if (designatedRiskMode) {
        <div class="w-full px-6 2xl:px-16">
 
           <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-8 gap-4">
-  <h1 class="text-3xl font-bold text-gray-800">
-    Meus RIDs Designados
-  </h1>
+            <h1 class="text-3xl font-bold text-gray-800">
+              Meus RIDs Designados
+            </h1>
 
-  <div class="flex gap-3">
+            <div class="flex gap-3">
 
-    <!-- 🔃 Ordenar por status -->
-    <select
-      class="h-11 px-4 border rounded-lg bg-white font-semibold text-gray-700"
-      style="border-color:#d1d5db;"
-      onchange="designatedSortMode = this.value; renderDesignatedPage();"
-    >
-      <option value="" ${designatedSortMode === '' ? 'selected' : ''}>
-        Status (padrão)
-      </option>
+              <!-- 🔃 Ordenar por status -->
+              <select
+                class="h-11 px-4 border rounded-lg bg-white font-semibold text-gray-700"
+                style="border-color:#d1d5db;"
+                onchange="designatedSortMode = this.value; renderDesignatedPage();"
+              >
+                <option value="" ${designatedSortMode === '' ? 'selected' : ''}>
+                  Status (padrão)
+                </option>
 
-      <option value="EM_ANDAMENTO"
-        ${designatedSortMode === 'EM_ANDAMENTO' ? 'selected' : ''}>
-        Em andamento
-      </option>
+                <option value="EM_ANDAMENTO"
+                  ${designatedSortMode === 'EM_ANDAMENTO' ? 'selected' : ''}>
+                  Em andamento
+                </option>
 
-      <option value="VENCIDO"
-        ${designatedSortMode === 'VENCIDO' ? 'selected' : ''}>
-        Vencidos
-      </option>
-    </select>
+                <option value="VENCIDO"
+                  ${designatedSortMode === 'VENCIDO' ? 'selected' : ''}>
+                  Vencidos
+                </option>
+              </select>
 
-    <!-- ⚠️ Priorizar por risco -->
-    <select
-      class="h-11 px-4 border rounded-lg bg-white font-semibold text-gray-700"
-      style="border-color:#d1d5db;"
-      onchange="designatedRiskMode = this.value; renderDesignatedPage();"
-    >
-      <option value="" ${designatedRiskMode === '' ? 'selected' : ''}>
-        Risco (padrão)
-      </option>
+              <!-- ⚠️ Priorizar por risco -->
+              <select
+                class="h-11 px-4 border rounded-lg bg-white font-semibold text-gray-700"
+                style="border-color:#d1d5db;"
+                onchange="designatedRiskMode = this.value; renderDesignatedPage();"
+              >
+                <option value="" ${designatedRiskMode === '' ? 'selected' : ''}>
+                  Risco (padrão)
+                </option>
 
-      <option value="CRITICO"
-        ${designatedRiskMode === 'CRITICO' ? 'selected' : ''}>
-        Crítico
-      </option>
+                <option value="CRITICO"
+                  ${designatedRiskMode === 'CRITICO' ? 'selected' : ''}>
+                  Crítico
+                </option>
 
-      <option value="ALTO"
-        ${designatedRiskMode === 'ALTO' ? 'selected' : ''}>
-        Alto
-      </option>
+                <option value="ALTO"
+                  ${designatedRiskMode === 'ALTO' ? 'selected' : ''}>
+                  Alto
+                </option>
 
-      <option value="MEDIO"
-        ${designatedRiskMode === 'MEDIO' ? 'selected' : ''}>
-        Médio
-      </option>
+                <option value="MEDIO"
+                  ${designatedRiskMode === 'MEDIO' ? 'selected' : ''}>
+                  Médio
+                </option>
 
-      <option value="BAIXO"
-        ${designatedRiskMode === 'BAIXO' ? 'selected' : ''}>
-        Baixo
-      </option>
-    </select>
+                <option value="BAIXO"
+                  ${designatedRiskMode === 'BAIXO' ? 'selected' : ''}>
+                  Baixo
+                </option>
+              </select>
 
-  </div>
-</div>
+            </div>
+          </div>
+
+          <!-- ===== Correções no ano (sparkline fino + total) ===== -->
+          <div class="mb-4">
+            <div class="flex items-center justify-between mb-2">
+              <div class="text-sm text-gray-600 font-semibold">Correções em ${new Date().getFullYear()}</div>
+              <div class="text-sm text-gray-700 font-bold">Total corrigidos: <span id="year-corr-total"></span></div>
+            </div>
+
+            <div style="width:100%; height:56px; background:transparent; padding:4px 0;">
+              <canvas id="year-corr-sparkline" width="1200" height="56" style="width:100%; height:56px; display:block;"></canvas>
+            </div>
+          </div>
 
           <!-- 📊 CONTADORES -->
-          <div class="grid grid-cols-3 gap-4 mb-8">
+          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 mb-8">
 
             <div class="rounded-xl shadow p-4 text-center card-hover"
                  style="background-color:#f3f4f6;">
@@ -7768,6 +7861,18 @@ if (designatedRiskMode) {
                  style="background-color:#fef2f2;">
               <p class="text-sm font-semibold text-red-600">Vencidos</p>
               <p class="text-2xl font-bold text-red-700">${myOverdueRids}</p>
+            </div>
+
+            <div class="rounded-xl shadow p-4 text-center card-hover"
+                 style="background-color:#eaf8f1;">
+              <p class="text-sm font-semibold text-green-600">Corrigidos (mês)</p>
+              <p class="text-2xl font-bold text-green-700">${myCorrigidosMonth}</p>
+            </div>
+
+            <div class="rounded-xl shadow p-4 text-center card-hover"
+                 style="background-color:#ecfdf5;">
+              <p class="text-sm font-semibold text-teal-700">Corrigidos (total)</p>
+              <p class="text-2xl font-bold text-teal-800">${myCorrigidosTotal}</p>
             </div>
 
           </div>
@@ -7789,6 +7894,212 @@ if (designatedRiskMode) {
       </div>
     </div>
   `;
+
+// --------------------------
+// desenha o sparkline + tooltip (versão com labels abaixo e padding maior)
+// --------------------------
+(function renderYearlySparklineWithTooltip() {
+  try {
+    const labels = window.__yearCorrLabels || [];
+    const values = window.__yearCorrValues || [];
+    const total = window.__yearCorrTotal || 0;
+
+    // atualiza total no DOM
+    const totalEl = document.getElementById('year-corr-total');
+    if (totalEl) totalEl.textContent = total;
+
+    // canvas e contexto
+    const canvas = document.getElementById('year-corr-sparkline');
+    if (!canvas || !canvas.getContext) return;
+    const ctx = canvas.getContext('2d');
+
+    // tooltip element (cria se não existir)
+    let tooltip = document.getElementById('year-corr-tooltip');
+    if (!tooltip) {
+      tooltip = document.createElement('div');
+      tooltip.id = 'year-corr-tooltip';
+      tooltip.style.position = 'fixed';
+      tooltip.style.pointerEvents = 'none';
+      tooltip.style.padding = '6px 8px';
+      tooltip.style.background = 'rgba(17,24,39,0.95)';
+      tooltip.style.color = '#fff';
+      tooltip.style.fontSize = '12px';
+      tooltip.style.borderRadius = '6px';
+      tooltip.style.boxShadow = '0 6px 16px rgba(0,0,0,0.25)';
+      tooltip.style.transform = 'translate(-50%, -120%)';
+      tooltip.style.zIndex = '9999';
+      tooltip.style.transition = 'opacity 120ms ease';
+      tooltip.style.opacity = '0';
+      tooltip.style.whiteSpace = 'nowrap';
+      document.body.appendChild(tooltip);
+    }
+
+    // função que desenha o gráfico - é chamada também no resize
+    function draw() {
+      // ajustar tamanho para devicePixelRatio
+      const rect = canvas.getBoundingClientRect();
+      const DPR = window.devicePixelRatio || 1;
+      // Aumentei a altura mínima para 80px para dar espaço aos labels
+      canvas.width = Math.max(600, Math.floor(rect.width * DPR));
+      canvas.height = Math.max(80, Math.floor(rect.height * DPR));
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0); // escala
+
+      // clear
+      const cw = canvas.width / DPR;
+      const ch = canvas.height / DPR;
+      ctx.clearRect(0, 0, cw, ch);
+
+      // paddings: separa topo e bottom (labels)
+      const padLeft = 12;
+      const padRight = 12;
+      const padTop = 16;      // espaço acima da linha
+      const padBottom = 20;   // reserva maior espaço para os labels
+      const usableW = cw - padLeft - padRight;
+      const usableH = ch - padTop - padBottom;
+
+      // calcular pontos (linha desenhada dentro do usableH)
+      const maxV = Math.max(1, ...(values.length ? values : [1]));
+      const pts = values.map((v, i) => {
+        const x = padLeft + (i / Math.max(1, values.length - 1)) * usableW;
+        const y = padTop + (1 - (v / maxV)) * usableH;
+        return { x, y, v, i };
+      });
+
+      // desenha área preenchida (apenas até a base da área útil, não sobre os labels)
+      if (pts.length > 0) {
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, padTop + usableH); // base da área (não até ch)
+        pts.forEach(p => ctx.lineTo(p.x, p.y));
+        ctx.lineTo(pts[pts.length - 1].x, padTop + usableH);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(59,130,246,0.06)';
+        ctx.fill();
+      }
+
+      // linha
+      ctx.beginPath();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#2563EB';
+      pts.forEach((p, i) => {
+        if (i === 0) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+      });
+      ctx.stroke();
+
+      // pontos
+      pts.forEach(p => {
+        ctx.beginPath();
+        ctx.fillStyle = '#fff';
+        ctx.strokeStyle = '#2563EB';
+        ctx.lineWidth = 1.5;
+        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      });
+
+      // labels X (meses) — posicionados abaixo da área útil, dentro do padBottom
+      ctx.fillStyle = '#6b7280';
+      ctx.font = '11px system-ui, -apple-system, "Segoe UI", Roboto';
+      labels.forEach((lbl, i) => {
+        const p = pts[i];
+        if (!p) return;
+        ctx.textAlign = 'center';
+        // y dos labels: padTop + usableH + (padBottom * 0.6) para ficar visível e distante da linha
+        const labelY = padTop + usableH + Math.max(10, padBottom * 0.6);
+        ctx.fillText(lbl, p.x, labelY);
+      });
+
+      // guarda pontos calculados no canvas para o handler de mouse
+      canvas.__yearPoints = pts;
+      // e guarda rect usado (para referência se precisar)
+      canvas.__yearRect = { left: rect.left, top: rect.top, width: rect.width, height: rect.height, DPR };
+    }
+
+    // inicial desenha
+    draw();
+
+    // ---- tooltip mouse handlers ----
+    const hitRadius = 8; // pixels sensíveis ao hover
+    let activeIdx = -1;
+
+    function onMove(e) {
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      const pts = canvas.__yearPoints || [];
+      let nearest = null;
+      let nearestDist = Infinity;
+
+      for (let i = 0; i < pts.length; i++) {
+        const p = pts[i];
+        const dx = x - p.x;
+        const dy = y - p.y;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < nearestDist) {
+          nearestDist = d;
+          nearest = p;
+        }
+      }
+
+      if (nearest && nearestDist <= hitRadius) {
+        // entrou em um ponto
+        if (activeIdx !== nearest.i) {
+          activeIdx = nearest.i;
+          // atualiza conteúdo do tooltip
+          const monthLabel = labels[nearest.i] || ('Mês ' + (nearest.i + 1));
+          const value = nearest.v || 0;
+          tooltip.innerHTML = `<strong style="display:block; font-weight:700;">${monthLabel}</strong><span style="display:block; font-size:12px; opacity:0.95;">${value} corrigido${value !== 1 ? 's' : ''}</span>`;
+        }
+        // posiciona tooltip próximo ao cursor (com offset)
+        const pageX = e.clientX;
+        const pageY = e.clientY;
+        // evita que o tooltip saia da tela pelos lados
+        const tipRect = tooltip.getBoundingClientRect();
+        let left = pageX;
+        let top = pageY - 12;
+        const margin = 8;
+        if (left - tipRect.width / 2 < margin) left = margin + tipRect.width / 2;
+        if (left + tipRect.width / 2 > window.innerWidth - margin) left = window.innerWidth - margin - tipRect.width / 2;
+        tooltip.style.left = left + 'px';
+        tooltip.style.top = top + 'px';
+        tooltip.style.opacity = '1';
+      } else {
+        // saiu do ponto
+        activeIdx = -1;
+        tooltip.style.opacity = '0';
+      }
+    }
+
+    function onLeave() {
+      tooltip.style.opacity = '0';
+      activeIdx = -1;
+    }
+
+    // anexa handlers (removendo duplicatas)
+    canvas.removeEventListener('mousemove', canvas.__yearMoveHandler || (()=>{}));
+    canvas.removeEventListener('mouseleave', canvas.__yearLeaveHandler || (()=>{}));
+    canvas.__yearMoveHandler = onMove;
+    canvas.__yearLeaveHandler = onLeave;
+    canvas.addEventListener('mousemove', onMove);
+    canvas.addEventListener('mouseleave', onLeave);
+
+    // redesenhar ao redimensionar (debounce)
+    let resizeTimer = null;
+    const onResize = () => {
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        draw();
+      }, 150);
+    };
+    window.removeEventListener('resize', canvas.__yearResizeHandler || (()=>{}));
+    canvas.__yearResizeHandler = onResize;
+    window.addEventListener('resize', onResize);
+  } catch (e) {
+    console.warn('Erro ao desenhar sparkline anual com tooltip:', e);
+  }
+})();
+
 }
        function renderDevControlCenter() {
   const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
@@ -9398,7 +9709,7 @@ function renderNavigation(active) {
 
           <!-- Designadas / Centro de Controle -->
           <button
-            onclick="renderDesignatedPage()"
+            data-page="designated"
             class="px-3 md:px-6 py-2 font-semibold ${active === 'designated' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'designated' ? '' : 'text-gray-700'}"
             ${active === 'designated' ? 'style="border-color: #a8d5e2; color: #6b9eb0;" aria-current="page"' : ''}
           >
@@ -9482,6 +9793,22 @@ function renderNavigation(active) {
       document.getElementById('loginTab').style.borderColor = 'transparent';
       document.getElementById('loginTab').style.color = '#6b7280';
     }
+
+    // =========================
+// SPA NAVIGATION CONTROLLER
+// =========================
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-page]');
+  if (!btn) return;
+
+  const page = btn.dataset.page;
+
+  if (page === 'dashboard') renderDashboard();
+  if (page === 'search') renderSearchPage();
+  if (page === 'designated') renderDesignatedPage();
+  if (page === 'employees') renderEmployeesPage?.();
+  if (page === 'reports') renderReportsPage?.();
+});
 
  auth.onAuthStateChanged(async (user) => {
   if (user) {
