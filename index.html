@@ -785,6 +785,17 @@ body.ui-compact #statusRidsCard {
   }
 
 }
+
+@media (max-width: 767px) {
+  /* reduz só em mobile */
+  .px-4.md\\:px-8.py-4.shadow-lg,
+  .px-4.py-4.shadow-lg { /* cobre variações de classes */
+    padding-top: .5rem !important;   /* equivalente a py-2 */
+    padding-bottom: .5rem !important;
+  }
+}
+
+
   </style>
   <style>@view-transition { navigation: auto; }</style>
  </head>
@@ -9611,23 +9622,22 @@ ${
 
     function renderHeader(config) {
       return `
-        <div class="px-4 md:px-8 py-4 shadow-lg" style="background-color: #808080;">
-          <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-            <div>
+        <div class="relative px-4 md:px-8 py-2 shadow-lg" style="background-color: #808080;">
+          <div class="flex items-start justify-between">
+            <div class="flex-1">
               <h1 class="system-title text-lg md:text-2xl font-bold text-white">${config.system_title || defaultConfig.system_title}</h1>
               <p class="company-name text-xs md:text-sm text-gray-300">${config.company_name || defaultConfig.company_name}</p>
               <p class="text-sm font-semibold text-white mt-1">${currentUserData.name}</p>
               <p class="text-xs text-gray-300">${currentUserData.userType || (currentUserData.isAdmin ? 'Administrador' : 'Funcionário')}</p>
             </div>
-            <div class="flex items-center space-x-2">
-
-              <div class="relative">
+            <div class="flex items-start">
+              <div class="relative md:static absolute right-3 top-3">
                 <button onclick="toggleHeaderMenu()" class="p-2 rounded-lg hover:bg-gray-700 transition-colors">
                   <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
                   </svg>
                 </button>
-                <div id="headerMenu" class="hidden absolute left-0 md:right-0 md:left-auto mt-2 w-48 bg-white rounded-lg shadow-xl z-50 border border-gray-200">
+                <div id="headerMenu" class="hidden absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl z-50 border border-gray-200">
                   <button onclick="handleLogout()" class="w-full text-left px-4 py-3 hover:bg-gray-100 transition-colors rounded-lg flex items-center space-x-2" style="color: #f87171;">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
