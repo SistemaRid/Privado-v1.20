@@ -9409,7 +9409,7 @@ async function loadImageAsBase64(url) {
     <nav class="flex overflow-x-auto space-x-1 whitespace-nowrap">
       <button
         onclick="renderEmployeeDashboard()"
-        class="px-3 md:px-6 py-2 font-semibold border-b-4 whitespace-nowrap text-sm md:text-sm"
+        class="px-3 md:px-5 py-1 font-medium leading-none border-b-4 whitespace-nowrap text-sm md:text-sm"
         style="border-color: #a8d5e2; color: #6b9eb0;"
         aria-current="page"
       >
@@ -9651,7 +9651,7 @@ function renderNavigation(active) {
           <!-- Dashboard -->
           <button
             onclick="renderDashboard()"
-            class="px-3 md:px-6 py-2 font-semibold ${active === 'dashboard' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'dashboard' ? '' : 'text-gray-700'}"
+            class="px-3 md:px-5 py-1 font-medium leading-none ${active === 'dashboard' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'dashboard' ? '' : 'text-gray-700'}"
             ${active === 'dashboard' ? 'style="border-color: #a8d5e2; color: #6b9eb0;" aria-current="page"' : ''}
           >
             Dashboard
@@ -9660,7 +9660,7 @@ function renderNavigation(active) {
           <!-- RIDs -->
           <button
             onclick="renderSearchPage()"
-            class="px-3 md:px-6 py-2 font-semibold ${active === 'rids' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'rids' ? '' : 'text-gray-700'}"
+            class="px-3 md:px-3 md:px-5 py-1 font-medium leading-none ${active === 'rids' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'rids' ? '' : 'text-gray-700'}"
             ${active === 'rids' ? 'style="border-color: #a8d5e2; color: #6b9eb0;" aria-current="page"' : ''}
           >
             RID's
@@ -9670,7 +9670,7 @@ function renderNavigation(active) {
           ${(isAdmin() || isDeveloper()) ? `
             <button
               onclick="renderMyRidsPage()"
-              class="px-3 md:px-6 py-2 font-semibold ${active === 'myrids' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'myrids' ? '' : 'text-gray-700'}"
+              class="px-3 md:px-5 py-1 font-medium leading-none ${active === 'myrids' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'myrids' ? '' : 'text-gray-700'}"
               ${active === 'myrids' ? 'style="border-color: #a8d5e2; color: #6b9eb0;" aria-current="page"' : ''}
             >
               Meus RIDs
@@ -9680,7 +9680,7 @@ function renderNavigation(active) {
           <!-- Funcionários -->
           <button
             onclick="renderEmployeesPage()"
-            class="px-3 md:px-6 py-2 font-semibold ${active === 'employees' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'employees' ? '' : 'text-gray-700'}"
+            class="px-3 md:px-5 py-1 font-medium leading-none ${active === 'employees' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'employees' ? '' : 'text-gray-700'}"
             ${active === 'employees' ? 'style="border-color: #a8d5e2; color: #6b9eb0;" aria-current="page"' : ''}
           >
             Funcionários
@@ -9690,7 +9690,7 @@ function renderNavigation(active) {
           ${isDeveloper() ? `
             <button
               onclick="renderRequestsPage()"
-              class="px-3 md:px-6 py-2 font-semibold ${active === 'requests' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'requests' ? '' : 'text-gray-700'} relative"
+              class="px-3 md:px-5 py-1 font-medium leading-none ${active === 'requests' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'requests' ? '' : 'text-gray-700'} relative"
               ${active === 'requests' ? 'style="border-color: #a8d5e2; color: #6b9eb0;" aria-current="page"' : ''}
             >
               Solicitações
@@ -9701,7 +9701,7 @@ function renderNavigation(active) {
           <!-- Relatórios -->
           <button
             onclick="renderReportsPage()"
-            class="px-3 md:px-6 py-2 font-semibold ${active === 'reports' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'reports' ? '' : 'text-gray-700'}"
+            class="px-3 md:px-5 py-1 font-medium leading-none ${active === 'reports' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'reports' ? '' : 'text-gray-700'}"
             ${active === 'reports' ? 'style="border-color: #a8d5e2; color: #6b9eb0;" aria-current="page"' : ''}
           >
             Relatórios
@@ -9710,7 +9710,7 @@ function renderNavigation(active) {
           <!-- Designadas / Centro de Controle -->
           <button
             data-page="designated"
-            class="px-3 md:px-6 py-2 font-semibold ${active === 'designated' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'designated' ? '' : 'text-gray-700'}"
+            class="px-3 md:px-5 py-1 font-medium leading-none ${active === 'designated' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'designated' ? '' : 'text-gray-700'}"
             ${active === 'designated' ? 'style="border-color: #a8d5e2; color: #6b9eb0;" aria-current="page"' : ''}
           >
             ${isDeveloper() ? 'Centro de Controle' : 'Designadas'}
@@ -9719,7 +9719,7 @@ function renderNavigation(active) {
           ${isDeveloper() ? `
   <button
     onclick="renderNovaPage()"
-    class="px-3 md:px-6 py-2 font-semibold ${active === 'nova' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'nova' ? '' : 'text-gray-700'}"
+    class="px-3 md:px-5 py-1 font-medium leading-none ${active === 'nova' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'nova' ? '' : 'text-gray-700'}"
     ${active === 'nova' ? 'style="border-color: #a8d5e2; color: #6b9eb0;" aria-current="page"' : ''}
   >
     Alterações
