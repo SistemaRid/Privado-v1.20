@@ -3939,9 +3939,13 @@ await db.collection('goals').doc(monthYear).set({
                 <button onclick="showLoginForm()" id="loginTab" class="flex-1 py-3 text-center font-semibold border-b-2" style="border-color: #a8d5e2; color: #6b9eb0;">
                   Login
                 </button>
-                <button onclick="showRegisterForm()" id="registerTab" class="flex-1 py-3 text-center font-semibold text-gray-700">
-                  Cadastro
-                </button>
+                <button 
+  id="registerTab" 
+  class="flex-1 py-3 text-center font-semibold text-gray-400 cursor-not-allowed" 
+  disabled
+  title="Cadastro temporariamente desativado">
+  Cadastro
+</button>
               </div>
             </div>
 
