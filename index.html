@@ -953,6 +953,10 @@ function listenRidsRealtimeEmployee() {
     window.unsubscribeRids = null;
   }
 
+  if (!currentUserData || !currentUserData.cpf) {
+  console.warn("CPF ainda não carregado, aguardando...");
+}
+
   const myUid = currentUser.uid;
   const myCpf = currentUserData?.cpf ? String(currentUserData.cpf).trim() : null;
 
@@ -1005,6 +1009,11 @@ function listenRidsRealtimeEmployee() {
       } catch (e) {
         console.warn('Erro ao re-renderizar após mesclar RIDs:', e);
       }
+      // ✅ funcionário: garante que a tela "Meus RIDs" atualize quando os dados chegarem
+if (window._employeeFirstSnapshot) {
+  window._employeeFirstSnapshot = false;
+  try { renderEmployeeDashboard(); } catch(e) {}
+}
     }, 0);
   }
 
@@ -1023,7 +1032,7 @@ function listenRidsRealtimeEmployee() {
   }
 
   // Lista de nomes de campo possíveis usados para CPF pelo site público
-  const cpfFieldCandidates = ['emitterCpf', 'cpf', 'emitter_document', 'emitterDocument', 'document'];
+  const cpfFieldCandidates = ['emitterCpf'];
 
   // Listener(s) por CPF (cria apenas se myCpf existir)
   if (myCpf) {
@@ -1048,19 +1057,25 @@ function listenRidsRealtimeEmployee() {
     });
   }
 
-  // Listener opcional: _importedFrom == 'public-site' (se vocês usarem essa marcação)
+  // Listener opcional: importados do site público, mas AMARRADO ao CPF do usuário
+if (myCpf) {
   try {
-    const qImport = db.collection('rids').where('_importedFrom', '==', 'public-site');
+    const qImport = db.collection('rids')
+      .where('_importedFrom', '==', 'public-site')
+      .where('emitterCpf', '==', myCpf);
+
     const unsubImport = qImport.onSnapshot(snap => {
       snap.docs.forEach(d => docsMap.set(d.id, d));
       mergeAndPublish();
     }, err => {
-      console.debug('Listener _importedFrom erro (pode exigir índice):', err);
+      console.debug('Listener _importedFrom+emitterCpf erro:', err);
     });
+
     unsubs.push(unsubImport);
   } catch (e) {
-    console.debug('Ignorando listener _importedFrom:', e);
+    console.debug('Ignorando listener _importedFrom+emitterCpf:', e);
   }
+}
 
   // função para cancelar todos os listeners
   window.unsubscribeRids = function() {
@@ -5370,6 +5385,18 @@ ${
 // ---------- INÍCIO: cole esta função globalmente (uma vez) ----------
 function startRidsListener(userUid) {
   if (!userUid) return;
+  // ✅ guarda quais dados esse listener usou (pra saber se precisa reiniciar quando CPF carregar)
+const currentCpf = window.currentUserData?.cpf ? String(window.currentUserData.cpf).trim() : '';
+const signature = `${userUid}::${currentCpf || 'NOCPF'}`;
+
+// se já existe listener com a mesma assinatura, não faz nada
+if (window._ridsListenerSignature === signature && window.unsubscribeRidsListener) {
+  window.allRidsStarted = true;
+  return;
+}
+
+// se mudou (ex: agora CPF apareceu), reinicia listener
+window._ridsListenerSignature = signature;
 
   // evita múltiplos listeners
   if (window.unsubscribeRidsListener) {
@@ -5416,6 +5443,14 @@ function startRidsListener(userUid) {
         mapByRidNumber.set(key, payload);
       } else {
         if (!mapById.has(id)) mapById.set(id, payload);
+        // ✅ marca como pronto no PRIMEIRO publish (1º snapshot recebido)
+if (!window.allRidsReady) {
+  window.allRidsReady = true;
+  if (typeof window._resolveAllRidsReady === 'function') {
+    window._resolveAllRidsReady(true);
+    window._resolveAllRidsReady = null;
+  }
+}
       }
     });
 
@@ -5429,6 +5464,7 @@ function startRidsListener(userUid) {
 
     // publica globalmente
     window.allRids = combined;
+allRids = combined; // ✅ mantém compatível com renderEmployeeDashboard()
     if (typeof renderRidsListUI === 'function') renderRidsListUI(combined);
     // se você só usa renderSearchPage -> re-renderiza para atualizar contadores
     if (window.currentPage === 'search') renderSearchPage();
@@ -5463,22 +5499,44 @@ function startRidsListener(userUid) {
       const currentMonth = now.getMonth() + 1;
       const currentYear = now.getFullYear();
       
-      // ---------- INÍCIO: garantir que o listener de RIDs esteja ativo ----------
-if (!window.allRidsStarted) {
-  // tenta pegar uid do usuário logado (ajuste se sua app usa outro nome)
-  const uid = (window.currentUser && window.currentUser.uid) || (firebase && firebase.auth && firebase.auth().currentUser && firebase.auth().currentUser.uid);
-  if (uid) {
-    startRidsListener(uid);
-  } else {
-    // se não tiver uid ainda, aguarda auth e inicia quando disponível
-    if (firebase && firebase.auth) {
-      firebase.auth().onAuthStateChanged(u => {
-        if (u) startRidsListener(u.uid);
-      });
+// ---------- INÍCIO: garantir que o listener de RIDs esteja ativo (com "ready") ----------
+window.allRidsStarted = window.allRidsStarted || false;
+window.allRidsReady = window.allRidsReady || false;
+window.allRidsReadyPromise = window.allRidsReadyPromise || null;
+window._resolveAllRidsReady = window._resolveAllRidsReady || null;
+
+function ensureRidsListenerReady() {
+  // já carregou pelo menos 1x
+  if (window.allRidsReady) return Promise.resolve(true);
+
+  // já existe promise rodando
+  if (window.allRidsReadyPromise) return window.allRidsReadyPromise;
+
+  window.allRidsReadyPromise = new Promise((resolve) => {
+    window._resolveAllRidsReady = resolve;
+  });
+
+  const tryStart = (u) => {
+    if (!u?.uid) return;
+    if (!window.allRidsStarted) {
+      window.allRidsStarted = true;
+      startRidsListener(u.uid);
     }
+  };
+
+  // tenta agora
+  const uNow = firebase?.auth?.().currentUser || firebase?.auth?.currentUser;
+  if (uNow?.uid) {
+    tryStart(uNow);
+  } else if (firebase?.auth) {
+    firebase.auth().onAuthStateChanged((u) => {
+      if (u) tryStart(u);
+    });
   }
+
+  return window.allRidsReadyPromise;
 }
-// ---------- FIM: garantir que o listener de RIDs esteja ativo ----------
+// ---------- FIM: garantir que o listener de RIDs esteja ativo (com "ready") ----------
 
     // ✅ mês/ano selecionado (se vazio, cai no mês atual)
 const selectedMonth = Number(document.getElementById('searchMonth')?.value) || currentMonth;
@@ -10036,7 +10094,8 @@ async function loadImageAsBase64(url) {
     }
 
     function renderEmployeeDashboard() {
-      const myRids = allRids.filter(r => r.emitterId === currentUser.uid);
+      const baseRids = (window.allRids || allRids || []);
+const myRids = baseRids.filter(r => r.emitterId === currentUser.uid);
       const myDesignated = allRids.filter(r => r.responsibleLeader === currentUser.uid);
       const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
 
@@ -10478,7 +10537,13 @@ document.addEventListener('click', (e) => {
     currentUser = user;
 
     const userDoc = await db.collection('users').doc(user.uid).get();
-    currentUserData = userDoc.data();
+currentUserData = userDoc.exists ? userDoc.data() : null;
+
+if (!currentUserData) {
+  showToast('Usuário sem cadastro na base (users). Fale com o administrador.', 'error');
+  await auth.signOut();
+  return;
+}
 
     // 🔥 Cancela listener antigo de RIDs (já existente)
     if (window.unsubscribeRids) {
@@ -10528,9 +10593,24 @@ document.addEventListener('click', (e) => {
       renderAdminDashboard();
 
     } else {
-      // usuário comum: garante listener de RIDs do employee
-      window.unsubscribeRids = listenRidsRealtimeEmployee();
-      renderEmployeeDashboard();
+      // usuário comum: mostra tela de carregamento e só renderiza depois do 1º snapshot
+document.getElementById('app').innerHTML = `
+  <div class="h-full flex items-center justify-center" style="background:#dfdfdf;">
+    <div class="bg-white p-6 rounded-xl shadow-lg text-gray-700 font-bold">
+      Carregando seus RIDs...
+    </div>
+  </div>
+`;
+
+window.unsubscribeRids = listenRidsRealtimeEmployee();
+
+// força um re-render assim que chegar o 1º snapshot (sem depender do timing)
+window._employeeFirstSnapshot = true;
+
+// render inicial (se já tiver cache/local rápido, aparece logo)
+setTimeout(() => {
+  try { renderEmployeeDashboard(); } catch (e) {}
+}, 0);
 
       // Como usuário não é admin/dev, não iniciamos listener de deleteRequests.
       // Mas vamos garantir que o card do dashboard (se estiver visível) mostre estado vazio/informativo.
