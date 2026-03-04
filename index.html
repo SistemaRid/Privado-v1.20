@@ -5243,7 +5243,7 @@ ${myPerfHTML}
               : `
                 <div class="space-y-4">
                   ${myRids.map(rid => `
-                    <div class="bg-white rounded-xl shadow-md p-5">
+                    <div class="bg-white rounded-xl shadow-md p-5 ${getDisplayStatus(rid) === 'REMOVIDO' ? 'opacity-80' : ''}">
 
  ${(() => {
   const displayStatus = getDisplayStatus(rid);
@@ -5899,23 +5899,27 @@ function isAdminOrDev() {
 }
 
 
-   function getStatusColor(status) {
-  switch (status) {
-    case 'VENCIDO':
-      return 'bg-red-200 text-red-800';
+function getStatusColor(status) {
+  const st = String(status || '')
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
 
-    case 'ENCERRADO':
-      return 'bg-gray-300 text-gray-800';
+  if (st === 'CORRIGIDO') return 'bg-green-100 text-green-800 border border-green-200';
 
-    case 'EM ANDAMENTO':
-      return 'bg-yellow-200 text-yellow-800';
+  // vencido / atrasado
+  if (st === 'VENCIDO' || st === 'ATRASADO') return 'bg-yellow-100 text-yellow-800 border border-yellow-200';
 
-    case 'CORRIGIDO':
-      return 'bg-green-200 text-green-800';
+  // removido / excluído
+  if (st === 'REMOVIDO' || st === 'EXCLUIDO' || st === 'EXCLUÍDO') return 'bg-gray-200 text-gray-800 border border-gray-300';
 
-    default:
-      return 'bg-gray-200 text-gray-800';
-  }
+  // encerrado
+  if (st === 'ENCERRADO') return 'bg-gray-100 text-gray-700 border border-gray-300';
+
+  // andamento / pendente
+  if (st.includes('ANDAMENTO')) return 'bg-blue-100 text-blue-800 border border-blue-200';
+
+  return 'bg-gray-100 text-gray-800 border border-gray-200';
 }
 
 
