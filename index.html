@@ -1926,6 +1926,7 @@ if (window.currentPage === 'designated') renderDesignatedPage();
     }
 
     async function updateRid(ridId, updates) {
+        const pageBeforeUpdate = window.currentPage;
       try {
       // =========================
   // 🔔 Validação de STATUS
@@ -2141,16 +2142,26 @@ if (
 
     // 🧹 Fecha o modal de detalhes
     document.querySelectorAll('.modal-backdrop').forEach(m => m.remove());
+    // força manter a página atual após a atualização
+window.currentPage = pageBeforeUpdate;
 
-    // 🔥 NÃO usa loadRids — realtime já atualiza
-    // 🔒 Proteção de role
+// 🔒 Mantém exatamente a página em que o usuário estava
 if (!currentUserData?.isAdmin && !currentUserData?.isDeveloper) {
+  window.currentPage = 'employee';
   renderEmployeeDashboard();
+} else if (pageBeforeUpdate === 'designated') {
+  window.currentPage = 'designated';
+  renderDesignatedPage();
+} else if (pageBeforeUpdate === 'search') {
+  window.currentPage = 'search';
+  renderSearchPage();
+} else if (pageBeforeUpdate === 'employees') {
+  window.currentPage = 'employees';
+  renderEmployeesPage();
 } else {
+  window.currentPage = 'dashboard';
   renderAdminDashboard();
 }
-    if (window.currentPage === 'search') renderSearchPage();
-    if (window.currentPage === 'designated') renderDesignatedPage();
 
     showToast('RID atualizada com sucesso!');
     return true;
@@ -6653,54 +6664,56 @@ function cancelarEncerramento(button) {
     }
 
     async function handleEditRid(event, ridId) {
-      event.preventDefault();
-      const form = event.target;
-      const button = form.querySelector('button[type="submit"]');
-      
-      button.disabled = true;
-      button.textContent = 'Salvando...';
+  event.preventDefault();
+  const form = event.target;
+  const button = form.querySelector('button[type="submit"]');
 
-      try {
-        const updates = {
-          emissionDate: firebase.firestore.Timestamp.fromDate(new Date(form.emissionDate.value)),
-          contractType: form.contractType.value,
-          unit: form.unit.value,
-          sector: form.sector.value,
-          location: form.location.value,
-          incidentType: form.incidentType.value,
-          detectionOrigin: form.detectionOrigin.value,
-          riskClassification: form.riskClassification.value,
-          status: form.status.value,
-          description: form.description.value,
-          immediateAction: form.immediateAction.value,
-          correctiveActions: form.correctiveActions.value,
-          conclusion: form.conclusion.value
-        };
+  button.disabled = true;
+  button.textContent = 'Salvando...';
 
-        // Admin-only fields
-        if (isAdmin()) {
-          const leaderId = form.responsibleLeader.value;
-          updates.responsibleLeader = leaderId || null;
-          updates.responsibleLeaderName = leaderId? getUserNameById(leaderId): null;
-          updates.deadline = form.deadline.value ? firebase.firestore.Timestamp.fromDate(new Date(form.deadline.value)) : null;
-          updates.observations = form.observations.value;
-        }
+  try {
+    const updates = {
+      emissionDate: firebase.firestore.Timestamp.fromDate(new Date(form.emissionDate.value)),
+      contractType: form.contractType.value,
+      unit: form.unit.value,
+      sector: form.sector.value,
+      location: form.location.value,
+      incidentType: form.incidentType.value,
+      detectionOrigin: form.detectionOrigin.value,
+      riskClassification: form.riskClassification.value,
+      status: form.status.value,
+      description: form.description.value,
+      immediateAction: form.immediateAction.value,
+      correctiveActions: form.correctiveActions.value,
+      conclusion: form.conclusion.value
+    };
 
-        const success = await updateRid(ridId, updates);
-        
-        if (success) {
-          form.closest('.modal-backdrop').remove();
-          renderDashboard();
-        } else {
-          button.disabled = false;
-          button.textContent = 'Salvar Alterações';
-        }
-      } catch (error) {
-        showToast('Erro ao salvar alterações: ' + error.message, 'error');
-        button.disabled = false;
-        button.textContent = 'Salvar Alterações';
-      }
+    // Admin-only fields
+    if (isAdmin()) {
+      const leaderId = form.responsibleLeader.value;
+      updates.responsibleLeader = leaderId || null;
+      updates.responsibleLeaderName = leaderId ? getUserNameById(leaderId) : null;
+      updates.deadline = form.deadline.value
+        ? firebase.firestore.Timestamp.fromDate(new Date(form.deadline.value))
+        : null;
+      updates.observations = form.observations.value;
     }
+
+    const success = await updateRid(ridId, updates);
+
+    if (success) {
+      form.closest('.modal-backdrop')?.remove();
+      return;
+    } else {
+      button.disabled = false;
+      button.textContent = 'Salvar Alterações';
+    }
+  } catch (error) {
+    showToast('Erro ao salvar alterações: ' + error.message, 'error');
+    button.disabled = false;
+    button.textContent = 'Salvar Alterações';
+  }
+}
 
     async function syncLeadersPublic() {
   if (!isAdmin() && !isDeveloper()) return;
@@ -6730,13 +6743,18 @@ function cancelarEncerramento(button) {
 
     function renderEmployeesPage() {
 
+      console.log('renderEmployeesPage -> allUsers atual:', allUsers);
+console.log('renderEmployeesPage -> total atual:', allUsers.length);
+
   // 🔁 garante leaders_public atualizado
   syncLeadersPublic();
 
   const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
 
       const app = document.getElementById('app');
-      const selectedSector = (window.employeesSectorFilter || '').toString().trim().toUpperCase();
+      const rawSectorFilter = (window.employeesSectorFilter || '').toString().trim().toUpperCase();
+const selectedSector = (rawSectorFilter === 'TODOS') ? '' : rawSectorFilter;
+window.employeesSectorFilter = selectedSector;
 
 let employeesBase = (allUsers || []).filter(u => u && typeof u.name === 'string');
 
@@ -6919,7 +6937,8 @@ const sectorOptions = buildEmployeesSectorOptions(selectedSector);
 // FILTRO POR SETOR (FUNCIONÁRIOS)
 // ==============================
 function setEmployeesSectorFilter(value) {
-  window.employeesSectorFilter = String(value || '').toUpperCase();
+  const normalized = String(value || '').trim().toUpperCase();
+  window.employeesSectorFilter = (normalized === 'TODOS') ? '' : normalized;
   renderEmployeesPage();
 }
 
@@ -6979,7 +6998,6 @@ function buildEmployeesSectorOptions(selected) {
     id="add_email"
     name="email"
     type="email"
-    required
     placeholder="ex: aline@gmail.com"
     class="w-full px-4 py-2 border border-gray-300 rounded-lg"
   />
@@ -7309,18 +7327,13 @@ async function handleAddEmployee(event) {
       return;
     }
 
-    // ===== email digitado no formulário (salvar o REAL) =====
+    // ===== email digitado no formulário (agora OPCIONAL) =====
 const email = (form.email?.value || form.querySelector('#add_email')?.value || '')
   .trim()
   .toLowerCase();
 
-if (!email) {
-  showToast('E-mail é obrigatório.', 'error');
-  submitBtn.disabled = false;
-  submitBtn.textContent = 'Adicionar';
-  return;
-}
-if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+// só valida se o usuário realmente digitou algo
+if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
   showToast('E-mail inválido.', 'error');
   submitBtn.disabled = false;
   submitBtn.textContent = 'Adicionar';
@@ -7335,7 +7348,7 @@ const userCredential = await secondaryAuth.createUserWithEmailAndPassword(authEm
     const userDoc = {
       name,
       cpf: cpfFormatted,
-      email: email,          // <<<<<< AGORA SALVA EMAIL
+      email: email || null,        // <<<<<< AGORA SALVA EMAIL
       sector: sector || null,
       unit: unit || null,
       role: role || null,
@@ -7350,9 +7363,31 @@ const userCredential = await secondaryAuth.createUserWithEmailAndPassword(authEm
 
     showToast('Funcionário criado com sucesso!', 'success');
 
+
+    console.log('ANTES DO RENDER - allUsers:', allUsers);
+console.log('ANTES DO RENDER - total:', allUsers.length);
+
+
+// atualiza a lista local imediatamente
+allUsers.push({
+  id: userCredential.user.uid,
+  ...userDoc
+});
+
+form.closest('.modal-backdrop')?.remove();
+renderEmployeesPage();
+
+// recarga oficial em segundo passo para garantir sincronização
+setTimeout(async () => {
+  try {
     await loadUsers();
-    form.closest('.modal-backdrop')?.remove();
-    renderEmployeesPage();
+    if (window.currentPage === 'employees') {
+      renderEmployeesPage();
+    }
+  } catch (e) {
+    console.warn('Erro ao recarregar usuários após cadastro:', e);
+  }
+}, 150);
 
   } catch (error) {
     console.error('Erro ao adicionar funcionário:', error);
@@ -8884,6 +8919,7 @@ function renderDesignatedPage() {
 
 }
        function renderDevControlCenter() {
+          window.currentPage = 'designated';
   const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
   const app = document.getElementById('app');
   let base = allRids;
@@ -9799,6 +9835,7 @@ function openRestoreRidModal(ridId, ridNumber) {
 }
 
 async function confirmRestoreRid(ridId) {
+  const pageBeforeRestore = window.currentPage;
   const reason = document.getElementById('restoreRidReason')?.value.trim();
 
   if (!reason) {
@@ -9832,14 +9869,23 @@ Restaurado por: ${currentUserData.name}`;
         : restoreNote
     });
 
-   showToast('RID restaurado com sucesso!', 'success');
-document.querySelector('.modal-backdrop')?.remove();
+    showToast('RID restaurado com sucesso!', 'success');
+    document.querySelector('.modal-backdrop')?.remove();
 
-// 🔥 realtime já atualiza automaticamente
-if (window.currentPage === 'dashboard') renderDashboard();
-if (window.currentPage === 'search') renderSearchPage();
-if (window.currentPage === 'designated') renderDesignatedPage();
-if (window.currentPage === 'nova') renderNovaPage();
+    // 🔒 mantém a página em que o usuário estava
+    if (pageBeforeRestore === 'designated') {
+      window.currentPage = 'designated';
+      renderDesignatedPage();
+    } else if (pageBeforeRestore === 'search') {
+      window.currentPage = 'search';
+      renderSearchPage();
+    } else if (pageBeforeRestore === 'nova') {
+      window.currentPage = 'nova';
+      renderNovaPage();
+    } else {
+      window.currentPage = 'dashboard';
+      renderAdminDashboard();
+    }
 
   } catch (err) {
     console.error(err);
@@ -10149,10 +10195,10 @@ async function loadImageAsBase64(url) {
 
           <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
             <div class="max-w-7xl mx-auto">
-              <h1 class="text-3xl font-bold text-gray-800 mb-8">Meus RIDs Designadas</h1>
+              <h1 class="text-3xl font-bold text-gray-800 mb-8">Meus RIDs Designados</h1>
 
               ${myDesignatedRids.length === 0 ? 
-                '<div class="bg-white rounded-xl shadow-lg p-12 text-center"><p class="text-gray-500 text-lg">Você não possui RIDs designadas no momento</p></div>' :
+                '<div class="bg-white rounded-xl shadow-lg p-12 text-center"><p class="text-gray-500 text-lg">Você não possui RIDs designados no momento</p></div>' :
                 `<div class="space-y-4">${renderRidsList(myDesignatedRids)}</div>`
               }
             </div>
@@ -10496,13 +10542,13 @@ function renderNavigation(active) {
             Relatórios
           </button>
 
-          <!-- Designadas / Centro de Controle -->
+          <!-- Designados / Centro de Controle -->
           <button
             data-page="designated"
             class="px-3 md:px-5 py-1 font-medium leading-none ${active === 'designated' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'designated' ? '' : 'text-gray-700'}"
             ${active === 'designated' ? 'style="border-color: #a8d5e2; color: #6b9eb0;" aria-current="page"' : ''}
           >
-            ${isDeveloper() ? 'Centro de Controle' : 'Designadas'}
+            ${isDeveloper() ? 'Centro de Controle' : 'Designados'}
           </button>
 
           ${isDeveloper() ? `
