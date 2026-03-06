@@ -2140,8 +2140,6 @@ if (
   });
 }
 
-    // 🧹 Fecha o modal de detalhes
-    document.querySelectorAll('.modal-backdrop').forEach(m => m.remove());
     // força manter a página atual após a atualização
 window.currentPage = pageBeforeUpdate;
 
@@ -6663,7 +6661,7 @@ function cancelarEncerramento(button) {
       if (detailsModal) detailsModal.remove();
     }
 
-    async function handleEditRid(event, ridId) {
+   async function handleEditRid(event, ridId) {
   event.preventDefault();
   const form = event.target;
   const button = form.querySelector('button[type="submit"]');
@@ -6699,10 +6697,12 @@ function cancelarEncerramento(button) {
       updates.observations = form.observations.value;
     }
 
+    const modal = form.closest('.modal-backdrop');
+
     const success = await updateRid(ridId, updates);
 
     if (success) {
-      form.closest('.modal-backdrop')?.remove();
+      modal?.remove();
       return;
     } else {
       button.disabled = false;
