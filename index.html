@@ -1805,8 +1805,33 @@ function stopRidHistoryListener() {
       button.textContent = 'Enviando RID...';
 
       try {
-        const ridNumber = await getNextRidNumberSafe();
-        const leaderId = form.responsibleLeader.value;
+const leaderId = form.responsibleLeader.value || '';
+const selectedStatus = String(form.status?.value || '').toUpperCase();
+
+const leaderWarning = document.getElementById('leaderFloatingWarning');
+const leaderSelect = document.getElementById('responsibleLeaderSelect');
+
+if (leaderWarning) leaderWarning.classList.add('hidden');
+if (leaderSelect) {
+  leaderSelect.classList.remove('border-red-500', 'ring-2', 'ring-red-200');
+  leaderSelect.classList.add('border-gray-300');
+}
+
+if (selectedStatus === 'VENCIDO' && !leaderId) {
+  if (leaderWarning) leaderWarning.classList.remove('hidden');
+
+  if (leaderSelect) {
+    leaderSelect.classList.remove('border-gray-300');
+    leaderSelect.classList.add('border-red-500', 'ring-2', 'ring-red-200');
+    leaderSelect.focus();
+  }
+
+  button.disabled = false;
+  button.textContent = 'Enviar';
+  return;
+}
+
+const ridNumber = await getNextRidNumberSafe();
 
 let leaderName = null;
 
@@ -1824,9 +1849,9 @@ if (leaderId) {
 }
 
 const initialStatus =
-  form.status?.value === "CORRIGIDO"
-    ? "CORRIGIDO"
-    : "VENCIDO";
+  selectedStatus === 'CORRIGIDO'
+    ? 'CORRIGIDO'
+    : 'VENCIDO';
 
 
         
@@ -6196,12 +6221,25 @@ if (isAdmin() || isDeveloper()) {
                 </select>
               </div>
 
-              <div>
-                <label class="block text-sm font-bold mb-2 text-gray-700">13. Designar para um Líder</label>
-                <select id="responsibleLeaderSelect" name="responsibleLeader" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
-  <option value="">Carregando líderes...</option>
-</select>
-              </div>
+              <div class="relative">
+  <label class="block text-sm font-bold mb-2 text-gray-700">13. Designar para um Líder</label>
+
+  <div
+    id="leaderFloatingWarning"
+    class="hidden absolute -top-12 left-0 z-50 max-w-full rounded-lg border px-3 py-2 text-xs font-medium shadow-lg"
+    style="background:#fff7ed; color:#9a3412; border-color:#fdba74;"
+  >
+    Para emitir RID com status <b>VENCIDO</b>, é obrigatório designar um líder.
+  </div>
+
+  <select
+    id="responsibleLeaderSelect"
+    name="responsibleLeader"
+    class="w-full px-4 py-2 border border-gray-300 rounded-lg"
+  >
+    <option value="">Carregando líderes...</option>
+  </select>
+</div>
             </div>
 
             <div class="flex space-x-4">
@@ -6238,6 +6276,28 @@ select.innerHTML = `
 
 if (select.options.length === 1) {
   select.innerHTML = `<option value="">Nenhum líder disponível</option>`;
+}
+const statusSelect = modal.querySelector('select[name="status"]');
+const leaderWarning = document.getElementById('leaderFloatingWarning');
+
+if (statusSelect) {
+  statusSelect.addEventListener('change', () => {
+    if (statusSelect.value !== 'VENCIDO' && leaderWarning) {
+      leaderWarning.classList.add('hidden');
+      select.classList.remove('border-red-500', 'ring-2', 'ring-red-200');
+      select.classList.add('border-gray-300');
+    }
+  });
+}
+
+if (select) {
+  select.addEventListener('change', () => {
+    if (select.value && leaderWarning) {
+      leaderWarning.classList.add('hidden');
+      select.classList.remove('border-red-500', 'ring-2', 'ring-red-200');
+      select.classList.add('border-gray-300');
+    }
+  });
 }
     }
 
