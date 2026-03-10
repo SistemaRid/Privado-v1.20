@@ -4704,7 +4704,18 @@ monthlyGoal = calcularMetaMensalAutomatica(allUsers, dashYear, dashMonth);
   const employeesWithoutRids = getEmployeesWithoutRidsThisMonth(allUsers, filteredRids);
   const totalRids = filteredRids.length;
 
-  const openRids = filteredRids.filter(r => r.status === 'EM ANDAMENTO').length;
+  const normalizeStatus = (status) =>
+  String(status || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toUpperCase();
+
+const openRids = allRids.filter(r => {
+  if (r.deleted) return false;
+  const st = normalizeStatus(r.status);
+  return st === 'EM ANDAMENTO' || st === 'PENDENTE';
+}).length;
   const overdueRids = filteredRids.filter(r => r.status === 'VENCIDO').length;
 
   const toDateSafe = (v) => {
@@ -4737,13 +4748,25 @@ monthlyGoal = calcularMetaMensalAutomatica(allUsers, dashYear, dashMonth);
       return isInMonthYear(c, dashMonth, dashYear);
     });
 
-  const totalRidsStatus = ridsMesCreatedAt.length;
-  const openRidsStatus = ridsMesCreatedAt.filter(r => r.status === 'EM ANDAMENTO').length;
-  const overdueRidsStatus = ridsMesCreatedAt.filter(r => r.status === 'VENCIDO').length;
-  const correctedRidsStatus = ridsMesCreatedAt.filter(r => {
-    const st = String(r.status || '').toUpperCase();
-    return st === 'CORRIGIDO' || st === 'ENCERRADO';
-  }).length;
+const totalRidsStatus = ridsMesCreatedAt.length;
+
+// ✅ EM ANDAMENTO DO MÊS/FILTRO
+const openRidsStatus = ridsMesCreatedAt.filter(r => {
+  const st = normalizeStatus(r.status);
+  return st === 'EM ANDAMENTO' || st === 'PENDENTE';
+}).length;
+
+// ✅ VENCIDO DO MÊS/FILTRO
+const overdueRidsStatus = ridsMesCreatedAt.filter(r => {
+  const st = normalizeStatus(r.status);
+  return st === 'VENCIDO';
+}).length;
+
+// ✅ CORRIGIDO DO MÊS/FILTRO
+const correctedRidsStatus = ridsMesCreatedAt.filter(r => {
+  const st = normalizeStatus(r.status);
+  return st === 'CORRIGIDO' || st === 'ENCERRADO';
+}).length;
 
   // 🚨 ATRASADOS (meses anteriores) — pendentes
   const atrasadosCount = allRids
