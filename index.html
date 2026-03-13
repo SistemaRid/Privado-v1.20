@@ -1110,6 +1110,7 @@ function listenMaintenancesRealtime() {
     });
 
     console.log("Manutenções carregadas:", allMaintenances);
+    updateMaintenanceMenuBadge();
 
     try {
       if (window.currentPage === "maintenances" && typeof renderMaintenancesPage === "function") {
@@ -1681,6 +1682,27 @@ function toFirestoreDateFromInput(dateStr) {
       return String(maxNum + 1).padStart(5, '0');
     }
 
+   function parseRidDashboardDate(value) {
+  if (!value) return null;
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+  if (typeof value.toDate === 'function') {
+    const dateFromTimestamp = value.toDate();
+    return isNaN(dateFromTimestamp?.getTime?.()) ? null : dateFromTimestamp;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    const brDate = trimmed.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (brDate) {
+      const [, day, month, year] = brDate;
+      const parsedBr = new Date(Number(year), Number(month) - 1, Number(day), 12, 0, 0);
+      return isNaN(parsedBr.getTime()) ? null : parsedBr;
+    }
+    const parsed = new Date(trimmed);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
+}
+
    function getFilteredRids() {
   const monthSelect = document.getElementById('dashboardMonth');
   const yearInput = document.getElementById('dashboardYear');
@@ -1696,12 +1718,7 @@ function toFirestoreDateFromInput(dateStr) {
 
   // 🔹 FILTRO MÊS + ANO
   filtered = filtered.filter(r => {
-    if (!r.emissionDate) return false;
-
-    const d = typeof r.emissionDate.toDate === 'function'
-      ? r.emissionDate.toDate()
-      : new Date(r.emissionDate);
-
+    const d = parseRidDashboardDate(r.emissionDate) || parseRidDashboardDate(r.createdAt);
     if (!d || isNaN(d.getTime())) return false;
 
   if (showAllMonths) {
@@ -4848,11 +4865,11 @@ const correctedRidsStatus = ridsMesCreatedAt.filter(r => {
     .filter(u => u && typeof u.name === 'string' && u.name.trim() !== '')
     .sort((a,b) => b.count - a.count);
 
-  const emitterCount = {};
-  filteredRids.forEach(rid => {
-    emitterCount[rid.emitterName] = (emitterCount[rid.emitterName] || 0) + 1;
-  });
-  const topEmitters = Object.entries(emitterCount).sort((a,b) => b[1]-a[1]).slice(0,3);
+  const topEmitters = Object.values(ridsByUser)
+    .filter(u => u && typeof u.name === 'string' && u.name.trim() !== '')
+    .sort((a,b) => b.count - a.count)
+    .slice(0,3)
+    .map(user => [user.name, user.count]);
 
   const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
   const app = document.getElementById('app');
@@ -6576,7 +6593,16 @@ if (select) {
 }
     }
 
-    function openCreateMaintenanceModal() {
+    async function openCreateMaintenanceModal() {
+  let leaders = [];
+
+  if (isAdmin() || isDeveloper()) {
+    await loadUsers();
+    leaders = (allUsers || []).filter(u => u.isAdmin || u.isDeveloper);
+  } else {
+    leaders = await loadLeadersPublic();
+  }
+
   const modal = document.createElement('div');
   modal.className = 'modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
   modal.innerHTML = `
@@ -6623,8 +6649,9 @@ if (select) {
     required
   >
     <option value="">Selecione um líder...</option>
-    ${(allUsers || [])
-      .filter(u => u.isAdmin || u.isDeveloper)
+    ${leaders
+      .filter(u => u && u.id && u.name)
+      .sort((a, b) => String(a.name).localeCompare(String(b.name), 'pt-BR'))
       .map(u => `
         <option value="${u.id}">
           ${u.name}
@@ -8593,6 +8620,7 @@ const reportDisplayRids = resolvedPreviousInMonth.length > 0
 
 function renderMaintenancesPage() {
   window.currentPage = 'maintenances';
+  markMaintenancesAsSeen();
 
   const app = document.getElementById('app');
   if (!app) return;
@@ -8866,6 +8894,7 @@ function renderMaintenancesPage() {
       </div>
     </div>
   `;
+  updateMaintenanceMenuBadge();
 }
 
 function openMaintenanceDetailsModal(maintenanceId) {
@@ -11565,6 +11594,7 @@ document.addEventListener('click', function (event) {
     }
 
 function renderNavigation(active) {
+  const maintenanceUnreadCount = getUnreadMaintenanceCount();
   return `
     <div class="bg-white border-b border-gray-200">
       <div class="px-2 md:px-8">
@@ -11632,10 +11662,11 @@ function renderNavigation(active) {
           <!--Manutenções-->
       <button
   onclick="listenMaintenancesRealtime(); renderMaintenancesPage();"
-  class="px-3 md:px-5 py-1 font-medium leading-none ${active === 'maintenances' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'maintenances' ? '' : 'text-gray-700'}"
+  class="px-3 md:px-5 py-1 font-medium leading-none ${active === 'maintenances' ? 'border-b-4' : 'hover:bg-gray-100'} transition-colors text-sm md:text-sm ${active === 'maintenances' ? '' : 'text-gray-700'} relative"
   ${active === 'maintenances' ? 'style="border-color: #a8d5e2; color: #6b9eb0;" aria-current="page"' : ''}
 >
   Manutenções
+  <span id="maintenancesBadge" class="${maintenanceUnreadCount > 0 ? '' : 'hidden '}absolute top-1 right-1 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center font-bold">${maintenanceUnreadCount > 9 ? '9+' : maintenanceUnreadCount}</span>
 </button>
 
           <!-- Designados / Centro de Controle -->
@@ -11662,6 +11693,75 @@ function renderNavigation(active) {
     </div>
   `;
 }
+
+    function getMaintenancesSeenStorageKey() {
+      const uid = currentUser?.uid || auth?.currentUser?.uid || 'anonymous';
+      return `maintenancesLastSeen_${uid}`;
+    }
+
+    function maintenanceToMillis(value) {
+      if (!value) return 0;
+      if (typeof value.toMillis === 'function') return value.toMillis();
+      if (typeof value.toDate === 'function') {
+        const dateValue = value.toDate();
+        return dateValue instanceof Date && !isNaN(dateValue.getTime()) ? dateValue.getTime() : 0;
+      }
+      const parsed = new Date(value);
+      return isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+    }
+
+    function getMaintenanceLastSeenAt() {
+      try {
+        return Number(localStorage.getItem(getMaintenancesSeenStorageKey()) || '0');
+      } catch (error) {
+        console.warn('Não foi possível ler o badge de manutenções:', error);
+        return 0;
+      }
+    }
+
+    function getUnreadMaintenanceCount() {
+      const lastSeenAt = getMaintenanceLastSeenAt();
+      return (allMaintenances || []).filter(m => {
+        if (!m || m.deleted) return false;
+        const updatedAt = Math.max(
+          maintenanceToMillis(m.updatedAt),
+          maintenanceToMillis(m.createdAt),
+          maintenanceToMillis(m.concludedAt)
+        );
+        return updatedAt > lastSeenAt;
+      }).length;
+    }
+
+    function markMaintenancesAsSeen() {
+      try {
+        const latestMaintenanceAt = (allMaintenances || []).reduce((latest, maintenance) => {
+          if (!maintenance || maintenance.deleted) return latest;
+          const updatedAt = Math.max(
+            maintenanceToMillis(maintenance.updatedAt),
+            maintenanceToMillis(maintenance.createdAt),
+            maintenanceToMillis(maintenance.concludedAt)
+          );
+          return Math.max(latest, updatedAt);
+        }, Date.now());
+
+        localStorage.setItem(getMaintenancesSeenStorageKey(), String(latestMaintenanceAt));
+      } catch (error) {
+        console.warn('Não foi possível salvar o badge de manutenções:', error);
+      }
+    }
+
+    function updateMaintenanceMenuBadge() {
+      const badge = document.getElementById('maintenancesBadge');
+      if (!badge) return;
+
+      const unreadCount = getUnreadMaintenanceCount();
+      if (unreadCount > 0) {
+        badge.textContent = unreadCount > 9 ? '9+' : String(unreadCount);
+        badge.classList.remove('hidden');
+      } else {
+        badge.classList.add('hidden');
+      }
+    }
 
     async function updateRequestsBadge() {
       if (!isDeveloper()) return;
