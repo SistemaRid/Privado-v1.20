@@ -12,9 +12,6 @@
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body {
@@ -1369,6 +1366,20 @@ unsubscribeLeader = db.collection("rids")
     let designatedRiskMode = '';
     let showMobileFilters = false;
     let showMobileReportFilters = false;
+    let ridSearchFilters = {
+      text: '',
+      month: '',
+      year: '',
+      sector: '',
+      status: ''
+    };
+    let ridPaginationState = {
+      overdue: 1,
+      monthly: 1,
+      filtered: 1
+    };
+    let chartJsLoaderPromise = null;
+    let jsPdfLoaderPromise = null;
 
     // =========================
     // MAINTENANCES - ESTADO GLOBAL
@@ -1388,6 +1399,73 @@ window.blockAutoRender = function() {
   window.preventAutoRenderCount = (window.preventAutoRenderCount || 0) + 1;
   console.debug && console.debug('blockAutoRender ->', window.preventAutoRenderCount);
 };
+
+function loadExternalScript(src) {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing) {
+      if (existing.dataset.loaded === 'true') {
+        resolve();
+        return;
+      }
+      existing.addEventListener('load', () => resolve(), { once: true });
+      existing.addEventListener('error', () => reject(new Error(`Falha ao carregar ${src}`)), { once: true });
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.onload = () => {
+      script.dataset.loaded = 'true';
+      resolve();
+    };
+    script.onerror = () => reject(new Error(`Falha ao carregar ${src}`));
+    document.head.appendChild(script);
+  });
+}
+
+function ensureChartJsLoaded() {
+  if (window.Chart) return Promise.resolve();
+  if (!chartJsLoaderPromise) {
+    chartJsLoaderPromise = loadExternalScript('https://cdn.jsdelivr.net/npm/chart.js');
+  }
+  return chartJsLoaderPromise;
+}
+
+function ensureJsPdfLoaded() {
+  if (window.jspdf?.jsPDF) return Promise.resolve();
+  if (!jsPdfLoaderPromise) {
+    jsPdfLoaderPromise = loadExternalScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')
+      .then(() => loadExternalScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js'));
+  }
+  return jsPdfLoaderPromise;
+}
+
+function scheduleNonCriticalStartupTasks() {
+  const run = () => {
+    try {
+      if (!unsubscribeMaintenances && window.currentPage !== 'maintenances') {
+        listenMaintenancesRealtime();
+      }
+    } catch (error) {
+      console.warn('Falha ao iniciar manutenções em background:', error);
+    }
+
+    setTimeout(() => {
+      try { startLeaderNotifications(); } catch (error) { console.warn('Falha em startLeaderNotifications:', error); }
+      Promise.resolve()
+        .then(() => loadNotifications())
+        .catch(error => console.warn('Falha em loadNotifications:', error));
+    }, 200);
+  };
+
+  if (typeof window.requestIdleCallback === 'function') {
+    window.requestIdleCallback(run, { timeout: 1200 });
+  } else {
+    setTimeout(run, 400);
+  }
+}
 
 window.unblockAutoRender = function() {
   window.preventAutoRenderCount = Math.max(0, (window.preventAutoRenderCount || 1) - 1);
@@ -1745,20 +1823,14 @@ function toFirestoreDateFromInput(dateStr) {
     }
 
     function clearSearchFilters() {
-  // limpa os campos do filtro da tela de RIDs
-  const searchText = document.getElementById('searchText');
-  const searchMonth = document.getElementById('searchMonth');
-  const searchYear = document.getElementById('searchYear');
-  const searchSector = document.getElementById('searchSector');
-  const searchStatus = document.getElementById('searchStatus');
-
-  if (searchText) searchText.value = '';
-  if (searchMonth) searchMonth.value = '';
-  if (searchYear) searchYear.value = '';
-  if (searchSector) searchSector.value = '';
-  if (searchStatus) searchStatus.value = '';
-
-  // volta a lista para o padrão (mês atual)
+  ridSearchFilters = {
+    text: '',
+    month: '',
+    year: '',
+    sector: '',
+    status: ''
+  };
+  ridPaginationState = { overdue: 1, monthly: 1, filtered: 1 };
   renderSearchPage();
 }
 
@@ -3336,12 +3408,26 @@ window.rejectRidDeletionRequest = rejectRidDeletionRequest;
 // Data Loading Functions
 function listenRidsRealtimeAdmin() {
   return db.collection('rids')
-    .orderBy('createdAt', 'desc')
-    .limit(1000)
     .onSnapshot(
       snapshot => {
         // atualiza dados sempre (mantém state consistente)
-        allRids = snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data()) }));
+        allRids = snapshot.docs
+          .map(doc => ({ id: doc.id, ...(doc.data()) }))
+          .sort((a, b) => {
+            const ta =
+              a.createdAt?.toMillis?.() ||
+              a.emissionDate?.toMillis?.() ||
+              (a.createdAt ? new Date(a.createdAt).getTime() : 0) ||
+              (a.emissionDate ? new Date(a.emissionDate).getTime() : 0) ||
+              0;
+            const tb =
+              b.createdAt?.toMillis?.() ||
+              b.emissionDate?.toMillis?.() ||
+              (b.createdAt ? new Date(b.createdAt).getTime() : 0) ||
+              (b.emissionDate ? new Date(b.emissionDate).getTime() : 0) ||
+              0;
+            return tb - ta;
+          });
 
         // se houver bloqueio ativo (contador), não faz renders — apenas atualiza o state
         if (typeof window.isAutoRenderBlocked === 'function' && window.isAutoRenderBlocked()) {
@@ -5408,7 +5494,14 @@ const doughnutPercentCallouts = {
   }
 };
 
-   function renderDashboardStatusChart(openRids, overdueRids, correctedRids) {
+   async function renderDashboardStatusChart(openRids, overdueRids, correctedRids) {
+  try {
+    await ensureChartJsLoaded();
+  } catch (error) {
+    console.error('Erro ao carregar Chart.js:', error);
+    return;
+  }
+
   const canvas = document.getElementById('dashboardStatusChart');
   if (!canvas) return;
 
@@ -5874,7 +5967,400 @@ allRids = combined; // ✅ mantém compatível com renderEmployeeDashboard()
 }
 // ---------- FIM: cole esta função globalmente ----------
 
+function ensureRidSearchListenerStarted() {
+  if (isAdmin?.() || isDeveloper?.()) {
+    if (window.unsubscribeRidsListener) {
+      try { window.unsubscribeRidsListener(); } catch (e) {}
+      window.unsubscribeRidsListener = null;
+    }
+    window.allRidsReady = true;
+    return;
+  }
+
+  window.allRidsStarted = window.allRidsStarted || false;
+  window.allRidsReady = window.allRidsReady || false;
+  window.allRidsReadyPromise = window.allRidsReadyPromise || null;
+  window._resolveAllRidsReady = window._resolveAllRidsReady || null;
+
+  if (window.allRidsReady) return;
+
+  if (!window.allRidsReadyPromise) {
+    window.allRidsReadyPromise = new Promise((resolve) => {
+      window._resolveAllRidsReady = resolve;
+    });
+  }
+
+  const tryStart = (u) => {
+    if (!u?.uid || window.allRidsStarted) return;
+    window.allRidsStarted = true;
+    startRidsListener(u.uid);
+  };
+
+  const uNow = firebase?.auth?.().currentUser || firebase?.auth?.currentUser;
+  if (uNow?.uid) {
+    tryStart(uNow);
+  } else if (firebase?.auth) {
+    firebase.auth().onAuthStateChanged((u) => {
+      if (u) tryStart(u);
+    });
+  }
+}
+
+function ridSearchDateValue(r) {
+  if (!r) return null;
+  if (r.emissionDate && typeof r.emissionDate.toDate === 'function') return r.emissionDate.toDate();
+  if (r.createdAt && typeof r.createdAt.toDate === 'function') return r.createdAt.toDate();
+  if (r.emissionDate) {
+    const emission = new Date(r.emissionDate);
+    if (!isNaN(emission.getTime())) return emission;
+  }
+  if (r.createdAt) {
+    const created = new Date(r.createdAt);
+    if (!isNaN(created.getTime())) return created;
+  }
+  return null;
+}
+
+function normalizeRidStatus(status) {
+  return String(status || '')
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
+function ridSearchHasActiveFilters() {
+  return Object.values(ridSearchFilters).some(value => String(value || '').trim() !== '');
+}
+
+function ridSearchPageSize() {
+  return window.innerWidth < 768 ? 8 : 15;
+}
+
+function paginateRidSearchItems(rids, pageKey) {
+  const perPage = ridSearchPageSize();
+  const totalPages = Math.max(1, Math.ceil(rids.length / perPage));
+  const currentPage = Math.min(Math.max(ridPaginationState[pageKey] || 1, 1), totalPages);
+  ridPaginationState[pageKey] = currentPage;
+
+  return {
+    items: rids.slice((currentPage - 1) * perPage, currentPage * perPage),
+    page: currentPage,
+    totalPages,
+    totalItems: rids.length
+  };
+}
+
+function renderRidSearchPagination(pageKey, pageData) {
+  if (pageData.totalPages <= 1) return '';
+
+  return `
+    <div class="flex items-center justify-between gap-3 pt-2">
+      <p class="text-sm text-gray-500">Página ${pageData.page} de ${pageData.totalPages}</p>
+      <div class="flex items-center gap-2">
+        <button
+          onclick="setRidSearchPage('${pageKey}', ${pageData.page - 1})"
+          class="px-3 py-2 rounded-lg border border-gray-300 text-sm font-semibold ${pageData.page === 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}"
+          ${pageData.page === 1 ? 'disabled' : ''}
+        >
+          Anterior
+        </button>
+        <button
+          onclick="setRidSearchPage('${pageKey}', ${pageData.page + 1})"
+          class="px-3 py-2 rounded-lg border border-gray-300 text-sm font-semibold ${pageData.page === pageData.totalPages ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}"
+          ${pageData.page === pageData.totalPages ? 'disabled' : ''}
+        >
+          Próxima
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function renderRidSearchSection(title, rids, options = {}) {
+  const {
+    pageKey,
+    open = false,
+    badgeClass = 'bg-gray-100 text-gray-700',
+    emptyText = 'Nenhum RID encontrado'
+  } = options;
+
+  const pageData = paginateRidSearchItems(rids, pageKey);
+  const listMarkup = pageData.totalItems > 0
+    ? renderRidsList(pageData.items)
+    : `
+      <div class="bg-white rounded-xl shadow-lg p-12 text-center">
+        <p class="text-gray-500 text-lg">${emptyText}</p>
+      </div>
+    `;
+
+  return `
+    <details ${open ? 'open' : ''} class="bg-white rounded-xl shadow-lg">
+      <summary class="cursor-pointer select-none px-5 py-4 font-extrabold text-gray-800 flex items-center justify-between">
+        <span>${title}</span>
+        <span class="px-3 py-1 rounded-lg text-xs font-bold ${badgeClass}">${pageData.totalItems}</span>
+      </summary>
+      <div class="px-4 pb-4 space-y-4">
+        ${listMarkup}
+        ${renderRidSearchPagination(pageKey, pageData)}
+      </div>
+    </details>
+  `;
+}
+
+function getRidSearchFilteredResults() {
+  const text = String(ridSearchFilters.text || '').trim();
+  const month = ridSearchFilters.month;
+  const year = ridSearchFilters.year;
+  const sector = ridSearchFilters.sector;
+  const status = ridSearchFilters.status;
+
+  let filtered = allRids.filter(r => !r.deleted);
+
+  if (text) {
+    const normalize = (str) =>
+      (str || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+
+    const words = normalize(text).split(' ').filter(Boolean);
+    filtered = filtered.filter(r => {
+      const content = normalize(`
+        ${r.ridNumber}
+        ${r.emitterName}
+        ${r.location}
+        ${r.description}
+        ${r.sector}
+      `);
+      return words.some(word => content.includes(word));
+    });
+  }
+
+  if (month || year) {
+    filtered = filtered.filter(r => {
+      const d = ridSearchDateValue(r);
+      if (!d) return false;
+      if (month && d.getMonth() + 1 !== Number(month)) return false;
+      if (year && d.getFullYear() !== Number(year)) return false;
+      return true;
+    });
+  }
+
+  if (sector) {
+    filtered = filtered.filter(r => r.sector === sector);
+  }
+
+  if (status === 'SEM_LIDER') {
+    filtered = filtered.filter(r => !r.responsibleLeader || r.responsibleLeader === '');
+  } else if (status) {
+    filtered = filtered.filter(r => r.status === status);
+  }
+
+  return filtered;
+}
+
+function renderRidSearchListContainer() {
+  const container = document.getElementById('ridsListContainer');
+  if (!container) return;
+
+  if (ridSearchHasActiveFilters()) {
+    container.innerHTML = renderRidSearchSection('Resultados da busca', getRidSearchFilteredResults(), {
+      pageKey: 'filtered',
+      open: true,
+      badgeClass: 'bg-blue-100 text-blue-700',
+      emptyText: 'Nenhum RID encontrado com os filtros aplicados'
+    });
+    return;
+  }
+
+  const now = new Date();
+  const selectedMonth = Number(ridSearchFilters.month) || now.getMonth() + 1;
+  const selectedYear = Number(ridSearchFilters.year) || now.getFullYear();
+
+  const currentMonthRids = allRids
+    .filter(r => {
+      const d = ridSearchDateValue(r);
+      return !!d && (d.getMonth() + 1) === selectedMonth && d.getFullYear() === selectedYear;
+    });
+
+  const overdueRids = allRids
+    .filter(r => {
+      const d = ridSearchDateValue(r);
+      if (!d) return false;
+
+      const isBefore =
+        d.getFullYear() < selectedYear ||
+        (d.getFullYear() === selectedYear && (d.getMonth() + 1) < selectedMonth);
+
+      if (!isBefore) return false;
+
+      return normalizeRidStatus(r.status) === 'VENCIDO';
+    });
+
+  container.innerHTML = `
+    ${overdueRids.length > 0 ? renderRidSearchSection('Atrasados (meses anteriores)', overdueRids, {
+      pageKey: 'overdue',
+      badgeClass: 'bg-red-100 text-red-700'
+    }) : ''}
+    ${renderRidSearchSection('RIDs do mês selecionado', currentMonthRids, {
+      pageKey: 'monthly',
+      open: true
+    })}
+  `;
+}
+
+function syncRidSearchInputs() {
+  const searchText = document.getElementById('searchText');
+  const searchMonth = document.getElementById('searchMonth');
+  const searchYear = document.getElementById('searchYear');
+  const searchSector = document.getElementById('searchSector');
+  const searchStatus = document.getElementById('searchStatus');
+
+  if (searchText) searchText.value = ridSearchFilters.text || '';
+  if (searchMonth) searchMonth.value = ridSearchFilters.month || '';
+  if (searchYear) searchYear.value = ridSearchFilters.year || '';
+  if (searchSector) searchSector.value = ridSearchFilters.sector || '';
+  if (searchStatus) searchStatus.value = ridSearchFilters.status || '';
+}
+
+function renderSearchPageOptimized() {
+  document.body.style.overflow = 'hidden';
+  window.currentPage = 'search';
+  const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
+
+  ensureRidSearchListenerStarted();
+
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <div class="h-full flex flex-col">
+      ${renderHeader(config)}
+      ${renderNavigation('rids')}
+      
+      <div class="flex-1 overflow-auto p-8" style="background-color: #dfdfdf;">
+        <div class="w-full px-6 2xl:px-16">
+<div class="flex items-center justify-between gap-3 mb-6">
+  <h1 class="font-bold text-gray-800 text-2xl sm:text-3xl">
+    <span class="block sm:hidden">RIDs</span>
+    <span class="hidden sm:block">Gerenciamento de RIDs</span>
+  </h1>
+
+  <div class="flex gap-2">
+    <button
+      onclick="showMobileFilters = !showMobileFilters; renderSearchPage();"
+      class="sm:hidden px-4 py-2 rounded-xl font-bold text-sm border border-gray-300 bg-white"
+    >
+      Filtros
+    </button>
+
+    <button
+      onclick="showCreateRidModal()"
+      class="bg-green-300 text-white px-4 py-2 sm:px-5 sm:py-2.5 rounded-xl font-bold text-sm sm:text-base flex items-center gap-2"
+    >
+      <span class="text-lg leading-none">+</span>
+      <span>Novo RID</span>
+    </button>
+  </div>
+</div>
+
+         <div class="
+  bg-white rounded-xl shadow-lg p-6 mb-8
+  ${showMobileFilters ? 'block' : 'hidden sm:block'}
+">
+  <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+    <div>
+      <label class="block text-sm font-bold mb-2 text-gray-700">Buscar</label>
+      <input type="text" id="searchText" placeholder="RID, emissor ou local" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+    </div>
+
+    <div>
+      <label class="block text-sm font-bold mb-2 text-gray-700">Mês / Ano</label>
+      <div class="flex space-x-2">
+        <select id="searchMonth" class="w-1/2 px-4 py-2 border border-gray-300 rounded-lg">
+          <option value="">Mês</option>
+          <option value="1">Janeiro</option>
+          <option value="2">Fevereiro</option>
+          <option value="3">Março</option>
+          <option value="4">Abril</option>
+          <option value="5">Maio</option>
+          <option value="6">Junho</option>
+          <option value="7">Julho</option>
+          <option value="8">Agosto</option>
+          <option value="9">Setembro</option>
+          <option value="10">Outubro</option>
+          <option value="11">Novembro</option>
+          <option value="12">Dezembro</option>
+        </select>
+        <input type="number" id="searchYear" placeholder="Ano" min="2000" max="2100" class="w-1/2 px-4 py-2 border border-gray-300 rounded-lg">
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-sm font-bold mb-2 text-gray-700">Setor</label>
+      <select id="searchSector" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+        <option value="">Todos</option>
+        <option value="ADM">ADM</option>
+        <option value="M. MOVEL">M. MOVEL</option>
+        <option value="M. FIXA">M. FIXA</option>
+        <option value="M. ELÉTRICA">M. ELÉTRICA</option>
+        <option value="PRODUÇÃO">PRODUÇÃO</option>
+        <option value="MINA">MINA</option>
+      </select>
+    </div>
+
+    <div>
+      <label class="block text-sm font-bold mb-2 text-gray-700">Status</label>
+      <select id="searchStatus" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+        <option value="">Todos</option>
+        <option value="SEM_LIDER">SEM LIDER DESIGNADO</option>
+        <option value="EM ANDAMENTO">EM ANDAMENTO</option>
+        <option value="VENCIDO">VENCIDO</option>
+        <option value="CORRIGIDO">CORRIGIDO</option>
+        <option value="ENCERRADO">ENCERRADO</option>
+      </select>
+    </div>
+
+    <div class="flex items-end space-x-2">
+      <button onclick="searchRids()" class="flex-1 px-6 py-2 text-white rounded-lg font-bold hover:opacity-90 transition-opacity" style="background-color: #a8d5e2;">
+        Aplicar
+      </button>
+
+      <button
+        onclick="
+          clearSearchFilters();
+          if (window.innerWidth < 640) {
+            showMobileFilters = false;
+            renderSearchPage();
+          }
+        "
+        class="px-4 py-2 border rounded-lg font-semibold hover:bg-gray-50 transition-colors"
+        style="border-color: #9c9494; color: #808080;"
+        title="Limpar Filtros"
+      >
+        ✖
+      </button>
+    </div>
+  </div>
+</div>
+
+          <div id="ridsListContainer" class="space-y-4"></div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  syncRidSearchInputs();
+  renderRidSearchListContainer();
+}
+
+function setRidSearchPage(pageKey, page) {
+  ridPaginationState[pageKey] = Math.max(1, Number(page) || 1);
+  renderRidSearchListContainer();
+}
+
     function renderSearchPage() {
+      renderSearchPageOptimized();
+      return;
       document.body.style.overflow = 'hidden';
       window.currentPage = 'search';
       const config = window.elementSdk ? window.elementSdk.config : defaultConfig;
@@ -6292,6 +6778,17 @@ function getStatusColor(status) {
     }
 
     function searchRids() {
+      ridSearchFilters = {
+        text: document.getElementById('searchText')?.value || '',
+        month: document.getElementById('searchMonth')?.value || '',
+        year: document.getElementById('searchYear')?.value || '',
+        sector: document.getElementById('searchSector')?.value || '',
+        status: document.getElementById('searchStatus')?.value || ''
+      };
+      ridPaginationState.filtered = 1;
+      renderRidSearchListContainer();
+      return;
+
       const text = document.getElementById('searchText')?.value.toLowerCase() || '';
 const month = document.getElementById('searchMonth')?.value;
 const year = document.getElementById('searchYear')?.value;
@@ -10889,7 +11386,14 @@ Restaurado por: ${currentUserData.name}`;
 }
 
 
-function renderDevRiskChart(base) {
+async function renderDevRiskChart(base) {
+  try {
+    await ensureChartJsLoaded();
+  } catch (error) {
+    console.error('Erro ao carregar Chart.js:', error);
+    return;
+  }
+
   const canvas = document.getElementById('devRiskChart');
   if (!canvas) return;
 
@@ -10929,7 +11433,14 @@ function renderDevRiskChart(base) {
   });
 }
 
-function renderDashboardRiskChart(base) {
+async function renderDashboardRiskChart(base) {
+  try {
+    await ensureChartJsLoaded();
+  } catch (error) {
+    console.error('Erro ao carregar Chart.js:', error);
+    return;
+  }
+
   const canvas = document.getElementById('dashboardRiskChart');
   if (!canvas) return;
 
@@ -10989,6 +11500,7 @@ function clearDevFilters() {
 }
 
 async function generateRiskReportPDF() {
+  await ensureJsPdfLoaded();
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
 
@@ -11870,12 +12382,30 @@ if (!currentUserData) {
 
     // 🔥 Ativa o listener correto e renderiza a tela certa
     if (currentUserData.isAdmin || currentUserData.isDeveloper) {
-      await loadUsers();
-      await loadMonthlyGoal();
+      document.getElementById('app').innerHTML = `
+  <div class="h-full flex items-center justify-center" style="background:#dfdfdf;">
+    <div class="bg-white p-6 rounded-xl shadow-lg text-gray-700 font-bold">
+      Carregando dashboard...
+    </div>
+  </div>
+`;
 
-      // listener principal de RIDs (mantém seu padrão)
-      window.unsubscribeRids = listenRidsRealtimeAdmin();
-listenMaintenancesRealtime();
+      setTimeout(async () => {
+        try {
+          await loadUsers();
+          await loadMonthlyGoal();
+
+          if (window.unsubscribeRids) {
+            try { window.unsubscribeRids(); } catch (e) {}
+          }
+          window.unsubscribeRids = listenRidsRealtimeAdmin();
+
+          renderAdminDashboard();
+        } catch (error) {
+          console.error('Erro ao iniciar dashboard admin:', error);
+          showToast('Erro ao carregar dashboard', 'error');
+        }
+      }, 0);
 
       // inicia listener de deleteRequests (salva unsubscribe em window.unsubscribeDeleteRequests)
       if (typeof startDeleteRequestsListener === 'function') {
@@ -11902,8 +12432,6 @@ listenMaintenancesRealtime();
   });
       }
 
-      renderAdminDashboard();
-
     } else {
       // usuário comum: mostra tela de carregamento e só renderiza depois do 1º snapshot
 document.getElementById('app').innerHTML = `
@@ -11915,7 +12443,6 @@ document.getElementById('app').innerHTML = `
 `;
 
 window.unsubscribeRids = listenRidsRealtimeEmployee();
-listenMaintenancesRealtime();
 
 // força um re-render assim que chegar o 1º snapshot (sem depender do timing)
 window._employeeFirstSnapshot = true;
@@ -11931,8 +12458,7 @@ setTimeout(() => {
     }
 
     // notificações e carregamentos adicionais
-    startLeaderNotifications();
-    await loadNotifications();
+    scheduleNonCriticalStartupTasks();
 
   } else {
     // usuário deslogado: cleanup geral de listeners
