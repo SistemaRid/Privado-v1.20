@@ -1180,7 +1180,7 @@ function isResolvedStatus(status) {
 }
 
 function getPersonalMonthlyGoal(userData) {
-  return (userData?.isAdmin || userData?.isDeveloper) ? 8 : 4;
+  return getUserMonthlyGoalBase(userData);
 }
 
 function calcMyPerformanceStats(myRids) {
@@ -1487,7 +1487,7 @@ window.isAutoRenderBlocked = function() {
   users.forEach(user => {
     if (!user) return;
 
-    const metaBase = (user.isAdmin || user.isDeveloper) ? 8 : 4;
+    const metaBase = getUserMonthlyGoalBase(user);
 
     let descontoFerias = 0;
 
@@ -3953,7 +3953,48 @@ function toDateAny(v) {
     return isNaN(d.getTime()) ? null : d;
   }
   if (typeof v.toDate === 'function') return v.toDate(); // Firestore Timestamp
+  if (typeof v.seconds === 'number') {
+    const d = new Date(v.seconds * 1000);
+    return isNaN(d.getTime()) ? null : d;
+  }
   return null;
+}
+
+function formatDateForInput(value) {
+  const date = toDateAny(value);
+  if (!date || isNaN(date.getTime())) return '';
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getUserMonthlyGoalBase(user) {
+  if (user?.isAdmin || user?.isDeveloper) return 8;
+  return 4;
+}
+
+function getDashboardGoalContext() {
+  const now = new Date();
+  const monthRaw = document.getElementById('dashboardMonth')?.value ?? '';
+  const yearRaw = document.getElementById('dashboardYear')?.value ?? '';
+  const sector = document.getElementById('dashboardSector')?.value || '';
+
+  return {
+    month: (monthRaw && monthRaw !== 'all') ? Number(monthRaw) : (now.getMonth() + 1),
+    year: yearRaw ? Number(yearRaw) : now.getFullYear(),
+    sector,
+    showAllMonths: monthRaw === 'all'
+  };
+}
+
+function getGoalUsersForContext(users, sector) {
+  return (users || []).filter(u => {
+    if (!u || typeof u.name !== 'string') return false;
+    if (sector && u.sector !== sector) return false;
+    return true;
+  });
 }
 
 function clampDate(d, min, max) {
@@ -3987,7 +4028,7 @@ function calcAutoMonthlyGoal(users, year, month1to12) {
     .filter(u => u && typeof u.name === 'string') // só quem é usuário válido
     .forEach(u => {
       const isLeader = !!u.isAdmin || !!u.isDeveloper;
-      const base = isLeader ? 8 : 4;
+      const base = getUserMonthlyGoalBase(u);
 
       if (isLeader) leaderBase += base;
       else empBase += base;
@@ -4022,6 +4063,26 @@ function calcAutoMonthlyGoal(users, year, month1to12) {
   };
 }
 
+function refreshDashboardGoal() {
+  const { month, year, sector, showAllMonths } = getDashboardGoalContext();
+
+  if (showAllMonths) {
+    monthlyGoal = null;
+    window.monthlyGoalMeta = null;
+    window.monthlyGoalSource = 'auto';
+    updateGoalDisplay();
+    return;
+  }
+
+  const goalUsers = getGoalUsersForContext(allUsers || [], sector);
+  const meta = calcAutoMonthlyGoal(goalUsers, year, month);
+
+  monthlyGoal = meta.goal;
+  window.monthlyGoalMeta = meta;
+  window.monthlyGoalSource = 'auto';
+  updateGoalDisplay();
+}
+
 // guarda detalhamento para mostrar no card se quiser
 window.monthlyGoalMeta = window.monthlyGoalMeta || null;
 window.monthlyGoalSource = window.monthlyGoalSource || 'auto'; // 'auto' | 'manual'
@@ -4035,14 +4096,21 @@ window.monthlyGoalSource = window.monthlyGoalSource || 'auto'; // 'auto' | 'manu
   }
 
   try {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth() + 1; // 1..12
+    const { month, year, sector, showAllMonths } = getDashboardGoalContext();
+
+    if (showAllMonths) {
+      monthlyGoal = null;
+      window.monthlyGoalMeta = null;
+      window.monthlyGoalSource = 'auto';
+      updateGoalDisplay();
+      return;
+    }
+
     const monthYear = `${year}-${String(month).padStart(2, '0')}`;
 
     // 1) tenta meta manual (se existir)
     const goalDoc = await db.collection('goals').doc(monthYear).get();
-    if (goalDoc.exists && goalDoc.data()?.goal > 0) {
+    if (goalDoc.exists && goalDoc.data()?.goal > 0 && !sector) {
       monthlyGoal = Number(goalDoc.data().goal);
       window.monthlyGoalMeta = null;
       window.monthlyGoalSource = 'manual';
@@ -4051,7 +4119,7 @@ window.monthlyGoalSource = window.monthlyGoalSource || 'auto'; // 'auto' | 'manu
     }
 
     // 2) se não tiver manual, calcula automática (com férias)
-    const meta = calcAutoMonthlyGoal(allUsers || [], year, month);
+    const meta = calcAutoMonthlyGoal(getGoalUsersForContext(allUsers || [], sector), year, month);
     monthlyGoal = meta.goal;
     window.monthlyGoalMeta = meta;
     window.monthlyGoalSource = 'auto';
@@ -4177,8 +4245,24 @@ if (cardMobile) {
 
 
 } else {
-  display.textContent = '';
-  if (displayMobile) displayMobile.textContent = '';
+  const card = document.getElementById('statusRidsCard');
+  if (card) {
+    const oldBadge = card.querySelector('.goal-badge');
+    if (oldBadge) oldBadge.remove();
+  }
+  if (cardMobile) {
+    const oldBadgeMobile = cardMobile.querySelector('.goal-badge');
+    if (oldBadgeMobile) oldBadgeMobile.remove();
+  }
+  const { showAllMonths } = getDashboardGoalContext();
+  display.textContent = showAllMonths
+    ? 'Meta do Mês indisponível com o filtro "Todos os meses".'
+    : 'Meta do Mês indisponível para os filtros atuais.';
+  display.style.color = '#6b7280';
+  if (displayMobile) {
+    displayMobile.textContent = display.textContent;
+    displayMobile.style.color = display.style.color;
+  }
 }
 
     }
@@ -4790,7 +4874,7 @@ const month = now.getMonth() + 1;
 const dashMonth = Number(document.getElementById('dashboardMonth')?.value) || (new Date().getMonth() + 1);
 const dashYear  = Number(document.getElementById('dashboardYear')?.value)  || (new Date().getFullYear());
 
-monthlyGoal = calcularMetaMensalAutomatica(allUsers, dashYear, dashMonth);
+refreshDashboardGoal();
   console.debug && console.debug('renderDashboard called — currentPage=', window.currentPage, 'preventAutoRenderCount=', window.preventAutoRenderCount);
   // marca a página atual (usado por renderDeleteRequestsCard para ocultar botões)
   window.currentPage = 'dashboard';
@@ -5351,11 +5435,7 @@ startGoalDisplayWatcher();
 setTimeout(() => {
   try {
     // recalcula com base no mês/ano ativo do dashboard (se tiver filtro)
-    const dashMonthFix = Number(document.getElementById('dashboardMonth')?.value) || (new Date().getMonth() + 1);
-    const dashYearFix  = Number(document.getElementById('dashboardYear')?.value)  || (new Date().getFullYear());
-
-    monthlyGoal = calcularMetaMensalAutomatica(allUsers, dashYearFix, dashMonthFix);
-    updateGoalDisplay();
+    refreshDashboardGoal();
   } catch (e) {
     console.warn('Falha ao atualizar meta:', e);
   }
@@ -8005,8 +8085,8 @@ async function showEditEmployeeModal(userId) {
 
   // prepara valores de data para inputs type=date (yyyy-mm-dd)
   const vac = data.vacationPeriod || null;
-  const vacStart = vac && vac.start ? (new Date(vac.start).toISOString().slice(0,10)) : '';
-  const vacEnd   = vac && vac.end   ? (new Date(vac.end).toISOString().slice(0,10))   : '';
+  const vacStart = formatDateForInput(vac?.start);
+  const vacEnd   = formatDateForInput(vac?.end);
 
   // cria modal
   const modal = document.createElement('div');
