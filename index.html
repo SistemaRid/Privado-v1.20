@@ -1902,7 +1902,7 @@ function toFirestoreDateFromInput(dateStr) {
       event.preventDefault();
       const cpf = document.getElementById('loginCpf').value;
       const password = document.getElementById('loginPassword').value;
-      const button = event.target.querySelector('button[type="submit"]');
+      const button = document.getElementById('loginSubmitButton');
       
       button.disabled = true;
       button.textContent = 'Entrando...';
@@ -1914,7 +1914,25 @@ function toFirestoreDateFromInput(dateStr) {
         showToast('CPF ou senha incorretos', 'error');
         button.disabled = false;
         button.textContent = 'Entrar';
+        updateLoginButtonState();
       }
+    }
+
+    function updateLoginButtonState() {
+      const passwordInput = document.getElementById('loginPassword');
+      const button = document.getElementById('loginSubmitButton');
+
+      if (!passwordInput || !button || button.textContent === 'Entrando...') {
+        return;
+      }
+
+      const digitCount = (passwordInput.value.match(/\d/g) || []).length;
+      const isValid = digitCount === 6;
+
+      button.disabled = !isValid;
+      button.style.backgroundColor = isValid ? '#a8d5e2' : '#8fa9b5';
+      button.style.opacity = isValid ? '1' : '0.72';
+      button.style.cursor = isValid ? 'pointer' : 'not-allowed';
     }
 
     async function handleRegister(event) {
@@ -4384,9 +4402,10 @@ await db.collection('goals').doc(monthYear).set({
                 <div class="mb-6">
                   <label class="block text-sm font-bold mb-2 text-gray-800">Senha</label>
                   <input type="password" id="loginPassword" placeholder="••••••" 
-                    class="w-full px-4 py-3 border border-gray-300 rounded-lg" required>
+                    class="w-full px-4 py-3 border border-gray-300 rounded-lg" required
+                    maxlength="6" inputmode="numeric" oninput="updateLoginButtonState()">
                 </div>
-                <button type="submit" class="w-full text-white font-bold py-3 rounded-lg hover:opacity-90 transition-opacity" style="background-color: #a8d5e2;">
+                <button type="submit" id="loginSubmitButton" disabled class="w-full text-white font-bold py-3 rounded-lg hover:opacity-90 transition-all duration-300 ease-out disabled:hover:opacity-100" style="background-color: #8fa9b5; opacity: 0.72; cursor: not-allowed;">
                   Entrar
                 </button>
               </form>
