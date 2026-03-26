@@ -128,6 +128,15 @@
     setTimeout(() => toast.remove(), 3200);
   }
 
+  function clearAutoFocus() {
+    requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (active && typeof active.blur === "function" && /INPUT|TEXTAREA|SELECT/.test(active.tagName)) {
+        active.blur();
+      }
+    });
+  }
+
   function getOfflineAuth() {
     return loadStorage(STORAGE_KEYS.auth, null);
   }
@@ -803,6 +812,7 @@
     `;
 
     document.getElementById("login-form").addEventListener("submit", handleLogin);
+    clearAutoFocus();
   }
 
   function renderRidCard(item) {
@@ -1188,6 +1198,7 @@
     `;
 
     bindAppEvents();
+    clearAutoFocus();
   }
 
   function bindAppEvents() {
