@@ -135,6 +135,10 @@
     saveStorage(STORAGE_KEYS.auth, payload);
   }
 
+  function clearOfflineAuth() {
+    localStorage.removeItem(STORAGE_KEYS.auth);
+  }
+
   function loadUserCache(uid) {
     state.cachedRids = loadStorage(cacheKey(uid), []);
     state.pendingRids = loadStorage(pendingKey(uid), []);
@@ -689,6 +693,7 @@
     } catch (error) {
       console.warn("Falha ao sair do Firebase:", error);
     } finally {
+      clearOfflineAuth();
       state.currentUser = null;
       state.currentUserData = null;
       state.cachedRids = [];
@@ -1294,6 +1299,28 @@
     }, CONNECTIVITY_CHECK_INTERVAL);
 
     try {
+      const offlineAuth = getOfflineAuth();
+      if (offlineAuth?.uid && offlineAuth?.userData) {
+        state.currentUser = { uid: offlineAuth.uid };
+        state.currentUserData = offlineAuth.userData;
+        loadUserCache(offlineAuth.uid);
+
+        if (state.online) {
+          cacheRemoteData()
+            .then(async () => {
+              await syncPendingMaintenances();
+              renderApp();
+            })
+            .catch((error) => {
+              console.error("Falha ao atualizar cache do auto login:", error);
+              renderApp();
+            });
+        } else {
+          renderApp();
+        }
+        return;
+      }
+
       const restored = await bootstrapFromFirebaseSession();
       if (!restored) {
         const offlineAuth = getOfflineAuth();
