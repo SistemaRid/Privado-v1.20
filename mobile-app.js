@@ -32,7 +32,8 @@
     leaders: loadStorage(STORAGE_KEYS.leaders, []),
     modalOpen: false,
     maintenanceModalOpen: false,
-    selectedRidId: null
+    selectedRidId: null,
+    booting: true
   };
 
   const app = document.getElementById("app");
@@ -137,6 +138,33 @@
 
   function clearOfflineAuth() {
     localStorage.removeItem(STORAGE_KEYS.auth);
+  }
+
+  function setBooting(booting) {
+    state.booting = booting;
+    renderBootOverlay();
+  }
+
+  function renderBootOverlay() {
+    const existing = document.getElementById("boot-overlay");
+    if (!state.booting) {
+      existing?.remove();
+      return;
+    }
+
+    if (existing) return;
+
+    const overlay = document.createElement("div");
+    overlay.id = "boot-overlay";
+    overlay.className = "boot-overlay";
+    overlay.innerHTML = `
+      <div class="boot-card">
+        <div class="boot-spinner"></div>
+        <p class="boot-title">Carregando dados</p>
+        <p class="boot-copy">Aguarde enquanto o app restaura sua sessão e prepara os dados offline.</p>
+      </div>
+    `;
+    document.body.appendChild(overlay);
   }
 
   function loadUserCache(uid) {
@@ -1279,6 +1307,10 @@
 
   async function init() {
     renderLogin();
+    setBooting(true);
+    setTimeout(() => {
+      if (state.booting) setBooting(false);
+    }, 4000);
     await registerServiceWorker();
     await syncConnectivityState();
 
@@ -1309,13 +1341,16 @@
           cacheRemoteData()
             .then(async () => {
               await syncPendingMaintenances();
+              setBooting(false);
               renderApp();
             })
             .catch((error) => {
               console.error("Falha ao atualizar cache do auto login:", error);
+              setBooting(false);
               renderApp();
             });
         } else {
+          setBooting(false);
           renderApp();
         }
         return;
@@ -1328,6 +1363,7 @@
           state.currentUser = { uid: offlineAuth.uid };
           state.currentUserData = offlineAuth.userData;
           loadUserCache(offlineAuth.uid);
+          setBooting(false);
           renderApp();
         } else if (offlineAuth && state.online) {
           state.currentUser = { uid: offlineAuth.uid };
@@ -1337,12 +1373,18 @@
           cacheRemoteData()
             .then(async () => {
               await syncPendingMaintenances();
+              setBooting(false);
               renderApp();
             })
             .catch((error) => {
               console.error("Falha ao atualizar cache inicial:", error);
+              setBooting(false);
             });
+        } else {
+          setBooting(false);
         }
+      } else {
+        setBooting(false);
       }
     } catch (error) {
       console.error("Falha ao iniciar app mobile:", error);
