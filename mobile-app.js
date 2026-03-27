@@ -1046,7 +1046,7 @@
               </p>
             </div>
             <div class="actions">
-              <button class="btn btn-success" type="submit">Salvar no celular</button>
+              <button class="btn btn-success" type="submit">${state.online ? "Emitir RID" : "Emitir (pendente)"}</button>
               <button class="btn btn-soft" type="button" data-close-modal="true">Cancelar</button>
             </div>
           </form>
