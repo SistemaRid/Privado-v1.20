@@ -781,13 +781,14 @@
       <main class="app-shell">
         <section class="login-shell">
           <article class="hero-card">
-            <div class="brand-mark">RID</div>
-            <h1 class="hero-title">Login com cache local para uso no celular</h1>
+            <div class="brand-mark">
+              <img class="brand-mark-image" src="icon-192.png" alt="RID">
+            </div>
+            <h1 class="hero-title">Sistema RID's</h1>
             <p class="hero-copy">
               Faça o primeiro acesso com internet para baixar seus RIDs. Depois disso, o mesmo CPF e senha podem liberar o modo offline neste aparelho.
             </p>
             <div class="row-actions">
-              <span class="status-pill ${state.online ? "online" : "offline"}">${state.online ? "Online" : "Offline"}</span>
               ${offlineAuth ? `<span class="tiny-pill online">Cache pronto para ${maskCpf(offlineAuth.cpf)}</span>` : ""}
             </div>
             <form id="login-form" class="form-grid">
@@ -806,6 +807,7 @@
                 Sem internet e sem cache anterior, o login offline não consegue validar o usuário.
               </p>
             </form>
+            <span class="status-pill login-status-pill ${state.online ? "online" : "offline"}">${state.online ? "Online" : "Offline"}</span>
           </article>
         </section>
       </main>
