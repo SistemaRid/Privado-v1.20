@@ -130,6 +130,26 @@ button:disabled {
   padding: 7px 12px;
 }
 
+.offline-ready-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  padding: 7px 12px;
+}
+
+.offline-ready-pill.ready {
+  background: rgba(181, 231, 160, 0.35);
+  color: var(--success-strong);
+}
+
+.offline-ready-pill.not-ready {
+  background: rgba(255, 217, 160, 0.34);
+  color: #8c5d15;
+}
+
 .status-pill.online,
 .tiny-pill.online {
   background: rgba(181, 231, 160, 0.35);

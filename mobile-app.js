@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
   const firebaseConfig = {
     apiKey: "AIzaSyDAcuwo5FZBs5013klfSMfWkQZbFjqYpbw",
     authDomain: "novo-rid-dezembro.firebaseapp.com",
@@ -32,6 +32,8 @@
     leaders: loadStorage(STORAGE_KEYS.leaders, []),
     modalOpen: false,
     maintenanceModalOpen: false,
+    ridDraft: null,
+    maintenanceDraft: null,
     selectedRidId: null,
     booting: true
   };
@@ -51,6 +53,39 @@
 
   function saveStorage(key, value) {
     localStorage.setItem(key, JSON.stringify(value));
+  }
+
+  function captureFormDraft(form) {
+    const formData = new FormData(form);
+    const draft = {};
+    for (const [key, value] of formData.entries()) {
+      draft[key] = value;
+    }
+    return draft;
+  }
+
+  function restoreFormDraft(form, draft) {
+    if (!form || !draft) return;
+
+    Object.entries(draft).forEach(([key, value]) => {
+      const field = form.elements.namedItem(key);
+      if (!field || typeof field.value === "undefined") return;
+      field.value = value;
+    });
+  }
+
+  function bindDraftPersistence(formId, draftKey) {
+    const form = document.getElementById(formId);
+    if (!form) return;
+
+    restoreFormDraft(form, state[draftKey]);
+
+    const persistDraft = () => {
+      state[draftKey] = captureFormDraft(form);
+    };
+
+    form.addEventListener("input", persistDraft);
+    form.addEventListener("change", persistDraft);
   }
 
   function pendingKey(uid) {
@@ -170,7 +205,7 @@
       <div class="boot-card">
         <div class="boot-spinner"></div>
         <p class="boot-title">Carregando dados</p>
-        <p class="boot-copy">Aguarde enquanto o app restaura sua sessão e prepara os dados offline.</p>
+        <p class="boot-copy">Aguarde enquanto o app restaura sua sessÃ£o e prepara os dados offline.</p>
       </div>
     `;
     document.body.appendChild(overlay);
@@ -314,7 +349,7 @@
   }
 
   function getStatusLabel(item) {
-    if (item.isPendingLocal) return "PENDENTE DE SINCRONIZAÇÃO";
+    if (item.isPendingLocal) return "PENDENTE DE SINCRONIZAÃ‡ÃƒO";
     return String(item.status || "SEM STATUS").toUpperCase();
   }
 
@@ -361,7 +396,7 @@
       setLeaders(leaders);
       return leaders;
     } catch (error) {
-      console.warn("Falha ao atualizar líderes, usando cache local:", error);
+      console.warn("Falha ao atualizar lÃ­deres, usando cache local:", error);
       return hydrateCachedLeaders();
     }
   }
@@ -553,7 +588,7 @@
     try {
       const formData = new FormData(form);
       if (!String(formData.get("assignedTo") || "").trim()) {
-        showToast("Selecione um líder responsável.", "error");
+        showToast("Selecione um lÃ­der responsÃ¡vel.", "error");
         submitButton.disabled = false;
         return;
       }
@@ -561,16 +596,17 @@
       const payload = buildMaintenancePayload(formData);
       if (state.online) {
         await submitMaintenanceToFirestore(payload);
-        showToast("Sugestão enviada com sucesso.", "success");
+        showToast("SugestÃ£o enviada com sucesso.", "success");
       } else {
         savePendingMaintenance(payload);
-        showToast("Sugestão salva no celular. Ela será enviada quando a internet voltar.", "info");
+        showToast("SugestÃ£o salva no celular. Ela serÃ¡ enviada quando a internet voltar.", "info");
       }
 
+      state.maintenanceDraft = null;
       closeModal();
     } catch (error) {
       console.error("Erro ao salvar melhoria:", error);
-      showToast(`Erro ao salvar sugestão: ${error.message}`, "error");
+      showToast(`Erro ao salvar sugestÃ£o: ${error.message}`, "error");
     } finally {
       submitButton.disabled = false;
     }
@@ -585,7 +621,7 @@
     const leaderId = formData.get("responsibleLeader") || "";
 
     if (status === "VENCIDO" && !leaderId) {
-      showToast("Para RID vencido, selecione um líder.", "error");
+      showToast("Para RID vencido, selecione um lÃ­der.", "error");
       return;
     }
 
@@ -601,6 +637,7 @@
         "info"
       );
       state.currentPage = 1;
+      state.ridDraft = null;
       closeModal();
     } catch (error) {
       console.error("Erro ao enviar RID:", error);
@@ -614,7 +651,7 @@
     const pending = state.pendingRids.find((item) => item.localId === localId);
     if (!pending) return;
     if (!state.online) {
-      showToast("Conecte-se à internet para sincronizar.", "error");
+      showToast("Conecte-se Ã  internet para sincronizar.", "error");
       return;
     }
 
@@ -638,7 +675,7 @@
     }
 
     if (!state.online) {
-      showToast("Você está offline.", "error");
+      showToast("VocÃª estÃ¡ offline.", "error");
       return;
     }
 
@@ -649,7 +686,7 @@
 
   async function refreshData() {
     if (!state.online) {
-      showToast("Atualização disponível somente online.", "error");
+      showToast("AtualizaÃ§Ã£o disponÃ­vel somente online.", "error");
       return;
     }
 
@@ -679,7 +716,7 @@
         const credential = await auth.signInWithEmailAndPassword(email, password);
         const userDoc = await db.collection("users").doc(credential.user.uid).get();
         if (!userDoc.exists) {
-          throw new Error("Usuário não encontrado na base.");
+          throw new Error("UsuÃ¡rio nÃ£o encontrado na base.");
         }
 
         state.currentUser = { uid: credential.user.uid };
@@ -699,13 +736,13 @@
       } else {
         const offlineAuth = getOfflineAuth();
         if (!offlineAuth) {
-          throw new Error("Sem cache local. Faça o primeiro login com internet.");
+          throw new Error("Sem cache local. FaÃ§a o primeiro login com internet.");
         }
 
         const cpfMatches = offlineAuth.cpf === normalizeCpf(cpf);
         const passwordMatches = offlineAuth.passwordHash === await sha256(password);
         if (!cpfMatches || !passwordMatches) {
-          throw new Error("CPF ou senha não conferem com o cache local.");
+          throw new Error("CPF ou senha nÃ£o conferem com o cache local.");
         }
 
         state.currentUser = { uid: offlineAuth.uid };
@@ -746,18 +783,22 @@
   function openRidModal() {
     state.modalOpen = true;
     state.maintenanceModalOpen = false;
+    state.selectedRidId = null;
     renderApp();
   }
 
   function openMaintenanceModal() {
     state.maintenanceModalOpen = true;
     state.modalOpen = false;
+    state.selectedRidId = null;
     renderApp();
   }
 
   function closeModal() {
     state.modalOpen = false;
     state.maintenanceModalOpen = false;
+    state.ridDraft = null;
+    state.maintenanceDraft = null;
     state.selectedRidId = null;
     renderApp();
   }
@@ -777,6 +818,7 @@
 
   function renderLogin() {
     const offlineAuth = getOfflineAuth();
+    const offlineReady = Boolean(offlineAuth?.uid && offlineAuth?.cpf);
     app.innerHTML = `
       <main class="app-shell">
         <section class="login-shell">
@@ -786,9 +828,12 @@
             </div>
             <h1 class="hero-title">Sistema RID's</h1>
             <p class="hero-copy">
-              Faça o primeiro acesso com internet para baixar seus RIDs. Depois disso, o mesmo CPF e senha podem liberar o modo offline neste aparelho.
+              Fa&ccedil;a o primeiro acesso com internet para baixar seus RIDs. Depois disso, o mesmo CPF e senha podem liberar o modo offline neste aparelho.
             </p>
             <div class="row-actions">
+              <span class="offline-ready-pill ${offlineReady ? "ready" : "not-ready"}">
+                ${offlineReady ? "Pronto para abrir sem internet" : "Ainda n&atilde;o est&aacute; pronto sem internet"}
+              </span>
               ${offlineAuth ? `<span class="tiny-pill online">Cache pronto para ${maskCpf(offlineAuth.cpf)}</span>` : ""}
             </div>
             <form id="login-form" class="form-grid">
@@ -798,13 +843,13 @@
               </div>
               <div class="field">
                 <label for="password">Senha</label>
-                <input id="password" name="password" type="password" inputmode="numeric" maxlength="6" placeholder="••••••" required>
+                <input id="password" name="password" type="password" inputmode="numeric" maxlength="6" placeholder="******" required>
               </div>
               <div class="actions">
                 <button class="btn btn-primary" type="submit">Entrar</button>
               </div>
               <p class="helper-text">
-                Sem internet e sem cache anterior, o login offline não consegue validar o usuário.
+                Sem internet e sem cache anterior, o login offline n&atilde;o consegue validar o usu&aacute;rio.
               </p>
             </form>
             <span class="status-pill login-status-pill ${state.online ? "online" : "offline"}">${state.online ? "Online" : "Offline"}</span>
@@ -848,12 +893,12 @@
         </div>
         ${correctedAtCreation ? `
           <p class="rid-local-note" style="color:#8a6717;">
-            <strong>Ação imediata:</strong> ${escapeHtml(immediateAction)}
+            <strong>AÃ§Ã£o imediata:</strong> ${escapeHtml(immediateAction)}
           </p>
         ` : ""}
         ${correctiveActions ? `
           <p class="rid-local-note" style="color:#35653b;">
-            <strong>Ação corretiva:</strong> ${escapeHtml(correctiveActions)}
+            <strong>AÃ§Ã£o corretiva:</strong> ${escapeHtml(correctiveActions)}
           </p>
         ` : ""}
         <div class="rid-foot">
@@ -872,8 +917,8 @@
     return `
       <div class="pagination">
         <button class="btn btn-soft btn-small" data-page-nav="prev" ${pageData.page === 1 ? "disabled" : ""}>Anterior</button>
-        <span class="muted">Página ${pageData.page} de ${pageData.totalPages}</span>
-        <button class="btn btn-soft btn-small" data-page-nav="next" ${pageData.page === pageData.totalPages ? "disabled" : ""}>Próxima</button>
+        <span class="muted">PÃ¡gina ${pageData.page} de ${pageData.totalPages}</span>
+        <button class="btn btn-soft btn-small" data-page-nav="next" ${pageData.page === pageData.totalPages ? "disabled" : ""}>PrÃ³xima</button>
       </div>
     `;
   }
@@ -883,15 +928,15 @@
 
     const today = new Date().toISOString().slice(0, 10);
     const leaderOptions = state.leaders.length
-      ? state.leaders.map((leader) => `<option value="${escapeHtml(leader.id)}">${escapeHtml(leader.name || "Líder")}</option>`).join("")
-      : '<option value="">Nenhum líder disponível no cache</option>';
+      ? state.leaders.map((leader) => `<option value="${escapeHtml(leader.id)}">${escapeHtml(leader.name || "LÃ­der")}</option>`).join("")
+      : '<option value="">Nenhum lÃ­der disponÃ­vel no cache</option>';
 
     return `
       <div class="modal-root" id="rid-modal">
         <div class="modal-card">
           <div class="modal-head">
             <h2>Novo RID</h2>
-            <button type="button" class="close-btn" data-close-modal="true">×</button>
+            <button type="button" class="close-btn" data-close-modal="true">Ã—</button>
           </div>
           <form id="rid-form" class="form-grid">
             <div class="field">
@@ -902,7 +947,7 @@
               <label>Tipo de contrato</label>
               <select name="contractType" required>
                 <option value="">Selecione...</option>
-                <option value="Funcionário">Funcionário</option>
+                <option value="FuncionÃ¡rio">FuncionÃ¡rio</option>
                 <option value="Terceiro Contratado">Terceiro Contratado</option>
                 <option value="Terceiro Eventual">Terceiro Eventual</option>
                 <option value="Visitante">Visitante</option>
@@ -929,45 +974,45 @@
               <label>Incidente ou desvio</label>
               <select name="incidentType" required>
                 <option value="">Selecione...</option>
-                <option value="Condição de Risco">Condição de Risco</option>
+                <option value="CondiÃ§Ã£o de Risco">CondiÃ§Ã£o de Risco</option>
                 <option value="Desvio Comportamental">Desvio Comportamental</option>
                 <option value="Dano Material">Dano Material</option>
                 <option value="Quase acidente">Quase acidente</option>
               </select>
             </div>
             <div class="field">
-              <label>Origem da detecção</label>
+              <label>Origem da detecÃ§Ã£o</label>
               <select name="detectionOrigin" required>
                 <option value="">Selecione...</option>
                 <option value="CSL">CSL</option>
-                <option value="Inspeção programada">Inspeção programada</option>
-                <option value="Inspeção não programada">Inspeção não programada</option>
-                <option value="Observação Comportamental">Observação Comportamental</option>
-                <option value="Constatação espontânea">Constatação espontânea</option>
+                <option value="InspeÃ§Ã£o programada">InspeÃ§Ã£o programada</option>
+                <option value="InspeÃ§Ã£o nÃ£o programada">InspeÃ§Ã£o nÃ£o programada</option>
+                <option value="ObservaÃ§Ã£o Comportamental">ObservaÃ§Ã£o Comportamental</option>
+                <option value="ConstataÃ§Ã£o espontÃ¢nea">ConstataÃ§Ã£o espontÃ¢nea</option>
                 <option value="Auditoria">Auditoria</option>
               </select>
             </div>
             <div class="field">
               <label>Local</label>
-              <input name="location" required placeholder="Local da ocorrência">
+              <input name="location" required placeholder="Local da ocorrÃªncia">
             </div>
             <div class="field">
-              <label>Descrição</label>
-              <textarea name="description" required placeholder="Descreva a ocorrência"></textarea>
+              <label>DescriÃ§Ã£o</label>
+              <textarea name="description" required placeholder="Descreva a ocorrÃªncia"></textarea>
             </div>
             <div class="field">
-              <label>Classificação de risco</label>
+              <label>ClassificaÃ§Ã£o de risco</label>
               <select name="riskClassification" required>
                 <option value="">Selecione...</option>
                 <option value="Baixo">Baixo</option>
-                <option value="Médio">Médio</option>
+                <option value="MÃ©dio">MÃ©dio</option>
                 <option value="Alto">Alto</option>
-                <option value="Crítico">Crítico</option>
+                <option value="CrÃ­tico">CrÃ­tico</option>
               </select>
             </div>
             <div class="field">
-              <label>Ação imediata</label>
-              <textarea name="immediateAction" required placeholder="Descreva a ação imediata"></textarea>
+              <label>AÃ§Ã£o imediata</label>
+              <textarea name="immediateAction" required placeholder="Descreva a aÃ§Ã£o imediata"></textarea>
             </div>
             <div class="field">
               <label>Status inicial</label>
@@ -978,13 +1023,13 @@
               </select>
             </div>
             <div class="field">
-              <label>Líder responsável</label>
+              <label>LÃ­der responsÃ¡vel</label>
               <select name="responsibleLeader">
                 <option value="">Designar depois</option>
                 ${leaderOptions}
               </select>
               <p class="helper-text">
-                Se o status for VENCIDO, o líder é obrigatório. A lista é carregada do cache local quando estiver offline.
+                Se o status for VENCIDO, o lÃ­der Ã© obrigatÃ³rio. A lista Ã© carregada do cache local quando estiver offline.
               </p>
             </div>
             <div class="actions">
@@ -1001,15 +1046,15 @@
     if (!state.maintenanceModalOpen) return "";
 
     const leaderOptions = state.leaders.length
-      ? state.leaders.map((leader) => `<option value="${escapeHtml(leader.id)}">${escapeHtml(leader.name || "Líder")}</option>`).join("")
-      : '<option value="">Nenhum líder disponível no cache</option>';
+      ? state.leaders.map((leader) => `<option value="${escapeHtml(leader.id)}">${escapeHtml(leader.name || "LÃ­der")}</option>`).join("")
+      : '<option value="">Nenhum lÃ­der disponÃ­vel no cache</option>';
 
     return `
       <div class="modal-root" id="maintenance-modal">
         <div class="modal-card">
           <div class="modal-head">
             <h2>Melhorias</h2>
-            <button type="button" class="close-btn" data-close-modal="true">×</button>
+            <button type="button" class="close-btn" data-close-modal="true">Ã—</button>
           </div>
           <form id="maintenance-form" class="form-grid">
             <div class="field">
@@ -1017,40 +1062,40 @@
               <select name="kind" required>
                 <option value="">Selecione...</option>
                 <option value="Melhoria">Melhoria</option>
-                <option value="Manutenção">Manutenção</option>
+                <option value="ManutenÃ§Ã£o">ManutenÃ§Ã£o</option>
               </select>
             </div>
             <div class="field">
               <label>Equipamento ou item</label>
-              <input name="item" required placeholder="Ex: corrimão, motor, iluminação">
+              <input name="item" required placeholder="Ex: corrimÃ£o, motor, iluminaÃ§Ã£o">
             </div>
             <div class="field">
               <label>Local</label>
-              <input name="location" required placeholder="Onde precisa da ação">
+              <input name="location" required placeholder="Onde precisa da aÃ§Ã£o">
             </div>
             <div class="field">
               <label>Prioridade</label>
               <select name="priority" required>
                 <option value="BAIXA">Baixa</option>
-                <option value="MEDIA" selected>Média</option>
+                <option value="MEDIA" selected>MÃ©dia</option>
                 <option value="ALTA">Alta</option>
-                <option value="CRITICA">Crítica</option>
+                <option value="CRITICA">CrÃ­tica</option>
               </select>
             </div>
             <div class="field">
               <label>Designar para</label>
               <select name="assignedTo" required>
-                <option value="">Selecione um líder...</option>
+                <option value="">Selecione um lÃ­der...</option>
                 ${leaderOptions}
               </select>
               <p class="helper-text">A lista usa o cache local quando estiver offline.</p>
             </div>
             <div class="field">
-              <label>Descrição</label>
-              <textarea name="description" required placeholder="Descreva a melhoria ou manutenção necessária"></textarea>
+              <label>DescriÃ§Ã£o</label>
+              <textarea name="description" required placeholder="Descreva a melhoria ou manutenÃ§Ã£o necessÃ¡ria"></textarea>
             </div>
             <div class="actions">
-              <button class="btn btn-success" type="submit">Enviar sugestão</button>
+              <button class="btn btn-success" type="submit">Enviar sugestÃ£o</button>
               <button class="btn btn-soft" type="button" data-close-modal="true">Cancelar</button>
             </div>
           </form>
@@ -1075,7 +1120,7 @@
         <div class="modal-card">
           <div class="modal-head">
             <h2>${item.ridNumber ? `RID #${escapeHtml(item.ridNumber)}` : "RID pendente"}</h2>
-            <button type="button" class="close-btn" data-close-modal="true">×</button>
+            <button type="button" class="close-btn" data-close-modal="true">Ã—</button>
           </div>
           <div class="form-grid" style="margin-top:0;">
             <div class="field">
@@ -1085,18 +1130,18 @@
               </div>
             </div>
             <div class="field">
-              <label>Descrição</label>
-              <div class="muted" style="color:#213043;">${escapeHtml(item.description || "Sem descrição")}</div>
+              <label>DescriÃ§Ã£o</label>
+              <div class="muted" style="color:#213043;">${escapeHtml(item.description || "Sem descriÃ§Ã£o")}</div>
             </div>
             ${correctedAtCreation ? `
               <div class="field">
-                <label>Ação imediata</label>
+                <label>AÃ§Ã£o imediata</label>
                 <div class="muted" style="color:#8a6717;">${escapeHtml(immediateAction)}</div>
               </div>
             ` : ""}
             ${correctiveActions ? `
               <div class="field">
-                <label>Ação corretiva</label>
+                <label>AÃ§Ã£o corretiva</label>
                 <div class="muted" style="color:#35653b;">${escapeHtml(correctiveActions)}</div>
               </div>
             ` : ""}
@@ -1117,9 +1162,9 @@
           <header class="topbar panel">
             <div class="topbar-meta">
               <h1 style="font-size:1.1rem; line-height:1.15; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                ${escapeHtml(state.currentUserData.name || "Usuário")}
+                ${escapeHtml(state.currentUserData.name || "UsuÃ¡rio")}
               </h1>
-              <span class="muted" style="font-size:0.84rem;">${escapeHtml(state.currentUserData.userType || "Funcionário")}</span>
+              <span class="muted" style="font-size:0.84rem;">${escapeHtml(state.currentUserData.userType || "FuncionÃ¡rio")}</span>
               <span class="muted" style="font-size:0.84rem;">${escapeHtml(state.currentUserData.sector || "Sem setor")}</span>
             </div>
             <div class="topbar-actions">
@@ -1130,7 +1175,7 @@
 
           ${!state.online ? `
             <div class="offline-banner">
-              Sem internet: seus RIDs vieram do cache local. Novos RIDs ficam pendentes até você clicar em sincronizar.
+              Sem internet: seus RIDs vieram do cache local. Novos RIDs ficam pendentes atÃ© vocÃª clicar em sincronizar.
             </div>
           ` : ""}
 
@@ -1147,7 +1192,7 @@
               <article class="stats-card blue-soft">
                 <div class="stats-label">Corrigidos</div>
                 <div class="stats-value">${stats.corrected}</div>
-                <div class="stats-foot">RIDs concluídos na base</div>
+                <div class="stats-foot">RIDs concluÃ­dos na base</div>
               </article>
               <article class="stats-card green-soft">
                 <div class="stats-label">Pendentes sync</div>
@@ -1170,9 +1215,9 @@
               border:1px solid ${monthProgress.hitGoal ? "#cfe8c8" : "#f1ddb0"};
               color:${monthProgress.hitGoal ? "#35653b" : "#8a6717"};
             ">
-              Você emitiu <strong>${monthProgress.emittedThisMonth}</strong> RID${monthProgress.emittedThisMonth === 1 ? "" : "s"} no mês atual.
-              Sua meta é <strong>${monthProgress.goal}</strong>.
-              <strong>${monthProgress.hitGoal ? "Meta atingida" : "Meta não atingida"}</strong>.
+              VocÃª emitiu <strong>${monthProgress.emittedThisMonth}</strong> RID${monthProgress.emittedThisMonth === 1 ? "" : "s"} no mÃªs atual.
+              Sua meta Ã© <strong>${monthProgress.goal}</strong>.
+              <strong>${monthProgress.hitGoal ? "Meta atingida" : "Meta nÃ£o atingida"}</strong>.
             </div>
           </section>
 
@@ -1189,7 +1234,7 @@
             <article class="panel">
               ${pageData.totalItems
                 ? `<div class="rid-list">${pageData.items.map(renderRidCard).join("")}</div>${renderPagination(pageData)}`
-                : `<div class="empty-state">Nenhum RID disponível no cache local.</div>`}
+                : `<div class="empty-state">Nenhum RID disponÃ­vel no cache local.</div>`}
             </article>
           </section>
         </section>
@@ -1209,6 +1254,8 @@
     document.getElementById("maintenance-btn")?.addEventListener("click", openMaintenanceModal);
     document.getElementById("rid-form")?.addEventListener("submit", handleRidSubmit);
     document.getElementById("maintenance-form")?.addEventListener("submit", handleMaintenanceSubmit);
+    bindDraftPersistence("rid-form", "ridDraft");
+    bindDraftPersistence("maintenance-form", "maintenanceDraft");
 
     document.querySelectorAll("[data-sync-rid]").forEach((button) => {
       button.addEventListener("click", (event) => {
@@ -1269,7 +1316,7 @@
     }
 
     renderApp();
-    showToast(nextOnline ? "Internet disponível." : "Modo offline ativo.", nextOnline ? "success" : "info");
+    showToast(nextOnline ? "Internet disponÃ­vel." : "Modo offline ativo.", nextOnline ? "success" : "info");
 
     if (nextOnline) {
       cacheRemoteData()
@@ -1279,7 +1326,7 @@
         })
         .catch((error) => {
           console.error("Falha ao atualizar dados ao reconectar:", error);
-          showToast("Não foi possível atualizar os RIDs ao reconectar.", "error");
+          showToast("NÃ£o foi possÃ­vel atualizar os RIDs ao reconectar.", "error");
         });
     }
   }
@@ -1293,7 +1340,7 @@
     }
 
     syncConnectivityState().then((actualOnline) => {
-      showToast(actualOnline ? "Internet disponível." : "Modo offline ativo.", actualOnline ? "success" : "info");
+      showToast(actualOnline ? "Internet disponÃ­vel." : "Modo offline ativo.", actualOnline ? "success" : "info");
 
       if (actualOnline && state.currentUser) {
         cacheRemoteData()
@@ -1303,7 +1350,7 @@
           })
           .catch((error) => {
             console.error("Falha ao atualizar dados ao reconectar:", error);
-            showToast("Não foi possível atualizar os RIDs ao reconectar.", "error");
+            showToast("NÃ£o foi possÃ­vel atualizar os RIDs ao reconectar.", "error");
           });
       }
     });
@@ -1330,17 +1377,11 @@
     window.addEventListener("online", () => updateConnectivity(true));
     window.addEventListener("offline", () => updateConnectivity(false));
     window.addEventListener("focus", () => {
-      syncConnectivityState().then(() => {
-        if (state.currentUser) renderApp();
-        else renderLogin();
-      });
+      syncConnectivityState();
     });
 
     setInterval(() => {
-      syncConnectivityState().then(() => {
-        if (state.currentUser) renderApp();
-        else renderLogin();
-      });
+      syncConnectivityState();
     }, CONNECTIVITY_CHECK_INTERVAL);
 
     try {
@@ -1401,9 +1442,10 @@
       }
     } catch (error) {
       console.error("Falha ao iniciar app mobile:", error);
-      showToast("Não foi possível restaurar a sessão.", "error");
+      showToast("NÃ£o foi possÃ­vel restaurar a sessÃ£o.", "error");
     }
   }
 
   init();
 })();
+

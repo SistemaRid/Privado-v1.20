@@ -1,9 +1,9 @@
-const CACHE_NAME = "rid-mobile-offline-v1";
+const CACHE_NAME = "rid-mobile-offline-v2";
 const APP_SHELL = [
   "./mobile.html",
   "./mobile.css",
   "./mobile-app.js",
-  "./manifest.json",
+  "./mobile-manifest.json",
   "./icon.png",
   "./icon-192.png",
   "./logo.png"
@@ -18,7 +18,13 @@ const EXTERNAL_ASSETS = [
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
-    await cache.addAll(APP_SHELL);
+    await Promise.all(APP_SHELL.map(async (asset) => {
+      try {
+        await cache.add(asset);
+      } catch (error) {
+        console.warn("Falha ao salvar asset no cache:", asset, error);
+      }
+    }));
 
     await Promise.allSettled(EXTERNAL_ASSETS.map(async (url) => {
       const response = await fetch(new Request(url, { mode: "no-cors" }));
@@ -50,9 +56,7 @@ self.addEventListener("fetch", (event) => {
     "www.googleapis.com",
     "securetoken.googleapis.com",
     "identitytoolkit.googleapis.com",
-    "firebaseinstallations.googleapis.com",
-    "gstatic.com",
-    "www.gstatic.com"
+    "firebaseinstallations.googleapis.com"
   ];
 
   if (bypassHosts.some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`))) {
