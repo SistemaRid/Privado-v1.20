@@ -361,9 +361,10 @@
 
   function serializeRid(doc) {
     const data = doc.data();
+    const normalizedRidNumber = formatRidNumber(data.ridNumber);
     return {
       id: doc.id,
-      ridNumber: data.ridNumber || null,
+      ridNumber: normalizedRidNumber || null,
       emitterId: data.emitterId || null,
       emitterName: data.emitterName || "",
       emitterCpf: data.emitterCpf || "",
@@ -445,7 +446,7 @@
         lastNumber: next,
         value: typeof data.value === "number" ? data.value : 0
       }, { merge: true });
-      return next;
+      return String(next).padStart(5, "0");
     });
   }
 
@@ -622,26 +623,32 @@
     event.preventDefault();
     const form = event.target;
     const submitButton = form.querySelector('button[type="submit"]');
-    const formData = new FormData(form);
-    const status = String(formData.get("status") || "").toUpperCase();
-    const leaderId = formData.get("responsibleLeader") || "";
-
-    if (status === "VENCIDO" && !leaderId) {
-      showToast("Para RID vencido, selecione um líder.", "error");
-      return;
-    }
-
     submitButton.disabled = true;
-    const payload = buildRidPayload(formData);
 
     try {
-      savePendingRid(payload);
-      showToast(
-        state.online
-          ? "RID salva no celular. Clique em sincronizar para enviar."
-          : "RID salva no celular. Sincronize quando voltar a internet.",
-        "info"
-      );
+      await syncConnectivityState();
+
+      const formData = new FormData(form);
+      const status = String(formData.get("status") || "").toUpperCase();
+      const leaderId = formData.get("responsibleLeader") || "";
+
+      if (status === "VENCIDO" && !leaderId) {
+        showToast("Para RID vencido, selecione um líder.", "error");
+        return;
+      }
+
+      const payload = buildRidPayload(formData);
+
+      if (state.online) {
+        await submitRidToFirestore(payload);
+        await cacheRemoteData();
+        persistUserCache();
+        showToast("RID enviada com sucesso.", "success");
+      } else {
+        savePendingRid(payload);
+        showToast("RID salva no celular. Sincronize quando voltar a internet.", "info");
+      }
+
       state.currentPage = 1;
       state.ridDraft = null;
       closeModal();

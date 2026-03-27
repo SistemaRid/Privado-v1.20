@@ -2943,7 +2943,7 @@ async function requestRidDeletion(ridId, reason) {
           ridId: ridId,
           ridNumber: rid.ridNumber,
           title: 'Nova Solicitação de Exclusão',
-          message: `${currentUserData.name} solicitou exclusão do RID #${rid.ridNumber}`,
+          message: `${currentUserData.name} solicitou exclusão do RID #${formatRidNumber(rid.ridNumber)}`,
           ridLocation: rid.location || null,
           deadline: null
         });
@@ -3556,7 +3556,7 @@ function renderRidHistoryPage() {
 
     // gerar linhas com cuidado com aspas no onclick (escape seguro)
     const rows = list.map(h => {
-      const ridNumber = h.ridNumber || h.ridId || '-';
+      const ridNumber = formatRidNumber(h.ridNumber || h.ridId || '-');
 
       // emitter: tenta vários campos possíveis
       const emitter = h.emitterName || h.emitter || h.emitterId || h.emitterCPF || '-';
@@ -5283,14 +5283,14 @@ const correctedRidsStatus = ridsMesCreatedAt.filter(r => {
                   <div class="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow cursor-pointer p-4" onclick="showRidDetails('${rid.id}')">
                     <div class="flex items-center justify-between w-full">
                       <div class="block md:hidden">
-                        <p class="text-sm font-bold text-gray-800">RID #${rid.ridNumber}</p>
+                        <p class="text-sm font-bold text-gray-800">RID #${formatRidNumber(rid.ridNumber)}</p>
                         <p class="text-xs text-gray-600">${rid.emitterName}</p>
                       </div>
 
                       <div class="hidden md:flex items-center space-x-6 flex-1">
                         <div class="flex items-center space-x-2">
                           <span class="text-xs font-bold text-gray-500">Nº</span>
-                          <span class="px-4 py-2 text-white font-bold rounded-lg text-base" style="background-color: #a8d5e2;">${rid.ridNumber}</span>
+                          <span class="px-4 py-2 text-white font-bold rounded-lg text-base" style="background-color: #a8d5e2;">${formatRidNumber(rid.ridNumber)}</span>
                         </div>
 
                         <div class="w-40 min-w-0">
@@ -6764,6 +6764,12 @@ function isAdminOrDev() {
   return isAdmin() || isDeveloper();
 }
 
+function formatRidNumber(value) {
+  const digits = String(value ?? '').replace(/\D/g, '');
+  if (!digits) return String(value ?? '—');
+  return digits.padStart(5, '0');
+}
+
 
     function renderRidsList(rids) {
   if (rids.length === 0) {
@@ -6782,7 +6788,7 @@ function isAdminOrDev() {
         onclick="showRidDetails('${rid.id}')"
       >
         <div class="font-bold text-gray-800 text-lg">
-          RID #${rid.ridNumber}
+          RID #${formatRidNumber(rid.ridNumber)}
         </div>
 
         <div class="text-sm text-gray-600 mt-1">
@@ -6802,7 +6808,7 @@ function isAdminOrDev() {
             <span class="text-xs font-bold text-gray-500">Nº</span>
             <span class="px-4 py-2 text-white font-bold rounded-lg text-base"
                   style="background-color: #a8d5e2;">
-              ${rid.ridNumber}
+              ${formatRidNumber(rid.ridNumber)}
             </span>
           </div>
 
@@ -7303,7 +7309,7 @@ const rid = { id: ridSnap.id, ...ridSnap.data() };
           <div class="sticky top-0 bg-white border-b-2 px-4 md:px-8 py-4 md:py-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3"  style="border-color: #a8d5e2;">
             <div class="flex items-center space-x-4">
               <span class="px-6 py-3 text-white font-bold rounded-lg text-xl" style="background-color: #a8d5e2;">
-                #${rid.ridNumber}
+                #${formatRidNumber(rid.ridNumber)}
               </span>
               <h2 class="text-2xl font-bold text-gray-800">Detalhes da RID</h2>
             </div>
@@ -8643,7 +8649,7 @@ const ridRequests = await Promise.all(
           : ridRequests.map(req => `
             <div class="bg-white rounded-xl shadow-md p-6 mb-4">
               <p class="font-bold text-gray-800 mb-1">
-                RID #${req.ridNumber || '—'}
+                RID #${formatRidNumber(req.ridNumber || '—')}
               </p>
 
               <p class="text-sm text-gray-500 mb-2">
@@ -9775,7 +9781,7 @@ function toggleResolvedMaintenances() {
     return `
       <tr class="hover:bg-gray-50 cursor-pointer" onclick="showRidDetails('${rid.id}')">
         <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.unit || '-'}</td>
-        <td class="px-4 py-3 text-sm font-bold text-gray-800 whitespace-nowrap">${rid.ridNumber}</td>
+        <td class="px-4 py-3 text-sm font-bold text-gray-800 whitespace-nowrap">${formatRidNumber(rid.ridNumber)}</td>
         <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${formatDate(rid.emissionDate)}</td>
         <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.emitterName}</td>
         <td class="px-4 py-3 text-sm text-gray-800 whitespace-nowrap">${rid.contractType || '-'}</td>
@@ -10695,7 +10701,7 @@ const sectorRanking = Object.entries(sectorRisk)
       <!-- ESQUERDA -->
       <div class="flex items-center gap-3 min-w-0">
         <span class="font-semibold text-gray-800 whitespace-nowrap">
-          RID #${r.ridNumber || '—'}
+          RID #${formatRidNumber(r.ridNumber || '—')}
         </span>
 
         <span class="text-xs bg-gray-300 text-gray-700 px-2 py-0.5 rounded-full">
