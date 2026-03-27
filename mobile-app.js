@@ -353,6 +353,12 @@
     return String(item.status || "SEM STATUS").toUpperCase();
   }
 
+  function formatRidNumber(ridNumber) {
+    const digits = String(ridNumber ?? "").replace(/\D/g, "");
+    if (!digits) return "";
+    return digits.padStart(5, "0");
+  }
+
   function serializeRid(doc) {
     const data = doc.data();
     return {
@@ -884,7 +890,7 @@
       <article class="rid-card" data-open-rid="${escapeHtml(item.localId || item.id)}" style="cursor:pointer;">
         <div class="rid-head">
           <div>
-            <h3 class="rid-title">${item.ridNumber ? `RID #${escapeHtml(item.ridNumber)}` : "RID pendente"}</h3>
+            <h3 class="rid-title">${item.ridNumber ? `RID #${escapeHtml(formatRidNumber(item.ridNumber))}` : "RID pendente"}</h3>
           </div>
           <span class="badge ${badgeClass}">${getStatusLabel(item)}</span>
         </div>
@@ -1119,7 +1125,7 @@
       <div class="modal-root" id="rid-details-modal">
         <div class="modal-card">
           <div class="modal-head">
-            <h2>${item.ridNumber ? `RID #${escapeHtml(item.ridNumber)}` : "RID pendente"}</h2>
+            <h2>${item.ridNumber ? `RID #${escapeHtml(formatRidNumber(item.ridNumber))}` : "RID pendente"}</h2>
             <button type="button" class="close-btn" data-close-modal="true">×</button>
           </div>
           <div class="form-grid" style="margin-top:0;">
