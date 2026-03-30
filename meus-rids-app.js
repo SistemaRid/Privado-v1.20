@@ -21,6 +21,7 @@
     currentUserData: null,
     allRids: [],
     allDeleteRequests: [],
+    leaders: [],
     unsubRids: null,
     unsubDeleteRequests: null,
     selectedRidId: null
@@ -44,10 +45,20 @@
     performanceHint: document.getElementById("performanceHint"),
     myRidsCount: document.getElementById("myRidsCount"),
     myRidsList: document.getElementById("myRidsList"),
+    openNewRidModalButton: document.getElementById("openNewRidModalButton"),
     myRidModal: document.getElementById("myRidModal"),
     myRidModalTitle: document.getElementById("myRidModalTitle"),
     myRidModalBody: document.getElementById("myRidModalBody"),
-    myRidModalClose: document.getElementById("myRidModalClose")
+    myRidModalClose: document.getElementById("myRidModalClose"),
+    newRidModal: document.getElementById("newRidModal"),
+    newRidModalClose: document.getElementById("newRidModalClose"),
+    newRidForm: document.getElementById("newRidForm"),
+    newRidEmitter: document.getElementById("newRidEmitter"),
+    newRidEmissionDate: document.getElementById("newRidEmissionDate"),
+    newRidResponsibleLeader: document.getElementById("newRidResponsibleLeader"),
+    newRidCancel: document.getElementById("newRidCancel"),
+    newRidSubmit: document.getElementById("newRidSubmit"),
+    newRidFeedback: document.getElementById("newRidFeedback")
   };
 
   function updateAdminNavigation() {
@@ -125,6 +136,134 @@
   function formatField(value, fallback = "-") {
     const text = String(value ?? "").trim();
     return text || fallback;
+  }
+
+  function setNewRidFeedback(message, isError = true) {
+    dom.newRidFeedback.textContent = message;
+    dom.newRidFeedback.classList.toggle("hidden-state", !message);
+    dom.newRidFeedback.className = `${isError ? "text-sm text-red-500" : "text-sm text-emerald-600"}${message ? "" : " hidden-state"}`;
+  }
+
+  async function loadLeaders() {
+    try {
+      const snapshot = await db.collection("leaders_public").get();
+      state.leaders = snapshot.docs
+        .map((doc) => ({ id: doc.id, ...doc.data() }))
+        .filter((leader) => leader.isDeveloper !== true)
+        .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "pt-BR"));
+    } catch (error) {
+      state.leaders = [];
+    }
+  }
+
+  function renderLeaderOptions() {
+    const baseOption = '<option value="">Selecione...</option>';
+    const options = state.leaders.map((leader) => `<option value="${escapeHtml(leader.id)}">${escapeHtml(leader.name || "Lider")}</option>`).join("");
+    dom.newRidResponsibleLeader.innerHTML = baseOption + options;
+  }
+
+  function resetNewRidForm() {
+    dom.newRidForm.reset();
+    dom.newRidEmitter.textContent = formatField(state.currentUserData?.name, "-");
+    dom.newRidEmissionDate.value = new Date().toISOString().slice(0, 10);
+    renderLeaderOptions();
+    if (state.currentUserData?.unit) {
+      const unitSelect = dom.newRidForm.querySelector('[name="unit"]');
+      if (unitSelect) unitSelect.value = state.currentUserData.unit;
+    }
+    if (state.currentUserData?.contractType) {
+      const contractTypeSelect = dom.newRidForm.querySelector('[name="contractType"]');
+      if (contractTypeSelect) contractTypeSelect.value = state.currentUserData.contractType;
+    }
+    setNewRidFeedback("");
+  }
+
+  function openNewRidModal() {
+    resetNewRidForm();
+    dom.newRidModal.classList.add("visible");
+  }
+
+  function closeNewRidModal() {
+    dom.newRidModal.classList.remove("visible");
+    setNewRidFeedback("");
+  }
+
+  async function getNextRidNumberSafe() {
+    const counterRef = db.collection("counters").doc("rids");
+    return db.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(counterRef);
+      const data = snapshot.exists ? snapshot.data() || {} : {};
+      const current = typeof data.lastNumber === "number"
+        ? data.lastNumber
+        : (typeof data.value === "number" ? data.value : 0);
+      const next = current + 1;
+      transaction.set(counterRef, {
+        lastNumber: next,
+        value: typeof data.value === "number" ? data.value : 0
+      }, { merge: true });
+      return String(next).padStart(5, "0");
+    });
+  }
+
+  function buildRidPayload(formData) {
+    const leaderId = formData.get("responsibleLeader") || "";
+    const leader = state.leaders.find((item) => item.id === leaderId);
+    const status = String(formData.get("status") || "VENCIDO").toUpperCase();
+
+    return {
+      emitterId: state.currentUser.uid,
+      emitterName: state.currentUserData.name,
+      emitterCpf: state.currentUserData.cpf,
+      contractType: formData.get("contractType"),
+      unit: formData.get("unit"),
+      sector: state.currentUserData.sector || "",
+      emissionDate: formData.get("emissionDate"),
+      incidentType: formData.get("incidentType"),
+      detectionOrigin: formData.get("detectionOrigin"),
+      location: formData.get("location"),
+      description: formData.get("description"),
+      riskClassification: formData.get("riskClassification"),
+      immediateAction: formData.get("immediateAction"),
+      status,
+      responsibleLeader: leaderId,
+      responsibleLeaderName: leader?.name || ""
+    };
+  }
+
+  async function submitRidToFirestore(payload) {
+    const ridNumber = await getNextRidNumberSafe();
+    const isCorrectedNow = payload.status === "CORRIGIDO";
+    const [year, month, day] = String(payload.emissionDate || "").split("-").map(Number);
+    const emissionDate = new Date(year, (month || 1) - 1, day || 1, 12, 0, 0);
+
+    await db.collection("rids").add({
+      ridNumber,
+      emitterId: payload.emitterId,
+      emitterName: payload.emitterName,
+      emitterCpf: payload.emitterCpf,
+      contractType: payload.contractType,
+      unit: payload.unit,
+      sector: payload.sector,
+      emissionDate: firebase.firestore.Timestamp.fromDate(emissionDate),
+      incidentType: payload.incidentType,
+      detectionOrigin: payload.detectionOrigin,
+      location: payload.location,
+      description: payload.description,
+      riskClassification: payload.riskClassification,
+      immediateAction: payload.immediateAction,
+      status: isCorrectedNow ? "CORRIGIDO" : "VENCIDO",
+      responsibleLeader: payload.responsibleLeader || "",
+      responsibleLeaderName: payload.responsibleLeaderName || "",
+      emailSent: false,
+      emailSentAt: null,
+      lastNotifiedLeader: null,
+      deadline: null,
+      conclusion: null,
+      correctiveActions: null,
+      observations: null,
+      conclusionDate: isCorrectedNow ? firebase.firestore.FieldValue.serverTimestamp() : null,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
   }
 
   function getPersonalMonthlyGoal(user) {
@@ -414,6 +553,12 @@
     state.unsubDeleteRequests = db.collection("deleteRequests").onSnapshot((snapshot) => {
       state.allDeleteRequests = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       if (state.currentUserData) renderPage();
+    }, (error) => {
+      if (String(error?.code || "").includes("permission-denied")) {
+        console.warn("Sem permissao para ler deleteRequests em Meus RIDs. Seguindo sem essas informacoes.");
+      }
+      state.allDeleteRequests = [];
+      if (state.currentUserData) renderPage();
     });
   }
 
@@ -442,6 +587,8 @@
       await auth.signOut();
     });
 
+    dom.openNewRidModalButton.addEventListener("click", openNewRidModal);
+
     dom.myRidsList.addEventListener("click", (event) => {
       const trigger = event.target.closest("[data-open-my-rid]");
       if (!trigger) return;
@@ -454,9 +601,35 @@
       if (event.target === dom.myRidModal) closeMyRidModal();
     });
 
+    dom.newRidModalClose.addEventListener("click", closeNewRidModal);
+    dom.newRidCancel.addEventListener("click", closeNewRidModal);
+    dom.newRidModal.addEventListener("click", (event) => {
+      if (event.target === dom.newRidModal) closeNewRidModal();
+    });
+    dom.newRidForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      dom.newRidSubmit.disabled = true;
+      dom.newRidSubmit.textContent = "Emitindo...";
+      setNewRidFeedback("");
+
+      try {
+        const payload = buildRidPayload(new FormData(dom.newRidForm));
+        await submitRidToFirestore(payload);
+        closeNewRidModal();
+      } catch (error) {
+        setNewRidFeedback("Nao foi possivel emitir o RID.");
+      } finally {
+        dom.newRidSubmit.disabled = false;
+        dom.newRidSubmit.textContent = "Emitir RID";
+      }
+    });
+
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && dom.myRidModal.classList.contains("visible")) {
         closeMyRidModal();
+      }
+      if (event.key === "Escape" && dom.newRidModal.classList.contains("visible")) {
+        closeNewRidModal();
       }
     });
   }
@@ -483,6 +656,7 @@
       return;
     }
 
+    await loadLeaders();
     listenRids();
     listenDeleteRequests();
     showPage();
