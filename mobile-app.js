@@ -409,11 +409,20 @@
     const requests = [];
     const batches = chunkArray(ridIds, 10);
 
-    for (const batch of batches) {
-      const snapshot = await db.collection("deleteRequests")
-        .where("ridId", "in", batch)
-        .get();
-      snapshot.docs.forEach((doc) => requests.push({ id: doc.id, ...doc.data() }));
+    try {
+      for (const batch of batches) {
+        const snapshot = await db.collection("deleteRequests")
+          .where("ridId", "in", batch)
+          .get();
+        snapshot.docs.forEach((doc) => requests.push({ id: doc.id, ...doc.data() }));
+      }
+    } catch (error) {
+      const code = String(error?.code || "");
+      if (code.includes("permission-denied")) {
+        console.warn("Leitura de deleteRequests bloqueada pelas rules; usando dados do RID.", error);
+        return rids;
+      }
+      throw error;
     }
 
     return rids.map((item) => {
