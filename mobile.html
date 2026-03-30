@@ -9,6 +9,23 @@
   <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="manifest" href="mobile-manifest.json">
   <link rel="stylesheet" href="mobile.css">
+  <style>
+    .site-footer {
+      width: max-content;
+      max-width: calc(100vw - 32px);
+      margin: 18px auto 14px;
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid rgba(226, 232, 240, 0.95);
+      box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+      color: #64748b;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      text-align: center;
+    }
+  </style>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
@@ -16,6 +33,7 @@
 <body>
   <div id="app"></div>
   <div id="toast-root" class="toast-root" aria-live="polite" aria-atomic="true"></div>
+  <footer class="site-footer">&copy; | Todos os direitos reservados. Dev. por Juan Carlos</footer>
   <script src="mobile-app.js"></script>
 </body>
 </html>

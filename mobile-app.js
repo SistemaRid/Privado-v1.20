@@ -384,8 +384,53 @@
       createdAt: toDate(data.createdAt)?.toISOString() || null,
       emissionDate: toDate(data.emissionDate)?.toISOString() || null,
       conclusionDate: toDate(data.conclusionDate)?.toISOString() || null,
-      deleted: Boolean(data.deleted)
+      deleted: Boolean(data.deleted),
+      deleteReason: data.deleteReason || "",
+      deletedAt: toDate(data.deletedAt)?.toISOString() || null,
+      deletedByName: data.deletedBy?.name || "",
+      deletedByRole: data.deletedBy?.role || "",
+      deleteRequesterName: data.deleteRequesterName || ""
     };
+  }
+
+  function chunkArray(items, size) {
+    const chunks = [];
+    for (let index = 0; index < items.length; index += size) {
+      chunks.push(items.slice(index, index + size));
+    }
+    return chunks;
+  }
+
+  async function enrichDeletedRidsWithRequests(rids) {
+    const deletedRids = rids.filter((item) => item.deleted && item.id);
+    if (!deletedRids.length || !state.online) return rids;
+
+    const ridIds = deletedRids.map((item) => item.id);
+    const requests = [];
+    const batches = chunkArray(ridIds, 10);
+
+    for (const batch of batches) {
+      const snapshot = await db.collection("deleteRequests")
+        .where("ridId", "in", batch)
+        .get();
+      snapshot.docs.forEach((doc) => requests.push({ id: doc.id, ...doc.data() }));
+    }
+
+    return rids.map((item) => {
+      if (!item.deleted || !item.id) return item;
+
+      const request = requests
+        .filter((entry) => entry.ridId === item.id)
+        .sort((a, b) => (toDate(b.createdAt)?.getTime() || 0) - (toDate(a.createdAt)?.getTime() || 0))[0];
+
+      if (!request) return item;
+
+      return {
+        ...item,
+        deleteRequesterName: request.requesterName || item.deleteRequesterName || "",
+        deleteReason: request.reason || item.deleteReason || ""
+      };
+    });
   }
 
   async function refreshLeadersCache() {
@@ -428,7 +473,7 @@
     const snapshots = await Promise.all(queries);
     snapshots.forEach((snapshot) => snapshot.docs.forEach((doc) => pushUnique(serializeRid(doc))));
 
-    state.cachedRids = sortRidItems(docs);
+    state.cachedRids = sortRidItems(await enrichDeletedRidsWithRequests(docs));
     await refreshLeadersCache();
     persistUserCache();
   }
@@ -1123,6 +1168,11 @@
 
     const immediateAction = String(item.immediateAction || "").trim();
     const correctiveActions = String(item.correctiveActions || "").trim();
+    const deleteReason = String(item.deleteReason || "").trim();
+    const deleteRequesterName = String(item.deleteRequesterName || "").trim();
+    const deletedByName = String(item.deletedByName || "").trim();
+    const deletedByRole = String(item.deletedByRole || "").trim();
+    const deletedAt = formatDate(item.deletedAt);
     const correctedAtCreation =
       String(item.status || "").toUpperCase() === "CORRIGIDO" &&
       !correctiveActions &&
@@ -1146,6 +1196,32 @@
               <label>Descrição</label>
               <div class="muted" style="color:#213043;">${escapeHtml(item.description || "Sem descrição")}</div>
             </div>
+            ${item.deleted ? `
+              <div class="field">
+                <label>Motivo da exclusão</label>
+                <div class="muted" style="color:#8b1e3f;">
+                  ${escapeHtml(deleteReason || "Motivo não informado.")}
+                </div>
+              </div>
+              <div class="field">
+                <label>Orientação</label>
+                <div class="muted" style="color:#6f4b12;">
+                  Para tirar dúvidas, entre em contato com o gestor responsável.
+                </div>
+              </div>
+              <div class="field">
+                <label>Solicitado por</label>
+                <div class="muted" style="color:#6b7280;">
+                  ${escapeHtml(
+                    deleteRequesterName
+                      ? `${deleteRequesterName} · removido em ${deletedAt}`
+                      : deletedByName
+                        ? `${deletedByName}${deletedByRole ? ` (${deletedByRole})` : ""} em ${deletedAt}`
+                        : `Registro removido em ${deletedAt}`
+                  )}
+                </div>
+              </div>
+            ` : ""}
             ${correctedAtCreation ? `
               <div class="field">
                 <label>Ação imediata</label>
