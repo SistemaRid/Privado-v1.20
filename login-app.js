@@ -77,6 +77,7 @@
     dom.loginSubmitButton.textContent = "Entrando...";
     try {
       await auth.signInWithEmailAndPassword(cpfToEmail(dom.loginCpf.value), dom.loginPassword.value);
+      sessionStorage.setItem("ridDashboardGoalIntro", "pending");
       redirectAuthenticatedUser();
     } catch (error) {
       showFeedback("Nao foi possivel entrar. Confira CPF e senha.");

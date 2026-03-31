@@ -27,7 +27,8 @@
     monthlyGoal: null,
     monthlyGoalMeta: null,
     manualGoalValue: null,
-    manualGoalMonthKey: null
+    manualGoalMonthKey: null,
+    shouldAnimateGoalIntro: false
   };
 
   const dom = {
@@ -132,6 +133,42 @@
       .toUpperCase();
   }
 
+  function normalizeContractType(value) {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toUpperCase();
+  }
+
+  function isVisitorRid(rid) {
+    return normalizeContractType(rid?.contractType) === "VISITANTE";
+  }
+
+  function getSectorNameForBoard(rid) {
+    const allowedSectors = new Set(["ADM", "M. MOVEL", "M. FIXA", "M. ELÉTRICA", "PRODUÇÃO", "MINA"]);
+    const rawSector = String(rid?.sector || "").trim();
+    const normalizedSector = rawSector
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toUpperCase();
+
+    const sectorMap = {
+      "ADM": "ADM",
+      "M. MOVEL": "M. MOVEL",
+      "M. FIXA": "M. FIXA",
+      "M. ELETRICA": "M. ELÉTRICA",
+      "PRODUCAO": "PRODUÇÃO",
+      "MINA": "MINA"
+    };
+
+    const mappedSector = sectorMap[normalizedSector] || "";
+    if (mappedSector && allowedSectors.has(mappedSector)) return mappedSector;
+    if (isVisitorRid(rid)) return "ADM";
+    return "ADM";
+  }
+
   function toDateSafe(value) {
     if (!value) return null;
     if (value instanceof Date) return value;
@@ -157,6 +194,10 @@
     const digits = String(value ?? "").replace(/\D/g, "");
     if (!digits) return "-";
     return digits.padStart(5, "0");
+  }
+
+  function prepareGoalIntroAnimation() {
+    state.shouldAnimateGoalIntro = true;
   }
 
   function getInitials(name) {
@@ -296,6 +337,7 @@
   function getFilteredRids(period) {
     return state.allRids
       .filter((rid) => !rid.deleted)
+      .filter((rid) => !isVisitorRid(rid))
       .filter((rid) => {
         if (period.sector && rid.sector !== period.sector) return false;
         const date = toDateSafe(rid.emissionDate) || toDateSafe(rid.createdAt);
@@ -316,6 +358,7 @@
 
     return state.allRids
       .filter((rid) => !rid.deleted)
+      .filter((rid) => !isVisitorRid(rid))
       .filter((rid) => !period.sector || rid.sector === period.sector)
       .filter((rid) => {
         const createdAt = toDateSafe(rid.createdAt);
@@ -334,7 +377,7 @@
       .filter((user) => !emitters.has(user.id))
       .map((user) => {
         const lastRid = state.allRids
-          .filter((rid) => !rid.deleted && rid.emitterId === user.id)
+          .filter((rid) => !rid.deleted && !isVisitorRid(rid) && rid.emitterId === user.id)
           .sort((a, b) => (toDateSafe(b.emissionDate || b.createdAt)?.getTime() || 0) - (toDateSafe(a.emissionDate || a.createdAt)?.getTime() || 0))[0];
         const lastDate = lastRid ? toDateSafe(lastRid.emissionDate || lastRid.createdAt) : null;
         const daysWithout = lastDate ? Math.floor((now - lastDate) / (1000 * 60 * 60 * 24)) : null;
@@ -364,6 +407,7 @@
       .map((user) => {
         const userRidList = state.allRids
           .filter((rid) => !rid.deleted)
+          .filter((rid) => !isVisitorRid(rid))
           .filter((rid) => {
             if (monthPeriod.sector && rid.sector !== monthPeriod.sector) return false;
             const ridDate = toDateSafe(rid.emissionDate) || toDateSafe(rid.createdAt);
@@ -377,6 +421,7 @@
 
         const lastRid = state.allRids
           .filter((rid) => !rid.deleted)
+          .filter((rid) => !isVisitorRid(rid))
           .filter((rid) => {
             const sameId = rid.emitterId && user.id && rid.emitterId === user.id;
             const sameCpf = rid.emitterCpf && user.cpf && String(rid.emitterCpf) === String(user.cpf);
@@ -417,6 +462,7 @@
 
         const monthRids = state.allRids
           .filter((rid) => !rid.deleted)
+          .filter((rid) => !isVisitorRid(rid))
           .filter((rid) => !period.sector || rid.sector === period.sector)
           .filter((rid) => {
             const ridDate = toDateSafe(rid.emissionDate) || toDateSafe(rid.createdAt);
@@ -448,16 +494,26 @@
   function computeDashboard() {
     const period = getSelectedPeriod();
     const filteredRids = getFilteredRids(period);
+    const goalProgressRids = state.allRids
+      .filter((rid) => !rid.deleted)
+      .filter((rid) => {
+        if (period.sector && rid.sector !== period.sector) return false;
+        const date = toDateSafe(rid.emissionDate) || toDateSafe(rid.createdAt);
+        return matchesSelectedPeriod(date, period);
+      });
 
-    const openRids = filteredRids.filter((rid) => {
-      const status = normalizeStatus(rid.status);
-      return status === "EM ANDAMENTO" || status === "PENDENTE";
-    }).length;
+    const openRids = state.allRids
+      .filter((rid) => !rid.deleted)
+      .filter((rid) => {
+        const status = normalizeStatus(rid.status);
+        return status === "EM ANDAMENTO" || status === "PENDENTE";
+      }).length;
 
     const overdueRids = filteredRids.filter((rid) => normalizeStatus(rid.status) === "VENCIDO").length;
 
     const correctedInMonthList = state.allRids
       .filter((rid) => !rid.deleted)
+      .filter((rid) => !isVisitorRid(rid))
       .filter((rid) => {
         if (period.sector && rid.sector !== period.sector) return false;
         const status = normalizeStatus(rid.status);
@@ -471,6 +527,7 @@
 
     const lateRids = state.allRids
       .filter((rid) => !rid.deleted)
+      .filter((rid) => !isVisitorRid(rid))
       .filter((rid) => {
         if (period.sector && rid.sector !== period.sector) return false;
         const emissionDate = toDateSafe(rid.emissionDate || rid.createdAt);
@@ -481,12 +538,14 @@
 
     const closedRids = state.allRids
       .filter((rid) => !rid.deleted)
+      .filter((rid) => !isVisitorRid(rid))
       .filter((rid) => {
         if (period.sector && rid.sector !== period.sector) return false;
         return normalizeStatus(rid.status) === "ENCERRADO" && matchesSelectedPeriod(toDateSafe(rid.conclusionDate), period);
       }).length;
 
     const removedRids = state.allRids
+      .filter((rid) => !isVisitorRid(rid))
       .filter((rid) => {
         if (period.sector && rid.sector !== period.sector) return false;
         const status = normalizeStatus(rid.status);
@@ -496,9 +555,10 @@
 
     const statusBase = state.allRids
       .filter((rid) => !rid.deleted)
+      .filter((rid) => !isVisitorRid(rid))
       .filter((rid) => {
         if (period.sector && rid.sector !== period.sector) return false;
-        return matchesSelectedPeriod(toDateSafe(rid.createdAt), period);
+        return matchesSelectedPeriod(toDateSafe(rid.emissionDate) || toDateSafe(rid.createdAt), period);
       });
 
     const statusItems = [
@@ -518,15 +578,14 @@
     const topEmitterStreaks = getTopEmitterStreaks(topEmitters, period);
 
     const sectorMap = {};
-    filteredRids.forEach((rid) => {
-      const sector = String(rid.sector || "Sem setor").trim();
+    goalProgressRids.forEach((rid) => {
+      const sector = getSectorNameForBoard(rid);
       sectorMap[sector] = (sectorMap[sector] || 0) + 1;
     });
 
     const sectors = Object.entries(sectorMap)
       .map(([sector, count]) => ({ sector, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
+      .sort((a, b) => b.count - a.count);
 
     return {
       period,
@@ -548,6 +607,7 @@
       deleteRequests: getFilteredDeleteRequests(period),
       employeesWithoutRids: getEmployeesWithoutRids(period, filteredRids),
       employeeRidCountsCurrentMonth: getEmployeeRidCountsCurrentMonth(period),
+      goalProgressCount: goalProgressRids.length,
       weeklyRids: getWeekRids(period)
     };
   }
@@ -555,7 +615,7 @@
   function renderPriorityInsights(data) {
     const topSector = data.sectors[0];
     const topEmitter = data.topEmitters[0];
-    const goalGap = data.currentGoal && data.currentGoal > 0 ? Math.max(data.currentGoal - data.totalRids, 0) : null;
+    const goalGap = data.currentGoal && data.currentGoal > 0 ? Math.max(data.currentGoal - data.goalProgressCount, 0) : null;
 
     const cards = [
       {
@@ -814,7 +874,7 @@
       return;
     }
 
-    const currentCount = data.totalRids;
+    const currentCount = data.goalProgressCount;
     const goal = state.monthlyGoal;
     const remaining = Math.max(goal - currentCount, 0);
     const percentage = Math.min(Math.round((currentCount / goal) * 100), 999);
@@ -829,28 +889,53 @@
     const manualButton = canManageManualGoal
       ? `<button type="button" id="openManualGoalButton" class="goal-manual-trigger inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-gray-700 hover:bg-gray-50">Definir meta manual</button>`
       : "";
+    const hitGoal = currentCount >= goal;
+    const introClass = state.shouldAnimateGoalIntro ? " goal-panel-intro" : "";
+    const progressClass = state.shouldAnimateGoalIntro ? " goal-progress-fill-intro" : "";
+    const celebrateClass = hitGoal ? " goal-panel-celebrating is-active" : "";
+    const confettiHtml = (state.shouldAnimateGoalIntro || hitGoal)
+      ? `
+        <div class="goal-confetti" aria-hidden="true">
+          <span class="goal-confetti-piece piece-a"></span>
+          <span class="goal-confetti-piece piece-b"></span>
+          <span class="goal-confetti-piece piece-c"></span>
+          <span class="goal-confetti-piece piece-d"></span>
+          <span class="goal-confetti-piece piece-e"></span>
+          <span class="goal-confetti-piece piece-f"></span>
+          <span class="goal-confetti-piece piece-g"></span>
+          <span class="goal-confetti-piece piece-h"></span>
+          <span class="goal-confetti-piece piece-i"></span>
+          <span class="goal-confetti-piece piece-j"></span>
+          <span class="goal-confetti-piece piece-k"></span>
+          <span class="goal-confetti-piece piece-l"></span>
+        </div>
+      `
+      : "";
 
     dom.statusGoalPanel.innerHTML = `
-      <div class="rounded-2xl border border-gray-100 bg-gradient-to-r from-slate-50 to-white px-4 py-4">
-        <div class="flex items-start justify-between gap-4">
-          <div>
-            <div class="text-xs font-semibold uppercase tracking-wider text-gray-400">Meta mensal de RIDs</div>
-            <div class="flex items-end gap-2 mt-2">
-              <div class="text-2xl font-bold text-gray-900">${currentCount}<span class="text-sm text-gray-400 font-medium">/${goal}</span></div>
-              <span class="inline-flex items-center rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">Meta automatica</span>
+      <div id="goalPanelCard" class="rounded-2xl border border-gray-100 bg-gradient-to-r from-slate-50 to-white px-4 py-4${introClass}${celebrateClass}">
+        ${confettiHtml}
+        <div class="goal-panel-content">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <div class="text-xs font-semibold uppercase tracking-wider text-gray-400">Meta mensal de RIDs</div>
+              <div class="flex items-end gap-2 mt-2">
+                <div class="text-2xl font-bold text-gray-900">${currentCount}<span class="text-sm text-gray-400 font-medium">/${goal}</span></div>
+                <span class="inline-flex items-center rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">Meta automatica</span>
+              </div>
+              <div class="text-xs text-gray-500 mt-2">${currentCount >= goal ? "Meta atingida no periodo atual." : `Faltam ${remaining} RID${remaining !== 1 ? "s" : ""} para atingir a meta.`}</div>
+              <div class="text-xs text-gray-400 mt-2">${manualGoalCopy}</div>
             </div>
-            <div class="text-xs text-gray-500 mt-2">${currentCount >= goal ? "Meta atingida no periodo atual." : `Faltam ${remaining} RID${remaining !== 1 ? "s" : ""} para atingir a meta.`}</div>
-            <div class="text-xs text-gray-400 mt-2">${manualGoalCopy}</div>
+            <div class="text-right">
+              <div class="text-2xl font-bold text-gray-900">${percentage}%</div>
+              <div class="text-[11px] text-gray-400 mt-1">${extra}</div>
+              <div class="mt-3">${manualButton}</div>
+            </div>
           </div>
-          <div class="text-right">
-            <div class="text-2xl font-bold text-gray-900">${percentage}%</div>
-            <div class="text-[11px] text-gray-400 mt-1">${extra}</div>
-            <div class="mt-3">${manualButton}</div>
-          </div>
-        </div>
-        <div class="mt-4">
-          <div class="h-2.5 w-full overflow-hidden rounded-full bg-gray-100">
-            <div class="h-full rounded-full bg-gradient-to-r from-cyan-400 via-sky-500 to-indigo-500" style="width:${progressWidth}%;"></div>
+          <div class="mt-4">
+            <div class="h-2.5 w-full overflow-hidden rounded-full bg-gray-100">
+              <div class="goal-progress-bar h-full rounded-full bg-gradient-to-r from-cyan-400 via-sky-500 to-indigo-500${progressClass}" style="width:${progressWidth}%;--goal-progress-target:${progressWidth}%;"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -860,6 +945,17 @@
     if (openManualGoalButton) {
       openManualGoalButton.addEventListener("click", openManualGoalModal);
     }
+    if (state.shouldAnimateGoalIntro && !hitGoal) {
+      const goalPanelCard = document.getElementById("goalPanelCard");
+      if (goalPanelCard) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            goalPanelCard.classList.add("is-active");
+          });
+        });
+      }
+    }
+    state.shouldAnimateGoalIntro = false;
   }
 
   function renderStatusBoard(items) {
@@ -917,10 +1013,10 @@
       </div>
       <div class="rounded-2xl border border-gray-100 bg-gray-50 p-3 mt-3">
         <div class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Distribuicao geral</div>
-        <div class="mt-3 h-3 w-full overflow-hidden rounded-full bg-white">
+        <div class="mt-3 flex h-3 w-full overflow-hidden rounded-full bg-white">
           ${segments.map((item) => {
             const width = total > 0 ? Math.max((item.count / total) * 100, item.count > 0 ? 4 : 0) : 0;
-            return `<div class="h-full" style="width:${width}%;background:${item.color};display:inline-block;"></div>`;
+            return `<div class="h-full flex-shrink-0" style="width:${width}%;background:${item.color};"></div>`;
           }).join("")}
         </div>
       </div>
@@ -1227,6 +1323,7 @@
     dom.authOverlay.classList.remove("visible");
     dom.dashboardShell.classList.remove("hidden-state");
     updateAdminNavigation();
+    prepareGoalIntroAnimation();
     resetFiltersToCurrentMonth();
     dom.welcomeText.textContent = `Bem-vindo, ${state.currentUserData?.name || "gestor"}`;
     populateSectorFilter();
