@@ -1029,7 +1029,15 @@
       return;
     }
 
-    const palette = ["#22d3ee", "#1d4ed8", "#4f46e5", "#94a3b8", "#f59e0b"];
+    const sectorPalette = {
+      "ADM": "#22d3ee",
+      "PRODUÇÃO": "#1d4ed8",
+      "M. FIXA": "#a855f7",
+      "MINA": "#94a3b8",
+      "M. ELÉTRICA": "#f59e0b",
+      "M. MOVEL": "#14b8a6"
+    };
+    const fallbackPalette = ["#22d3ee", "#1d4ed8", "#4f46e5", "#94a3b8", "#f59e0b", "#14b8a6", "#ec4899"];
     const total = items.reduce((sum, item) => sum + item.count, 0);
     const radius = 77;
     const circumference = 2 * Math.PI * radius;
@@ -1041,7 +1049,7 @@
       const segment = {
         ...item,
         percent,
-        color: palette[index % palette.length],
+        color: sectorPalette[item.sector] || fallbackPalette[index % fallbackPalette.length],
         dasharray: `${length} ${circumference - length}`,
         dashoffset: -offset
       };
