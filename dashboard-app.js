@@ -348,6 +348,56 @@
       });
   }
 
+  function getEmployeeRidCountsCurrentMonth(period) {
+    const now = new Date();
+    const currentMonth = now.getMonth() + 1;
+    const currentYear = now.getFullYear();
+    const monthPeriod = {
+      showAllMonths: false,
+      month: currentMonth,
+      year: currentYear,
+      sector: period.sector || ""
+    };
+
+    return state.allUsers
+      .filter((user) => !monthPeriod.sector || user.sector === monthPeriod.sector)
+      .map((user) => {
+        const userRidList = state.allRids
+          .filter((rid) => !rid.deleted)
+          .filter((rid) => {
+            if (monthPeriod.sector && rid.sector !== monthPeriod.sector) return false;
+            const ridDate = toDateSafe(rid.emissionDate) || toDateSafe(rid.createdAt);
+            if (!matchesSelectedPeriod(ridDate, monthPeriod)) return false;
+
+            const sameId = rid.emitterId && user.id && rid.emitterId === user.id;
+            const sameCpf = rid.emitterCpf && user.cpf && String(rid.emitterCpf) === String(user.cpf);
+            const sameName = rid.emitterName && user.name && String(rid.emitterName).trim() === String(user.name).trim();
+            return sameId || sameCpf || sameName;
+          });
+
+        const lastRid = state.allRids
+          .filter((rid) => !rid.deleted)
+          .filter((rid) => {
+            const sameId = rid.emitterId && user.id && rid.emitterId === user.id;
+            const sameCpf = rid.emitterCpf && user.cpf && String(rid.emitterCpf) === String(user.cpf);
+            const sameName = rid.emitterName && user.name && String(rid.emitterName).trim() === String(user.name).trim();
+            return sameId || sameCpf || sameName;
+          })
+          .sort((a, b) => (toDateSafe(b.emissionDate || b.createdAt)?.getTime() || 0) - (toDateSafe(a.emissionDate || a.createdAt)?.getTime() || 0))[0];
+
+        return {
+          name: user.name || "Funcionario",
+          sector: user.sector || "",
+          count: userRidList.length,
+          lastDate: lastRid ? toDateSafe(lastRid.emissionDate || lastRid.createdAt) : null
+        };
+      })
+      .sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        return String(a.name || "").localeCompare(String(b.name || ""), "pt-BR");
+      });
+  }
+
   function getTopEmitterStreaks(topEmitters, period) {
     if (period.showAllMonths) {
       return new Map(topEmitters.map((item) => [item.name, 0]));
@@ -497,6 +547,7 @@
       sectors,
       deleteRequests: getFilteredDeleteRequests(period),
       employeesWithoutRids: getEmployeesWithoutRids(period, filteredRids),
+      employeeRidCountsCurrentMonth: getEmployeeRidCountsCurrentMonth(period),
       weeklyRids: getWeekRids(period)
     };
   }
@@ -1084,20 +1135,23 @@
 
   function renderEmployeesWithoutRids(items) {
     if (!items.length) {
-      dom.employeesWithoutRidsList.innerHTML = '<p class="text-sm text-gray-400">Todos os funcionarios emitiram RID nesse periodo.</p>';
+      dom.employeesWithoutRidsList.innerHTML = '<p class="text-sm text-gray-400">Nenhum funcionario encontrado para este recorte.</p>';
       return;
     }
 
     dom.employeesWithoutRidsList.innerHTML = items.map((item) => `
-      <div class="flex flex-col gap-3 rounded-xl border border-red-100 bg-red-50/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div class="flex flex-col gap-3 rounded-xl border px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${item.count > 0 ? "border-emerald-100 bg-emerald-50/60" : "border-red-100 bg-red-50/60"}">
         <div class="min-w-0">
           <div class="flex items-center gap-2 flex-wrap">
-            <span class="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">Sem RID</span>
+            <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${item.count > 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}">${item.count > 0 ? "Com RID" : "Sem RID"}</span>
             <p class="text-sm font-medium text-gray-900 break-words">${escapeHtml(item.name)}</p>
           </div>
           <p class="text-xs text-gray-500 mt-1">${item.lastDate ? `Ultimo RID em ${escapeHtml(formatDate(item.lastDate))}` : "Nenhum RID emitido"}</p>
         </div>
-        <span class="text-sm font-semibold text-red-700">${item.daysWithout == null ? "-" : `${item.daysWithout} dias`}</span>
+        <div class="text-left sm:text-right">
+          <div class="text-xl font-bold text-gray-900 leading-none">${item.count}</div>
+          <div class="text-[10px] uppercase tracking-wider text-gray-400 mt-1">RIDs no mes atual</div>
+        </div>
       </div>
     `).join("");
   }
@@ -1155,7 +1209,7 @@
     renderStatusBoard(data.statusItems);
     renderSectorBoard(data.sectors);
     renderTopEmitters(data.topEmitters);
-    renderEmployeesWithoutRids(data.employeesWithoutRids);
+    renderEmployeesWithoutRids(data.employeeRidCountsCurrentMonth);
     renderDeleteRequestsBoard(data.deleteRequests);
     renderWeeklyRids(data.weeklyRids);
     lucide.createIcons();
