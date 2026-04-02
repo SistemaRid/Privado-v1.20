@@ -1071,10 +1071,10 @@
               <label>Classificação de risco</label>
               <select name="riskClassification" required>
                 <option value="">Selecione...</option>
-                <option value="Baixo">Baixo</option>
-                <option value="Médio">Médio</option>
-                <option value="Alto">Alto</option>
-                <option value="Crítico">Crítico</option>
+                <option value="Baixo">Baixo: Situações com baixo potencial de causar acidente.</option>
+                <option value="Médio">Médio: Situações que podem causar acidente leve.</option>
+                <option value="Alto">Alto: Situações com alto potencial de acidente grave.</option>
+                <option value="Crítico">Crítico: Risco iminente de acidente grave ou fatal.</option>
               </select>
             </div>
             <div class="field">
