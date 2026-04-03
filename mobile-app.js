@@ -38,7 +38,8 @@
     selectedRidId: null,
     booting: true,
     offlineBundleUpdating: false,
-    actionOverlay: null
+    actionOverlay: null,
+    actionOverlayShownAt: 0
   };
 
   const app = document.getElementById("app");
@@ -206,11 +207,18 @@
 
   function setActionOverlay(message, detail = "") {
     state.actionOverlay = { message, detail };
+    state.actionOverlayShownAt = Date.now();
     renderActionOverlay();
   }
 
-  function clearActionOverlay() {
+  async function clearActionOverlay() {
+    const elapsed = Date.now() - (state.actionOverlayShownAt || 0);
+    const remaining = Math.max(0, 650 - elapsed);
+    if (remaining > 0) {
+      await new Promise((resolve) => window.setTimeout(resolve, remaining));
+    }
     state.actionOverlay = null;
+    state.actionOverlayShownAt = 0;
     renderActionOverlay();
   }
 
@@ -859,7 +867,7 @@
       console.error("Erro ao enviar RID:", error);
       showToast(`Erro ao salvar RID: ${error.message}`, "error");
     } finally {
-      clearActionOverlay();
+      await clearActionOverlay();
       submitButton.disabled = false;
     }
   }
@@ -889,7 +897,7 @@
       showToast(`Falha ao sincronizar: ${error.message}`, "error");
     } finally {
       if (useOverlay) {
-        clearActionOverlay();
+        await clearActionOverlay();
       }
     }
   }
@@ -912,7 +920,7 @@
         await syncPendingRid(item.localId, { useOverlay: false });
       }
     } finally {
-      clearActionOverlay();
+      await clearActionOverlay();
     }
   }
 
