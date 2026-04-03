@@ -620,6 +620,42 @@ button:disabled {
   color: #667085;
 }
 
+.action-overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(233, 240, 245, 0.34);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  z-index: 130;
+}
+
+.action-overlay-card {
+  width: min(100%, 300px);
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid #dde5eb;
+  border-radius: 24px;
+  box-shadow: 0 18px 40px rgba(24, 39, 75, 0.16);
+  padding: 24px 20px;
+  text-align: center;
+}
+
+.action-overlay-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #213043;
+}
+
+.action-overlay-detail {
+  margin: 8px 0 0;
+  font-size: 0.84rem;
+  color: #667085;
+  line-height: 1.4;
+}
+
 @keyframes boot-spin {
   to {
     transform: rotate(360deg);

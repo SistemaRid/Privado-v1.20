@@ -37,7 +37,8 @@
     maintenanceDraft: null,
     selectedRidId: null,
     booting: true,
-    offlineBundleUpdating: false
+    offlineBundleUpdating: false,
+    actionOverlay: null
   };
 
   const app = document.getElementById("app");
@@ -203,6 +204,16 @@
     renderBootOverlay();
   }
 
+  function setActionOverlay(message, detail = "") {
+    state.actionOverlay = { message, detail };
+    renderActionOverlay();
+  }
+
+  function clearActionOverlay() {
+    state.actionOverlay = null;
+    renderActionOverlay();
+  }
+
   function renderBootOverlay() {
     const existing = document.getElementById("boot-overlay");
     if (!state.booting) {
@@ -220,6 +231,34 @@
         <div class="boot-spinner"></div>
         <p class="boot-title">Carregando dados</p>
         <p class="boot-copy">Aguarde enquanto o app restaura sua sessão e prepara os dados offline.</p>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+  }
+
+  function renderActionOverlay() {
+    const existing = document.getElementById("action-overlay");
+    if (!state.actionOverlay) {
+      existing?.remove();
+      return;
+    }
+
+    if (existing) {
+      const title = existing.querySelector(".action-overlay-title");
+      const detail = existing.querySelector(".action-overlay-detail");
+      if (title) title.textContent = state.actionOverlay.message;
+      if (detail) detail.textContent = state.actionOverlay.detail || "";
+      return;
+    }
+
+    const overlay = document.createElement("div");
+    overlay.id = "action-overlay";
+    overlay.className = "action-overlay";
+    overlay.innerHTML = `
+      <div class="action-overlay-card">
+        <div class="boot-spinner"></div>
+        <p class="action-overlay-title">${escapeHtml(state.actionOverlay.message)}</p>
+        <p class="action-overlay-detail">${escapeHtml(state.actionOverlay.detail || "")}</p>
       </div>
     `;
     document.body.appendChild(overlay);
@@ -782,6 +821,7 @@
 
   async function handleRidSubmit(event) {
     event.preventDefault();
+    if (state.actionOverlay) return;
     const form = event.target;
     const submitButton = form.querySelector('button[type="submit"]');
     submitButton.disabled = true;
@@ -801,11 +841,13 @@
       const payload = buildRidPayload(formData);
 
       if (state.online) {
+        setActionOverlay("Enviando RID", "Aguarde enquanto o envio é concluído.");
         await submitRidToFirestore(payload);
         await cacheRemoteData();
         persistUserCache();
         showToast("RID enviada com sucesso.", "success");
       } else {
+        setActionOverlay("Salvando localmente", "Seu RID está sendo guardado offline.");
         savePendingRid(payload);
         showToast("RID salva no celular. Sincronize quando voltar a internet.", "info");
       }
@@ -817,11 +859,14 @@
       console.error("Erro ao enviar RID:", error);
       showToast(`Erro ao salvar RID: ${error.message}`, "error");
     } finally {
+      clearActionOverlay();
       submitButton.disabled = false;
     }
   }
 
-  async function syncPendingRid(localId) {
+  async function syncPendingRid(localId, options = {}) {
+    const { useOverlay = true } = options;
+    if (state.actionOverlay && useOverlay) return;
     const pending = state.pendingRids.find((item) => item.localId === localId);
     if (!pending) return;
     if (!state.online) {
@@ -830,6 +875,9 @@
     }
 
     try {
+      if (useOverlay) {
+        setActionOverlay("Sincronizando RID", "Aguarde enquanto o envio é concluído.");
+      }
       await submitRidToFirestore(pending);
       state.pendingRids = state.pendingRids.filter((item) => item.localId !== localId);
       await cacheRemoteData();
@@ -839,10 +887,15 @@
     } catch (error) {
       console.error("Erro ao sincronizar RID:", error);
       showToast(`Falha ao sincronizar: ${error.message}`, "error");
+    } finally {
+      if (useOverlay) {
+        clearActionOverlay();
+      }
     }
   }
 
   async function syncAllPendingRids() {
+    if (state.actionOverlay) return;
     if (!state.pendingRids.length) {
       showToast("Nenhum RID pendente para sincronizar.", "info");
       return;
@@ -853,8 +906,13 @@
       return;
     }
 
-    for (const item of [...state.pendingRids]) {
-      await syncPendingRid(item.localId);
+    setActionOverlay("Sincronizando pendências", "Não feche a tela até terminar.");
+    try {
+      for (const item of [...state.pendingRids]) {
+        await syncPendingRid(item.localId, { useOverlay: false });
+      }
+    } finally {
+      clearActionOverlay();
     }
   }
 
