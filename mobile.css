@@ -296,9 +296,32 @@ button:disabled {
 
 .topbar-actions {
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+  width: fit-content;
+  margin-left: auto;
+}
+
+.topbar-action-row {
+  display: flex;
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+  width: 100%;
+}
+
+.btn-cache {
+  width: 100%;
+  min-width: 0;
+}
+
+.topbar-cache-note {
+  width: 100%;
+  text-align: right;
+  font-size: 0.72rem;
+  color: var(--muted);
+  line-height: 1.2;
 }
 
 .section {

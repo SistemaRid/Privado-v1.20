@@ -15,7 +15,8 @@
 
   const STORAGE_KEYS = {
     auth: "ridMobileOfflineAuth",
-    leaders: "ridMobileOfflineLeaders"
+    leaders: "ridMobileOfflineLeaders",
+    session: "ridMobileLastSession"
   };
 
   const PAGE_SIZE = 8;
@@ -35,7 +36,8 @@
     ridDraft: null,
     maintenanceDraft: null,
     selectedRidId: null,
-    booting: true
+    booting: true,
+    offlineBundleUpdating: false
   };
 
   const app = document.getElementById("app");
@@ -184,6 +186,18 @@
     localStorage.removeItem(STORAGE_KEYS.auth);
   }
 
+  function getLastSession() {
+    return loadStorage(STORAGE_KEYS.session, null);
+  }
+
+  function setLastSession(payload) {
+    saveStorage(STORAGE_KEYS.session, payload);
+  }
+
+  function clearLastSession() {
+    localStorage.removeItem(STORAGE_KEYS.session);
+  }
+
   function setBooting(booting) {
     state.booting = booting;
     renderBootOverlay();
@@ -223,11 +237,27 @@
     saveStorage(pendingKey(state.currentUser.uid), state.pendingRids);
     saveStorage(maintenanceKey(state.currentUser.uid), state.pendingMaintenances);
     localStorage.setItem(syncKey(state.currentUser.uid), new Date().toISOString());
+
+    if (state.currentUserData) {
+      setLastSession({
+        uid: state.currentUser.uid,
+        userData: state.currentUserData
+      });
+    }
   }
 
   function getLastSyncAt() {
     if (!state.currentUser?.uid) return null;
     return localStorage.getItem(syncKey(state.currentUser.uid));
+  }
+
+  function getLastSyncLabel() {
+    const lastSyncAt = getLastSyncAt();
+    if (!lastSyncAt) return "Ainda não baixado.";
+
+    const parsed = new Date(lastSyncAt);
+    if (Number.isNaN(parsed.getTime())) return "Offline salvo.";
+    return `Baixado: ${parsed.toLocaleDateString("pt-BR")}`;
   }
 
   function setLeaders(leaders) {
@@ -485,6 +515,83 @@
     state.cachedRids = sortRidItems(await enrichDeletedRidsWithRequests(docs));
     await refreshLeadersCache();
     persistUserCache();
+  }
+
+  async function sendServiceWorkerMessage(message) {
+    if (!("serviceWorker" in navigator)) return false;
+
+    let registration = null;
+    try {
+      registration = await navigator.serviceWorker.ready;
+      await registration.update().catch(() => {});
+    } catch (error) {
+      console.warn("Service worker ainda não ficou pronto:", error);
+    }
+
+    const worker = registration?.active || registration?.waiting || registration?.installing;
+    if (!worker) return false;
+
+    return new Promise((resolve) => {
+      const channel = new MessageChannel();
+      const timeoutId = window.setTimeout(() => resolve(false), 5000);
+
+      channel.port1.onmessage = (event) => {
+        window.clearTimeout(timeoutId);
+        resolve(Boolean(event.data?.ok));
+      };
+
+      try {
+        worker.postMessage(message, [channel.port2]);
+      } catch (error) {
+        console.warn("Falha ao enviar mensagem ao service worker:", error);
+        window.clearTimeout(timeoutId);
+        resolve(false);
+      }
+    });
+  }
+
+  async function refreshOfflineAssets() {
+    if (!state.online) return false;
+    return sendServiceWorkerMessage({ type: "refresh-offline-cache" });
+  }
+
+  async function refreshOfflineExperience(options = {}) {
+    const { showSuccessToast = false, showErrorToast = true } = options;
+
+    if (!state.online) {
+      if (showErrorToast) showToast("Conecte-se à internet para baixar ou atualizar o offline.", "error");
+      return false;
+    }
+
+    state.offlineBundleUpdating = true;
+    if (state.currentUser) renderApp();
+
+    try {
+      await cacheRemoteData();
+      await syncPendingMaintenances();
+      const assetsUpdated = await refreshOfflineAssets();
+      persistUserCache();
+      if (state.currentUser) renderApp();
+
+      if (showSuccessToast) {
+        showToast(
+          assetsUpdated
+            ? "Cache offline e dados atualizados com sucesso."
+            : "Dados atualizados. O cache offline continuará sendo renovado em segundo plano.",
+          "success"
+        );
+      }
+      return true;
+    } catch (error) {
+      console.error("Falha ao atualizar experiência offline:", error);
+      if (showErrorToast) {
+        showToast(`Erro ao atualizar offline: ${error.message}`, "error");
+      }
+      return false;
+    } finally {
+      state.offlineBundleUpdating = false;
+      if (state.currentUser) renderApp();
+    }
   }
 
   async function getNextRidNumberSafe() {
@@ -752,19 +859,7 @@
   }
 
   async function refreshData() {
-    if (!state.online) {
-      showToast("Atualização disponível somente online.", "error");
-      return;
-    }
-
-    try {
-      await cacheRemoteData();
-      renderApp();
-      showToast("RIDs atualizados e cache local renovado.", "success");
-    } catch (error) {
-      console.error("Falha ao atualizar dados:", error);
-      showToast(`Erro ao atualizar: ${error.message}`, "error");
-    }
+    await refreshOfflineExperience({ showSuccessToast: true, showErrorToast: true });
   }
 
   async function handleLogin(event) {
@@ -796,6 +891,10 @@
           passwordHash: await sha256(password),
           userData: state.currentUserData
         });
+        setLastSession({
+          uid: credential.user.uid,
+          userData: state.currentUserData
+        });
 
         await cacheRemoteData();
         renderApp();
@@ -815,6 +914,10 @@
         state.currentUser = { uid: offlineAuth.uid };
         state.currentUserData = offlineAuth.userData;
         loadUserCache(offlineAuth.uid);
+        setLastSession({
+          uid: offlineAuth.uid,
+          userData: offlineAuth.userData
+        });
         renderApp();
         showToast("Modo offline liberado com dados locais.", "info");
       }
@@ -835,6 +938,7 @@
       console.warn("Falha ao sair do Firebase:", error);
     } finally {
       clearOfflineAuth();
+      clearLastSession();
       state.currentUser = null;
       state.currentUserData = null;
       state.cachedRids = [];
@@ -1253,6 +1357,7 @@
     const pageData = getPaginatedRids();
     const stats = calcStats();
     const monthProgress = calcCurrentMonthProgress();
+    const lastSyncLabel = getLastSyncLabel();
 
     app.innerHTML = `
       <main class="app-shell">
@@ -1266,8 +1371,14 @@
               <span class="muted" style="font-size:0.84rem;">${escapeHtml(state.currentUserData.sector || "Sem setor")}</span>
             </div>
             <div class="topbar-actions">
-              <span class="status-pill ${state.online ? "online" : "offline"}">${state.online ? "Online" : "Offline"}</span>
-              <button class="btn btn-danger btn-small" id="logout-btn">Sair</button>
+              <div class="topbar-action-row">
+                <span class="status-pill ${state.online ? "online" : "offline"}">${state.online ? "Online" : "Offline"}</span>
+                <button class="btn btn-danger btn-small" id="logout-btn">Sair</button>
+              </div>
+              <button class="btn btn-soft btn-small btn-cache" id="offline-cache-btn" ${state.offlineBundleUpdating ? "disabled" : ""}>
+                ${state.offlineBundleUpdating ? "Atualizando offline..." : "Baixar offline"}
+              </button>
+              <div class="topbar-cache-note">${escapeHtml(lastSyncLabel)}</div>
             </div>
           </header>
 
@@ -1348,6 +1459,9 @@
 
   function bindAppEvents() {
     document.getElementById("logout-btn")?.addEventListener("click", logout);
+    document.getElementById("offline-cache-btn")?.addEventListener("click", () => {
+      refreshOfflineExperience({ showSuccessToast: true, showErrorToast: true });
+    });
     document.getElementById("new-rid-btn")?.addEventListener("click", openRidModal);
     document.getElementById("maintenance-btn")?.addEventListener("click", openMaintenanceModal);
     document.getElementById("rid-form")?.addEventListener("submit", handleRidSubmit);
@@ -1400,33 +1514,20 @@
     state.currentUser = { uid: sessionUser.uid };
     state.currentUserData = { id: sessionUser.uid, ...userDoc.data() };
     loadUserCache(sessionUser.uid);
-    await cacheRemoteData();
-    await syncPendingMaintenances();
+    await refreshOfflineExperience({ showSuccessToast: false, showErrorToast: false });
     renderApp();
     return true;
   }
 
-  function updateConnectivity(nextOnline) {
-    state.online = nextOnline;
-    if (!state.currentUser) {
-      renderLogin();
-      return;
-    }
+  function bootstrapFromStoredSession() {
+    const session = getLastSession();
+    if (!session?.uid || !session?.userData) return false;
 
+    state.currentUser = { uid: session.uid };
+    state.currentUserData = session.userData;
+    loadUserCache(session.uid);
     renderApp();
-    showToast(nextOnline ? "Internet disponível." : "Modo offline ativo.", nextOnline ? "success" : "info");
-
-    if (nextOnline) {
-      cacheRemoteData()
-        .then(async () => {
-          await syncPendingMaintenances();
-          renderApp();
-        })
-        .catch((error) => {
-          console.error("Falha ao atualizar dados ao reconectar:", error);
-          showToast("Não foi possível atualizar os RIDs ao reconectar.", "error");
-        });
-    }
+    return true;
   }
 
   function updateConnectivity(nextOnline) {
@@ -1441,9 +1542,8 @@
       showToast(actualOnline ? "Internet disponível." : "Modo offline ativo.", actualOnline ? "success" : "info");
 
       if (actualOnline && state.currentUser) {
-        cacheRemoteData()
-          .then(async () => {
-            await syncPendingMaintenances();
+        refreshOfflineExperience({ showSuccessToast: false, showErrorToast: true })
+          .then(() => {
             renderApp();
           })
           .catch((error) => {
@@ -1464,7 +1564,10 @@
   }
 
   async function init() {
-    renderLogin();
+    const restoredStoredSession = bootstrapFromStoredSession();
+    if (!restoredStoredSession) {
+      renderLogin();
+    }
     setBooting(true);
     setTimeout(() => {
       if (state.booting) setBooting(false);
@@ -1490,9 +1593,8 @@
         loadUserCache(offlineAuth.uid);
 
         if (state.online) {
-          cacheRemoteData()
-            .then(async () => {
-              await syncPendingMaintenances();
+          refreshOfflineExperience({ showSuccessToast: false, showErrorToast: false })
+            .then(() => {
               setBooting(false);
               renderApp();
             })
@@ -1508,23 +1610,28 @@
         return;
       }
 
+      if (!state.online && restoredStoredSession) {
+        setBooting(false);
+        renderApp();
+        return;
+      }
+
       const restored = await bootstrapFromFirebaseSession();
       if (!restored) {
-        const offlineAuth = getOfflineAuth();
-        if (offlineAuth && !state.online) {
-          state.currentUser = { uid: offlineAuth.uid };
-          state.currentUserData = offlineAuth.userData;
-          loadUserCache(offlineAuth.uid);
+        const fallbackSession = getLastSession();
+        if (fallbackSession?.uid && fallbackSession?.userData && !state.online) {
+          state.currentUser = { uid: fallbackSession.uid };
+          state.currentUserData = fallbackSession.userData;
+          loadUserCache(fallbackSession.uid);
           setBooting(false);
           renderApp();
-        } else if (offlineAuth && state.online) {
-          state.currentUser = { uid: offlineAuth.uid };
-          state.currentUserData = offlineAuth.userData;
-          loadUserCache(offlineAuth.uid);
+        } else if (fallbackSession?.uid && fallbackSession?.userData && state.online) {
+          state.currentUser = { uid: fallbackSession.uid };
+          state.currentUserData = fallbackSession.userData;
+          loadUserCache(fallbackSession.uid);
           renderApp();
-          cacheRemoteData()
-            .then(async () => {
-              await syncPendingMaintenances();
+          refreshOfflineExperience({ showSuccessToast: false, showErrorToast: false })
+            .then(() => {
               setBooting(false);
               renderApp();
             })
