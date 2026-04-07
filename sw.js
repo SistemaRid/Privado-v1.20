@@ -25,6 +25,23 @@ const EXTERNAL_ASSETS = [
   "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging-compat.js"
 ];
 
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = event.notification?.data?.url || "./dashboard.html";
+
+  event.waitUntil((async () => {
+    const allClients = await clients.matchAll({ type: "window", includeUncontrolled: true });
+    const matchingClient = allClients.find((client) => client.url.includes(targetUrl.replace("./", "")));
+
+    if (matchingClient) {
+      await matchingClient.focus();
+      return;
+    }
+
+    await clients.openWindow(targetUrl);
+  })());
+});
+
 try {
   importScripts(
     "https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js",
@@ -142,22 +159,5 @@ self.addEventListener("message", (event) => {
       console.warn("Falha ao atualizar cache offline sob demanda:", error);
       event.ports?.[0]?.postMessage({ ok: false });
     }
-  })());
-});
-
-self.addEventListener("notificationclick", (event) => {
-  event.notification.close();
-  const targetUrl = event.notification?.data?.url || "./dashboard.html";
-
-  event.waitUntil((async () => {
-    const allClients = await clients.matchAll({ type: "window", includeUncontrolled: true });
-    const matchingClient = allClients.find((client) => client.url.includes(targetUrl.replace("./", "")));
-
-    if (matchingClient) {
-      await matchingClient.focus();
-      return;
-    }
-
-    await clients.openWindow(targetUrl);
   })());
 });

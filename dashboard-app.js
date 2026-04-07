@@ -341,6 +341,34 @@
     return !!(messaging && "Notification" in window && "serviceWorker" in navigator);
   }
 
+  function describePushError(error) {
+    const code = String(error?.code || "").trim();
+    const message = String(error?.message || "").trim();
+    const details = `${code} ${message}`.toLowerCase();
+
+    if (Notification.permission === "denied" || details.includes("permission-blocked")) {
+      return "As notificacoes do navegador estao bloqueadas para este site.";
+    }
+
+    if (details.includes("unsupported-browser")) {
+      return "Este navegador nao oferece suporte completo para push com o Firebase.";
+    }
+
+    if (details.includes("service worker") || details.includes("sw.js") || details.includes("failed-service-worker-registration")) {
+      return "O service worker de notificacoes nao conseguiu iniciar corretamente.";
+    }
+
+    if (details.includes("token-subscribe-failed") || details.includes("push service")) {
+      return "O navegador nao conseguiu criar a inscricao push deste dispositivo.";
+    }
+
+    if (details.includes("insufficient permissions") || details.includes("missing or insufficient permissions")) {
+      return "O token foi gerado, mas nao foi possivel salva-lo no Firebase.";
+    }
+
+    return "Nao foi possivel ativar as notificacoes push.";
+  }
+
   function isPrivilegedUser() {
     return !!(state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper);
   }
@@ -348,7 +376,11 @@
   async function ensurePushServiceWorkerRegistration() {
     if (!canUsePushNotifications()) return null;
     if (state.pushServiceWorkerRegistration) return state.pushServiceWorkerRegistration;
-    state.pushServiceWorkerRegistration = await navigator.serviceWorker.register("./sw.js");
+    await navigator.serviceWorker.register("./sw.js", {
+      scope: "./",
+      updateViaCache: "none"
+    });
+    state.pushServiceWorkerRegistration = await navigator.serviceWorker.ready;
     return state.pushServiceWorkerRegistration;
   }
 
@@ -419,6 +451,9 @@
     if (!canUsePushNotifications() || !isPrivilegedUser()) return null;
     const registration = await ensurePushServiceWorkerRegistration();
     if (!registration) return null;
+    if (!WEB_PUSH_VAPID_KEY) {
+      throw new Error("WEB_PUSH_VAPID_KEY ausente");
+    }
 
     const token = await messaging.getToken({
       vapidKey: WEB_PUSH_VAPID_KEY,
@@ -436,6 +471,7 @@
       isDeveloper: !!state.currentUserData?.isDeveloper,
       platform: "web",
       page: "dashboard",
+      serviceWorkerScope: registration.scope || "",
       userAgent: navigator.userAgent,
       enabled: true,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -460,7 +496,8 @@
       removePushPermissionPrompt();
       showPushStatusCard("Notificacoes ativadas neste navegador.", "success");
     } catch (error) {
-      showPushStatusCard("Nao foi possivel ativar as notificacoes push.");
+      console.error("Falha ao ativar notificacoes push:", error);
+      showPushStatusCard(describePushError(error));
     }
   }
 
@@ -481,13 +518,16 @@
     try {
       await ensurePushServiceWorkerRegistration();
     } catch (error) {
+      console.error("Falha ao registrar o service worker de push:", error);
       return;
     }
 
     if (Notification.permission === "granted") {
       try {
         await syncPushToken();
-      } catch (error) {}
+      } catch (error) {
+        console.error("Falha ao sincronizar token push existente:", error);
+      }
       removePushPermissionPrompt();
       return;
     }
