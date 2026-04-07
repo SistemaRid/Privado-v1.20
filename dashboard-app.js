@@ -15,6 +15,8 @@
   const auth = firebase.auth();
   auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
   const db = firebase.firestore();
+  const messaging = typeof firebase.messaging === "function" ? firebase.messaging() : null;
+  const WEB_PUSH_VAPID_KEY = "BC2FvVfx_PdEVXYqKdMAwZaNetYp_5Ni94FYINhTbxaXZnrhlCFfczJ-iVftwsErGGCYAlAqUVzRz2HteJSaNuQ";
 
   const state = {
     currentUser: null,
@@ -28,7 +30,14 @@
     monthlyGoalMeta: null,
     manualGoalValue: null,
     manualGoalMonthKey: null,
-    shouldAnimateGoalIntro: false
+    shouldAnimateGoalIntro: false,
+    hasLoadedRidsOnce: false,
+    notificationAudio: null,
+    notificationAudioUnlocked: false,
+    pushPromptDismissed: false,
+    pushMessagingBound: false,
+    pushToken: null,
+    pushServiceWorkerRegistration: null
   };
 
   const dom = {
@@ -196,8 +205,294 @@
     return digits.padStart(5, "0");
   }
 
+  function ensureLiveRidNotificationRoot() {
+    let root = document.getElementById("liveRidNotificationRoot");
+    if (root) return root;
+
+    root = document.createElement("div");
+    root.id = "liveRidNotificationRoot";
+    root.style.position = "fixed";
+    root.style.top = "20px";
+    root.style.right = "20px";
+    root.style.zIndex = "1200";
+    root.style.display = "flex";
+    root.style.flexDirection = "column";
+    root.style.gap = "12px";
+    root.style.maxWidth = "360px";
+    root.style.width = "calc(100vw - 32px)";
+    document.body.appendChild(root);
+    return root;
+  }
+
+  function playRidNotificationSound() {
+    if (!state.notificationAudio) {
+      state.notificationAudio = new Audio("notify.ogg");
+      state.notificationAudio.preload = "auto";
+      state.notificationAudio.volume = 0.8;
+    }
+
+    try {
+      state.notificationAudio.currentTime = 0;
+    } catch (error) {}
+
+    state.notificationAudio.play().catch(() => {});
+  }
+
+  function unlockRidNotificationSound() {
+    if (state.notificationAudioUnlocked) return;
+    if (!state.notificationAudio) {
+      state.notificationAudio = new Audio("notify.ogg");
+      state.notificationAudio.preload = "auto";
+      state.notificationAudio.volume = 0.8;
+    }
+
+    const audio = state.notificationAudio;
+    const playAttempt = audio.play();
+    if (!playAttempt || typeof playAttempt.then !== "function") {
+      state.notificationAudioUnlocked = true;
+      return;
+    }
+
+    playAttempt
+      .then(() => {
+        audio.pause();
+        audio.currentTime = 0;
+        state.notificationAudioUnlocked = true;
+      })
+      .catch(() => {});
+  }
+
+  function bindNotificationAudioUnlock() {
+    const unlockOnce = () => {
+      unlockRidNotificationSound();
+      if (state.notificationAudioUnlocked) {
+        window.removeEventListener("pointerdown", unlockOnce);
+        window.removeEventListener("keydown", unlockOnce);
+      }
+    };
+
+    window.addEventListener("pointerdown", unlockOnce, { passive: true });
+    window.addEventListener("keydown", unlockOnce);
+  }
+
+  function showLiveRidNotification(rid) {
+    if (!(state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper)) return;
+
+    const root = ensureLiveRidNotificationRoot();
+    const item = document.createElement("button");
+    item.type = "button";
+    item.style.width = "100%";
+    item.style.textAlign = "left";
+    item.style.border = "1px solid #bfdbfe";
+    item.style.background = "linear-gradient(135deg, #eff6ff 0%, #ffffff 100%)";
+    item.style.borderRadius = "18px";
+    item.style.padding = "14px 16px";
+    item.style.boxShadow = "0 18px 38px rgba(15, 23, 42, 0.14)";
+    item.style.color = "#0f172a";
+    item.style.cursor = "pointer";
+    item.style.animation = "none";
+
+    const ridNumber = formatRidNumber(rid?.ridNumber);
+    const emitterName = escapeHtml(rid?.emitterName || "Emissor nao identificado");
+    const location = escapeHtml(rid?.location || rid?.sector || "Local nao informado");
+
+    item.innerHTML = `
+      <div style="display:flex;align-items:flex-start;gap:12px;">
+        <div style="width:42px;height:42px;border-radius:14px;background:#2563eb;color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">!</div>
+        <div style="min-width:0;flex:1;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#2563eb;">Nova RID recebida</div>
+          <div style="font-size:15px;font-weight:700;margin-top:4px;">#${escapeHtml(ridNumber)}</div>
+          <div style="font-size:13px;color:#334155;margin-top:6px;">${emitterName}</div>
+          <div style="font-size:12px;color:#64748b;margin-top:4px;">${location}</div>
+        </div>
+      </div>
+    `;
+
+    item.addEventListener("click", () => item.remove());
+    root.prepend(item);
+    while (root.children.length > 3) {
+      root.lastElementChild?.remove();
+    }
+
+    window.setTimeout(() => {
+      item.remove();
+    }, 6000);
+
+    playRidNotificationSound();
+  }
+
+  function processLiveRidNotifications(snapshot) {
+    if (!state.hasLoadedRidsOnce) {
+      state.hasLoadedRidsOnce = true;
+      return;
+    }
+
+    snapshot.docChanges().forEach((change) => {
+      if (change.type !== "added") return;
+      showLiveRidNotification(change.doc.data());
+    });
+  }
+
   function prepareGoalIntroAnimation() {
     state.shouldAnimateGoalIntro = true;
+  }
+
+  function canUsePushNotifications() {
+    return !!(messaging && "Notification" in window && "serviceWorker" in navigator);
+  }
+
+  function isPrivilegedUser() {
+    return !!(state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper);
+  }
+
+  async function ensurePushServiceWorkerRegistration() {
+    if (!canUsePushNotifications()) return null;
+    if (state.pushServiceWorkerRegistration) return state.pushServiceWorkerRegistration;
+    state.pushServiceWorkerRegistration = await navigator.serviceWorker.register("./sw.js");
+    return state.pushServiceWorkerRegistration;
+  }
+
+  function removePushPermissionPrompt() {
+    document.getElementById("pushPermissionPrompt")?.remove();
+  }
+
+  function showPushStatusCard(message, tone = "info") {
+    const root = ensureLiveRidNotificationRoot();
+    const item = document.createElement("div");
+    const palette = tone === "success"
+      ? { border: "#bbf7d0", background: "linear-gradient(135deg, #ecfdf5 0%, #ffffff 100%)", accent: "#16a34a" }
+      : { border: "#bfdbfe", background: "linear-gradient(135deg, #eff6ff 0%, #ffffff 100%)", accent: "#2563eb" };
+
+    item.style.width = "100%";
+    item.style.border = `1px solid ${palette.border}`;
+    item.style.background = palette.background;
+    item.style.borderRadius = "18px";
+    item.style.padding = "14px 16px";
+    item.style.boxShadow = "0 18px 38px rgba(15, 23, 42, 0.14)";
+    item.innerHTML = `
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:${palette.accent};">Notificacoes push</div>
+      <div style="font-size:13px;color:#0f172a;margin-top:6px;">${escapeHtml(message)}</div>
+    `;
+    root.prepend(item);
+    window.setTimeout(() => item.remove(), 5000);
+  }
+
+  function showPushPermissionPrompt() {
+    if (!canUsePushNotifications() || !isPrivilegedUser()) return;
+    if (Notification.permission !== "default") return;
+    if (state.pushPromptDismissed) return;
+    if (document.getElementById("pushPermissionPrompt")) return;
+
+    const card = document.createElement("div");
+    card.id = "pushPermissionPrompt";
+    card.style.position = "fixed";
+    card.style.right = "20px";
+    card.style.bottom = "20px";
+    card.style.zIndex = "1200";
+    card.style.maxWidth = "360px";
+    card.style.width = "calc(100vw - 32px)";
+    card.style.border = "1px solid #dbeafe";
+    card.style.background = "linear-gradient(135deg, #eff6ff 0%, #ffffff 100%)";
+    card.style.borderRadius = "22px";
+    card.style.padding = "18px";
+    card.style.boxShadow = "0 18px 38px rgba(15, 23, 42, 0.14)";
+    card.innerHTML = `
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#2563eb;">Ativar avisos com site fechado</div>
+      <div style="font-size:14px;color:#0f172a;margin-top:8px;line-height:1.5;">Permita notificacoes do navegador para receber alerta de RID nova mesmo com a aba fechada.</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;">
+        <button type="button" id="enablePushNotificationsButton" style="border:0;background:#111827;color:#fff;border-radius:14px;padding:10px 14px;font-size:13px;font-weight:700;cursor:pointer;">Ativar notificacoes</button>
+        <button type="button" id="dismissPushNotificationsButton" style="border:1px solid #cbd5e1;background:#fff;color:#475569;border-radius:14px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;">Agora nao</button>
+      </div>
+    `;
+    document.body.appendChild(card);
+
+    card.querySelector("#enablePushNotificationsButton")?.addEventListener("click", async () => {
+      await requestAndStorePushPermission();
+    });
+    card.querySelector("#dismissPushNotificationsButton")?.addEventListener("click", () => {
+      state.pushPromptDismissed = true;
+      removePushPermissionPrompt();
+    });
+  }
+
+  async function syncPushToken() {
+    if (!canUsePushNotifications() || !isPrivilegedUser()) return null;
+    const registration = await ensurePushServiceWorkerRegistration();
+    if (!registration) return null;
+
+    const token = await messaging.getToken({
+      vapidKey: WEB_PUSH_VAPID_KEY,
+      serviceWorkerRegistration: registration
+    });
+
+    if (!token) return null;
+
+    state.pushToken = token;
+    await db.collection("notificationTokens").doc(token).set({
+      token,
+      uid: state.currentUser?.uid || null,
+      userName: state.currentUserData?.name || "",
+      isAdmin: !!state.currentUserData?.isAdmin,
+      isDeveloper: !!state.currentUserData?.isDeveloper,
+      platform: "web",
+      page: "dashboard",
+      userAgent: navigator.userAgent,
+      enabled: true,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+
+    return token;
+  }
+
+  async function requestAndStorePushPermission() {
+    if (!canUsePushNotifications() || !isPrivilegedUser()) return;
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        if (permission === "denied") state.pushPromptDismissed = true;
+        removePushPermissionPrompt();
+        showPushStatusCard("As notificacoes do navegador nao foram liberadas.");
+        return;
+      }
+
+      await syncPushToken();
+      removePushPermissionPrompt();
+      showPushStatusCard("Notificacoes ativadas neste navegador.", "success");
+    } catch (error) {
+      showPushStatusCard("Nao foi possivel ativar as notificacoes push.");
+    }
+  }
+
+  function subscribeForegroundPushMessages() {
+    if (!messaging || state.pushMessagingBound) return;
+    state.pushMessagingBound = true;
+    messaging.onMessage((payload) => {
+      const data = payload?.data || {};
+      showPushStatusCard(data.body || payload?.notification?.body || "Nova notificacao recebida.");
+      playRidNotificationSound();
+    });
+  }
+
+  async function initializePushNotifications() {
+    if (!canUsePushNotifications() || !isPrivilegedUser()) return;
+    subscribeForegroundPushMessages();
+
+    try {
+      await ensurePushServiceWorkerRegistration();
+    } catch (error) {
+      return;
+    }
+
+    if (Notification.permission === "granted") {
+      try {
+        await syncPushToken();
+      } catch (error) {}
+      removePushPermissionPrompt();
+      return;
+    }
+
+    showPushPermissionPrompt();
   }
 
   function getInitials(name) {
@@ -1336,6 +1631,7 @@
     dom.welcomeText.textContent = `Bem-vindo, ${state.currentUserData?.name || "gestor"}`;
     populateSectorFilter();
     void renderDashboard();
+    void initializePushNotifications();
     lucide.createIcons();
   }
 
@@ -1346,7 +1642,9 @@
 
   function listenRids() {
     if (typeof state.unsubRids === "function") state.unsubRids();
+    state.hasLoadedRidsOnce = false;
     state.unsubRids = db.collection("rids").onSnapshot((snapshot) => {
+      processLiveRidNotifications(snapshot);
       state.allRids = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       if (state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper) void renderDashboard();
     });
@@ -1368,6 +1666,8 @@
   }
 
   function bindEvents() {
+    bindNotificationAudioUnlock();
+
     dom.loginCpf.addEventListener("input", () => {
       dom.loginCpf.value = maskCpf(dom.loginCpf.value);
     });

@@ -152,6 +152,11 @@
     return digits.padStart(5, "0");
   }
 
+  function getRidSortValue(rid) {
+    const digits = String(rid?.ridNumber ?? "").replace(/\D/g, "");
+    return digits ? Number(digits) : 0;
+  }
+
   function resetFiltersToCurrentMonth() {
     const now = new Date();
     dom.filterMonth.value = String(now.getMonth() + 1);
@@ -537,7 +542,11 @@
         const date = toDateSafe(rid.emissionDate) || toDateSafe(rid.createdAt);
         return matchesSelectedPeriod(date, filters);
       })
-      .sort((a, b) => (toDateSafe(b.emissionDate || b.createdAt)?.getTime() || 0) - (toDateSafe(a.emissionDate || a.createdAt)?.getTime() || 0));
+      .sort((a, b) => {
+        const ridDiff = getRidSortValue(b) - getRidSortValue(a);
+        if (ridDiff !== 0) return ridDiff;
+        return (toDateSafe(b.emissionDate || b.createdAt)?.getTime() || 0) - (toDateSafe(a.emissionDate || a.createdAt)?.getTime() || 0);
+      });
   }
 
   function getLatePreviousRids(filters) {

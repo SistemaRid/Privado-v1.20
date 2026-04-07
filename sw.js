@@ -1,4 +1,12 @@
 const CACHE_NAME = "rid-mobile-offline-v3";
+const firebaseConfig = {
+  apiKey: "AIzaSyDAcuwo5FZBs5013klfSMfWkQZbFjqYpbw",
+  authDomain: "novo-rid-dezembro.firebaseapp.com",
+  projectId: "novo-rid-dezembro",
+  storageBucket: "novo-rid-dezembro.firebasestorage.app",
+  messagingSenderId: "629184938088",
+  appId: "1:629184938088:web:3821e7ea07897ae655fbdd"
+};
 const APP_SHELL = [
   "./",
   "./mobile.html",
@@ -13,8 +21,40 @@ const APP_SHELL = [
 const EXTERNAL_ASSETS = [
   "https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js",
   "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js",
-  "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"
+  "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js",
+  "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging-compat.js"
 ];
+
+try {
+  importScripts(
+    "https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js",
+    "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging-compat.js"
+  );
+
+  if (!firebase.apps.length) {
+    firebase.initializeApp(firebaseConfig);
+  }
+
+  const messaging = firebase.messaging();
+  messaging.onBackgroundMessage((payload) => {
+    const data = payload?.data || {};
+    const notification = payload?.notification || {};
+    const title = notification.title || data.title || "Nova RID recebida";
+    const body = notification.body || data.body || "Uma nova RID foi registrada no sistema.";
+    const url = data.click_action || data.url || "./dashboard.html";
+    const icon = data.icon || notification.icon || "./icon-192.png";
+
+    self.registration.showNotification(title, {
+      body,
+      icon,
+      badge: "./icon-192.png",
+      data: { url },
+      tag: data.tag || "rid-push-notification"
+    });
+  });
+} catch (error) {
+  console.warn("Firebase Messaging indisponivel no service worker:", error);
+}
 
 async function cacheOfflineBundle() {
   const cache = await caches.open(CACHE_NAME);
@@ -102,5 +142,22 @@ self.addEventListener("message", (event) => {
       console.warn("Falha ao atualizar cache offline sob demanda:", error);
       event.ports?.[0]?.postMessage({ ok: false });
     }
+  })());
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = event.notification?.data?.url || "./dashboard.html";
+
+  event.waitUntil((async () => {
+    const allClients = await clients.matchAll({ type: "window", includeUncontrolled: true });
+    const matchingClient = allClients.find((client) => client.url.includes(targetUrl.replace("./", "")));
+
+    if (matchingClient) {
+      await matchingClient.focus();
+      return;
+    }
+
+    await clients.openWindow(targetUrl);
   })());
 });

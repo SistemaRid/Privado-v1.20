@@ -133,6 +133,11 @@
     return digits.padStart(5, "0");
   }
 
+  function getRidSortValue(rid) {
+    const digits = String(rid?.ridNumber ?? "").replace(/\D/g, "");
+    return digits ? Number(digits) : 0;
+  }
+
   function formatField(value, fallback = "-") {
     const text = String(value ?? "").trim();
     return text || fallback;
@@ -354,7 +359,11 @@
   function getMine() {
     return state.allRids
       .filter((rid) => rid.emitterId === state.currentUser?.uid)
-      .sort((a, b) => (toDateSafe(b.emissionDate || b.createdAt)?.getTime() || 0) - (toDateSafe(a.emissionDate || a.createdAt)?.getTime() || 0));
+      .sort((a, b) => {
+        const ridDiff = getRidSortValue(b) - getRidSortValue(a);
+        if (ridDiff !== 0) return ridDiff;
+        return (toDateSafe(b.emissionDate || b.createdAt)?.getTime() || 0) - (toDateSafe(a.emissionDate || a.createdAt)?.getTime() || 0);
+      });
   }
 
   function renderPerformance(rids) {
