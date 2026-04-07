@@ -61,6 +61,10 @@
     employeeUnit: document.getElementById("employeeUnit"),
     employeeSector: document.getElementById("employeeSector"),
     employeeRole: document.getElementById("employeeRole"),
+    employeeVacationField: document.getElementById("employeeVacationField"),
+    employeeVacationStart: document.getElementById("employeeVacationStart"),
+    employeeVacationEnd: document.getElementById("employeeVacationEnd"),
+    employeeVacationClear: document.getElementById("employeeVacationClear"),
     employeePasswordField: document.getElementById("employeePasswordField"),
     employeePassword: document.getElementById("employeePassword"),
     employeeAdminField: document.getElementById("employeeAdminField"),
@@ -126,6 +130,63 @@
   function formatField(value, fallback = "-") {
     const text = String(value ?? "").trim();
     return text || fallback;
+  }
+
+  function toDateSafe(value) {
+    if (!value) return null;
+    if (value instanceof Date) return value;
+    if (typeof value.toDate === "function") return value.toDate();
+    if (typeof value.seconds === "number") return new Date(value.seconds * 1000);
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  function toDateInputValue(value) {
+    const date = toDateSafe(value);
+    if (!date) return "";
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function readVacationPeriodFromForm() {
+    const startValue = String(dom.employeeVacationStart.value || "").trim();
+    const endValue = String(dom.employeeVacationEnd.value || "").trim();
+
+    if (!startValue && !endValue) {
+      return { vacationPeriod: null, error: "" };
+    }
+
+    if (!startValue || !endValue) {
+      return { vacationPeriod: null, error: "Preencha inicio e fim das ferias." };
+    }
+
+    const startDate = new Date(`${startValue}T00:00:00Z`);
+    const endDate = new Date(`${endValue}T23:59:59Z`);
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || startDate > endDate) {
+      return { vacationPeriod: null, error: "Periodo de ferias invalido." };
+    }
+
+    return {
+      vacationPeriod: {
+        start: firebase.firestore.Timestamp.fromDate(startDate),
+        end: firebase.firestore.Timestamp.fromDate(endDate)
+      },
+      error: ""
+    };
+  }
+
+  function clearVacationFields() {
+    dom.employeeVacationStart.value = "";
+    dom.employeeVacationEnd.value = "";
+  }
+
+  function formatVacationSummary(vacationPeriod) {
+    const start = toDateSafe(vacationPeriod?.start);
+    const end = toDateSafe(vacationPeriod?.end);
+    if (!start || !end) return "";
+    return `Ferias: ${start.toLocaleDateString("pt-BR")} a ${end.toLocaleDateString("pt-BR")}`;
   }
 
   function closeFiltersPanel() {
@@ -199,6 +260,7 @@
           <div>
             <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400 md:hidden">Funcao</div>
             <div class="text-sm text-gray-700 mt-1 md:mt-0">${escapeHtml(getEmployeeRole(employee))}</div>
+            ${employee.vacationPeriod ? `<div class="text-xs text-amber-700 mt-1">${escapeHtml(formatVacationSummary(employee.vacationPeriod))}</div>` : ""}
           </div>
           <div class="flex items-center gap-2 flex-wrap justify-start md:justify-end">
             <button type="button" data-edit-employee="${escapeHtml(employee.id)}" class="px-3 py-2 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50">Editar</button>
@@ -276,6 +338,7 @@
     dom.employeeUnit.value = "";
     dom.employeeSector.value = "";
     dom.employeeRole.value = "";
+    clearVacationFields();
     dom.employeePassword.value = "";
     dom.employeeIsAdmin.checked = false;
     dom.employeeFormFeedback.classList.add("hidden-state");
@@ -308,6 +371,7 @@
     state.selectedEmployeeId = null;
     resetEmployeeForm();
     dom.employeeModalTitle.textContent = "Adicionar funcionario";
+    dom.employeeVacationField.classList.add("hidden-state");
     dom.employeePasswordField.classList.remove("hidden-state");
     if (state.currentUserData?.isDeveloper) {
       dom.employeeAdminField.classList.remove("hidden-state");
@@ -324,12 +388,15 @@
     state.modalMode = "edit";
     state.selectedEmployeeId = employeeId;
     dom.employeeModalTitle.textContent = `Editar ${employee.name || "funcionario"}`;
+    dom.employeeVacationField.classList.remove("hidden-state");
     dom.employeeName.value = employee.name || "";
     dom.employeeEmail.value = employee.email || "";
     dom.employeeCpf.value = employee.cpf || "";
     dom.employeeUnit.value = employee.unit || "";
     dom.employeeSector.value = employee.sector || "";
     dom.employeeRole.value = employee.function || employee.role || employee.userType || "";
+    dom.employeeVacationStart.value = toDateInputValue(employee.vacationPeriod?.start);
+    dom.employeeVacationEnd.value = toDateInputValue(employee.vacationPeriod?.end);
     dom.employeePassword.value = "";
     dom.employeeIsAdmin.checked = !!employee.isAdmin;
     dom.employeePasswordField.classList.add("hidden-state");
@@ -381,6 +448,7 @@
     const role = String(dom.employeeRole.value || "").trim();
     const password = String(dom.employeePassword.value || "").trim();
     const makeAdmin = !!dom.employeeIsAdmin.checked && !!state.currentUserData?.isDeveloper;
+    const { vacationPeriod, error: vacationError } = readVacationPeriodFromForm();
 
     if (!name || !cpfClean || !password) {
       dom.employeeFormFeedback.textContent = "Nome, CPF e senha inicial sao obrigatorios.";
@@ -390,6 +458,12 @@
 
     if (cpfClean.length !== 11) {
       dom.employeeFormFeedback.textContent = "CPF invalido.";
+      dom.employeeFormFeedback.classList.remove("hidden-state");
+      return;
+    }
+
+    if (vacationError) {
+      dom.employeeFormFeedback.textContent = vacationError;
       dom.employeeFormFeedback.classList.remove("hidden-state");
       return;
     }
@@ -406,6 +480,7 @@
         sector: sector || null,
         function: role || null,
         role: role || null,
+        vacationPeriod,
         isAdmin: makeAdmin,
         isDeveloper: false,
         userType: makeAdmin ? "Administrador" : "Funcionario",
@@ -436,9 +511,16 @@
     const unit = String(dom.employeeUnit.value || "").trim();
     const sector = String(dom.employeeSector.value || "").trim();
     const role = String(dom.employeeRole.value || "").trim();
+    const { vacationPeriod, error: vacationError } = readVacationPeriodFromForm();
 
     if (!name || !cpf) {
       dom.employeeFormFeedback.textContent = "Nome e CPF sao obrigatorios.";
+      dom.employeeFormFeedback.classList.remove("hidden-state");
+      return;
+    }
+
+    if (vacationError) {
+      dom.employeeFormFeedback.textContent = vacationError;
       dom.employeeFormFeedback.classList.remove("hidden-state");
       return;
     }
@@ -452,7 +534,8 @@
         unit,
         sector,
         function: role,
-        role
+        role,
+        vacationPeriod
       });
       closeEmployeeModal();
     } catch (error) {
@@ -505,6 +588,8 @@
     dom.employeeCpf.addEventListener("input", () => {
       dom.employeeCpf.value = maskCpf(dom.employeeCpf.value);
     });
+
+    dom.employeeVacationClear.addEventListener("click", clearVacationFields);
 
     dom.loginForm.addEventListener("submit", async (event) => {
       event.preventDefault();
