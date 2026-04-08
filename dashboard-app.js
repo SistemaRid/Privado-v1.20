@@ -505,9 +505,7 @@
     if (!messaging || state.pushMessagingBound) return;
     state.pushMessagingBound = true;
     messaging.onMessage((payload) => {
-      const data = payload?.data || {};
-      showPushStatusCard(data.body || payload?.notification?.body || "Nova notificacao recebida.");
-      playRidNotificationSound();
+      console.debug("Push recebido com dashboard aberto:", payload);
     });
   }
 
