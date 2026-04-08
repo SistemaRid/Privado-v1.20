@@ -43,10 +43,6 @@ exports.sendRidPushNotification = onDocumentCreated("rids/{ridId}", async (event
   const location = String(rid.location || rid.sector || "Local nao informado").trim();
 
   const message = {
-    notification: {
-      title: "Nova RID recebida",
-      body: `RID #${ridNumber || "-----"} criada por ${emitterName}`
-    },
     data: {
       title: "Nova RID recebida",
       body: `RID #${ridNumber || "-----"} | ${location}`,
