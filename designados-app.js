@@ -19,6 +19,7 @@
   const state = {
     currentUser: null,
     currentUserData: null,
+    allUsers: [],
     allRids: [],
     filters: {},
     draftFilters: {},
@@ -54,7 +55,9 @@
     designatedModal: document.getElementById("designatedModal"),
     designatedModalTitle: document.getElementById("designatedModalTitle"),
     designatedModalBody: document.getElementById("designatedModalBody"),
-    designatedModalClose: document.getElementById("designatedModalClose")
+    designatedModalClose: document.getElementById("designatedModalClose"),
+    designatedModalFeedback: document.getElementById("designatedModalFeedback"),
+    designatedModalSave: document.getElementById("designatedModalSave")
   };
 
   function updateRoleNavigation() {
@@ -137,6 +140,21 @@
   function formatField(value, fallback = "-") {
     const text = String(value ?? "").trim();
     return text || fallback;
+  }
+
+  function getLeaderOptions() {
+    return state.allUsers
+      .filter((user) => user && (user.isAdmin || user.isDeveloper))
+      .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "pt-BR"));
+  }
+
+  function toDateInputValue(value) {
+    const date = toDateSafe(value);
+    if (!date) return "";
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
   }
 
   function getStatusTone(status) {
@@ -247,32 +265,106 @@
     const rid = state.allRids.find((item) => item.id === ridId);
     if (!rid) return;
     state.selectedRidId = ridId;
+    const status = getStatusTone(rid.status);
+    const leaders = getLeaderOptions();
     dom.designatedModalTitle.textContent = `RID #${formatRidNumber(rid.ridNumber)}`;
-    const fields = [
-      ["Status", formatField(rid.status, "EM ANDAMENTO")],
-      ["Emitente", formatField(rid.emitterName)],
-      ["Responsavel designado", formatField(rid.responsibleLeaderName)],
-      ["Setor", formatField(rid.sector)],
-      ["Local", formatField(rid.location)],
-      ["Tipo", formatField(rid.incidentType)],
-      ["Origem da deteccao", formatField(rid.detectionOrigin)],
-      ["Classificacao de risco", formatField(rid.riskClassification)],
-      ["Data de emissao", formatDateTime(rid.emissionDate || rid.createdAt)],
-      ["Prazo", formatDate(rid.deadline)],
-      ["Data de conclusao", formatDate(rid.conclusionDate)],
-      ["Descricao", formatField(rid.description)],
-      ["Acao imediata", formatField(rid.immediateAction)],
-      ["Acoes corretivas", formatField(rid.correctiveActions)]
-    ];
-
+    dom.designatedModalFeedback.classList.add("hidden-state");
+    dom.designatedModalFeedback.textContent = "";
     dom.designatedModalBody.innerHTML = `
+      <div class="flex items-center gap-2 flex-wrap mb-5">
+        <span class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${status}">${escapeHtml(formatField(rid.status, "EM ANDAMENTO"))}</span>
+        <span class="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600">${escapeHtml(rid.sector || "Sem setor")}</span>
+      </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        ${fields.map(([label, value], index) => `
-          <div class="${index >= 11 ? "md:col-span-2" : ""}">
-            <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">${escapeHtml(label)}</div>
-            <div class="mt-2 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm text-gray-800 whitespace-pre-wrap">${escapeHtml(value)}</div>
-          </div>
-        `).join("")}
+        <div class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
+          <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Emitente</div>
+          <div class="text-sm font-semibold text-gray-900 mt-2">${escapeHtml(rid.emitterName || "Sem emissor")}</div>
+        </div>
+        <div class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
+          <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">CPF do emissor</div>
+          <div class="text-sm font-semibold text-gray-900 mt-2">${escapeHtml(rid.emitterCpf || "-")}</div>
+        </div>
+        <div class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
+          <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Tipo de contrato</div>
+          <div class="text-sm font-semibold text-gray-900 mt-2">${escapeHtml(rid.contractType || "-")}</div>
+        </div>
+        <div class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
+          <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Unidade</div>
+          <div class="text-sm font-semibold text-gray-900 mt-2">${escapeHtml(rid.unit || "-")}</div>
+        </div>
+        <div class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
+          <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Setor</div>
+          <div class="text-sm font-semibold text-gray-900 mt-2">${escapeHtml(rid.sector || "-")}</div>
+        </div>
+        <div class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
+          <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Data de emissao</div>
+          <div class="text-sm font-semibold text-gray-900 mt-2">${escapeHtml(formatDate(rid.emissionDate || rid.createdAt))}</div>
+        </div>
+        <div class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
+          <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Responsavel designado</div>
+          <div class="text-sm font-semibold text-gray-900 mt-2">${escapeHtml(rid.responsibleLeaderName || "-")}</div>
+        </div>
+        <div class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
+          <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Tipo</div>
+          <div class="text-sm font-semibold text-gray-900 mt-2">${escapeHtml(rid.incidentType || "-")}</div>
+        </div>
+        <div class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
+          <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Origem da deteccao</div>
+          <div class="text-sm font-semibold text-gray-900 mt-2">${escapeHtml(rid.detectionOrigin || "-")}</div>
+        </div>
+        <div class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
+          <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Local</div>
+          <div class="text-sm font-semibold text-gray-900 mt-2">${escapeHtml(rid.location || "Nao informado")}</div>
+        </div>
+        <div class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
+          <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Classificacao de risco</div>
+          <div class="text-sm font-semibold text-gray-900 mt-2">${escapeHtml(rid.riskClassification || "-")}</div>
+        </div>
+        <div class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4 md:col-span-2">
+          <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Descricao</div>
+          <div class="text-sm text-gray-700 mt-2 leading-6">${escapeHtml(rid.description || "Sem descricao")}</div>
+        </div>
+        <div class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4 md:col-span-2">
+          <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Acao imediata</div>
+          <div class="text-sm text-gray-700 mt-2 leading-6">${escapeHtml(rid.immediateAction || "-")}</div>
+        </div>
+        <div class="rounded-2xl border border-gray-100 bg-white px-4 py-4">
+          <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Conclusao</div>
+          <div class="text-sm font-semibold text-gray-900 mt-2">${escapeHtml(formatDate(rid.conclusionDate))}</div>
+        </div>
+        <div class="rounded-2xl border border-gray-100 bg-white px-4 py-4">
+          <label class="text-[11px] uppercase tracking-wider font-semibold text-gray-400 block">Lider designado</label>
+          <select id="designatedLeaderSelect" class="w-full mt-2 px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-white">
+            <option value="">Sem lider designado</option>
+            ${leaders.map((leader) => `
+              <option value="${escapeHtml(leader.id)}" ${leader.id === rid.responsibleLeader ? "selected" : ""}>${escapeHtml(leader.name || "Sem nome")}</option>
+            `).join("")}
+          </select>
+        </div>
+        <div class="rounded-2xl border border-gray-100 bg-white px-4 py-4">
+          <label class="text-[11px] uppercase tracking-wider font-semibold text-gray-400 block">Status</label>
+          <select id="designatedStatusSelect" class="w-full mt-2 px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-white">
+            ${["EM ANDAMENTO", "VENCIDO", "CORRIGIDO", "ENCERRADO"].map((option) => `
+              <option value="${option}" ${normalizeStatus(rid.status) === option ? "selected" : ""}>${option}</option>
+            `).join("")}
+          </select>
+        </div>
+        <div class="rounded-2xl border border-gray-100 bg-white px-4 py-4">
+          <label class="text-[11px] uppercase tracking-wider font-semibold text-gray-400 block">Prazo (Opcional)</label>
+          <input id="designatedDeadlineInput" type="date" value="${escapeHtml(toDateInputValue(rid.deadline))}" class="w-full mt-2 px-4 py-3 rounded-xl border border-gray-200 text-sm bg-white text-gray-700 focus:outline-none focus:border-gray-400">
+        </div>
+        <div class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4 md:col-span-2">
+          <label class="text-[11px] uppercase tracking-wider font-semibold text-gray-400 block">Observacoes</label>
+          <textarea readonly rows="4" class="w-full mt-2 px-4 py-3 rounded-xl border border-gray-200 text-sm bg-gray-100 text-gray-600 resize-none">${escapeHtml(rid.observations || "")}</textarea>
+        </div>
+        <div class="rounded-2xl border border-gray-100 bg-white px-4 py-4 md:col-span-2">
+          <label class="text-[11px] uppercase tracking-wider font-semibold text-gray-400 block">Acoes corretivas</label>
+          <textarea id="designatedCorrectiveActionsInput" rows="4" class="w-full mt-2 px-4 py-3 rounded-xl border border-gray-200 text-sm bg-white text-gray-700 resize-none focus:outline-none focus:border-gray-400">${escapeHtml(rid.correctiveActions || "")}</textarea>
+        </div>
+        <div class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4 md:col-span-2">
+          <label class="text-[11px] uppercase tracking-wider font-semibold text-gray-400 block">Conclusao</label>
+          <textarea readonly rows="4" class="w-full mt-2 px-4 py-3 rounded-xl border border-gray-200 text-sm bg-gray-100 text-gray-600 resize-none">${escapeHtml(rid.conclusion || "")}</textarea>
+        </div>
       </div>
     `;
     dom.designatedModal.classList.add("visible");
@@ -281,6 +373,56 @@
   function closeModal() {
     dom.designatedModal.classList.remove("visible");
     state.selectedRidId = null;
+  }
+
+  async function saveModal() {
+    const rid = state.allRids.find((item) => item.id === state.selectedRidId);
+    if (!rid) return;
+
+    const leaderSelect = document.getElementById("designatedLeaderSelect");
+    const statusSelect = document.getElementById("designatedStatusSelect");
+    const deadlineInput = document.getElementById("designatedDeadlineInput");
+    const correctiveActionsInput = document.getElementById("designatedCorrectiveActionsInput");
+    const leaderId = leaderSelect?.value || "";
+    const leaderData = getLeaderOptions().find((leader) => leader.id === leaderId) || null;
+    const nextStatus = statusSelect?.value || rid.status || "EM ANDAMENTO";
+    const deadlineValue = String(deadlineInput?.value || "").trim();
+    const correctiveActionsValue = String(correctiveActionsInput?.value || "").trim();
+
+    if (normalizeStatus(nextStatus) === "CORRIGIDO" && !correctiveActionsValue) {
+      dom.designatedModalFeedback.textContent = 'Para status "Corrigido", e obrigatorio preencher Acoes corretivas.';
+      dom.designatedModalFeedback.classList.remove("hidden-state");
+      return;
+    }
+
+    const updates = {
+      responsibleLeader: leaderId || null,
+      responsibleLeaderName: leaderData?.name || null,
+      status: nextStatus,
+      correctiveActions: correctiveActionsValue || null,
+      deadline: deadlineValue
+        ? firebase.firestore.Timestamp.fromDate(new Date(`${deadlineValue}T12:00:00`))
+        : null
+    };
+
+    if (normalizeStatus(nextStatus) === "CORRIGIDO" && !rid.conclusionDate) {
+      updates.conclusionDate = firebase.firestore.FieldValue.serverTimestamp();
+    }
+
+    dom.designatedModalFeedback.classList.add("hidden-state");
+    dom.designatedModalSave.disabled = true;
+    dom.designatedModalSave.textContent = "Salvando...";
+
+    try {
+      await db.collection("rids").doc(rid.id).update(updates);
+      closeModal();
+    } catch (error) {
+      dom.designatedModalFeedback.textContent = "Nao foi possivel salvar as alteracoes do RID.";
+      dom.designatedModalFeedback.classList.remove("hidden-state");
+    } finally {
+      dom.designatedModalSave.disabled = false;
+      dom.designatedModalSave.textContent = "Salvar alteracoes";
+    }
   }
 
   function showLogin() {
@@ -298,6 +440,11 @@
     dom.welcomeText.textContent = `Bem-vindo, ${state.currentUserData?.name || "gestor"}. Aqui voce acompanha os RIDs designados ao seu perfil.`;
     renderList();
     lucide.createIcons();
+  }
+
+  async function loadUsers() {
+    const snapshot = await db.collection("users").get();
+    state.allUsers = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
   }
 
   function listenRids() {
@@ -355,6 +502,9 @@
     });
 
     dom.designatedModalClose.addEventListener("click", closeModal);
+    dom.designatedModalSave.addEventListener("click", () => {
+      void saveModal();
+    });
     dom.designatedModal.addEventListener("click", (event) => {
       if (event.target === dom.designatedModal) closeModal();
     });
@@ -401,6 +551,7 @@
       return;
     }
 
+    await loadUsers();
     resetFilters();
     listenRids();
     showPage();

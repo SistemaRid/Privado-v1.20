@@ -23,7 +23,7 @@ function buildRidStatusNotification(after, ridId) {
   if (nextStatus === "CORRIGIDO") {
     return {
       title: "Novo RID corrigido",
-      body: `${leaderName}: ${correctiveActions || "Acao corretiva registrada."}`,
+      body: `Responsavel: ${leaderName}\nRID #${ridNumber || "-----"}: ${correctiveActions || "Acao corretiva registrada."}`,
       tag: `rid-corrected-${ridId}`
     };
   }
