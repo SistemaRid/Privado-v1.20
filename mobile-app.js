@@ -773,12 +773,7 @@
       docs.push(item);
     };
 
-    const queries = [db.collection("rids").where("emitterId", "==", state.currentUser.uid).get()];
-    if (state.currentUserData.cpf) {
-      queries.push(db.collection("rids").where("emitterCpf", "==", state.currentUserData.cpf).get());
-    }
-
-    const snapshots = await Promise.all(queries);
+    const snapshots = await collectRidSnapshots();
     snapshots.forEach((snapshot) => snapshot.docs.forEach((doc) => pushUnique(serializeRid(doc))));
 
     state.cachedRids = sortRidItems(await enrichDeletedRidsWithRequests(docs));
@@ -795,16 +790,48 @@
     state.ridRealtimeUnsubs = [];
   }
 
+  async function collectRidSnapshots() {
+    const queries = [{
+      label: "emitterId",
+      ref: db.collection("rids").where("emitterId", "==", state.currentUser.uid)
+    }];
+
+    if (state.currentUserData.cpf) {
+      queries.push({
+        label: "emitterCpf",
+        ref: db.collection("rids").where("emitterCpf", "==", state.currentUserData.cpf)
+      });
+    }
+
+    const settled = await Promise.allSettled(queries.map((item) => item.ref.get()));
+    const successfulSnapshots = [];
+    let hasPrimarySnapshot = false;
+
+    settled.forEach((result, index) => {
+      const query = queries[index];
+      if (result.status === "fulfilled") {
+        if (query.label === "emitterId") hasPrimarySnapshot = true;
+        successfulSnapshots.push(result.value);
+        return;
+      }
+
+      console.warn(`Consulta de RIDs ignorada no mobile (${query.label}).`, result.reason);
+    });
+
+    if (!hasPrimarySnapshot) {
+      throw settled[0]?.reason || new Error("Nao foi possivel consultar os RIDs do usuario.");
+    }
+
+    return successfulSnapshots;
+  }
+
   function startRealtimeRidSync() {
     if (!state.online || !state.currentUser?.uid || !state.currentUserData) return;
     if (state.ridRealtimeUnsubs?.length) return;
 
-    const queries = [db.collection("rids").where("emitterId", "==", state.currentUser.uid)];
-    if (state.currentUserData.cpf) {
-      queries.push(db.collection("rids").where("emitterCpf", "==", state.currentUserData.cpf));
-    }
+    const emitterQuery = db.collection("rids").where("emitterId", "==", state.currentUser.uid);
 
-    state.ridRealtimeUnsubs = queries.map((query) => query.onSnapshot(() => {
+    state.ridRealtimeUnsubs = [emitterQuery.onSnapshot(() => {
       cacheRemoteData()
         .then(() => {
           if (state.currentUser) renderApp();
@@ -814,7 +841,7 @@
         });
     }, (error) => {
       console.error("Falha no listener em tempo real do mobile:", error);
-    }));
+    })];
   }
 
   async function sendServiceWorkerMessage(message) {
