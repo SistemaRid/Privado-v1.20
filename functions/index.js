@@ -17,7 +17,7 @@ function normalizeStatus(value) {
 function buildRidStatusNotification(after, ridId) {
   const nextStatus = normalizeStatus(after.status);
   const ridNumber = formatRidNumber(after.ridNumber);
-  const leaderName = String(after.responsibleLeaderName || "").trim() || "O lider responsavel";
+  const leaderName = String(after.responsibleLeaderName || "").trim() || "Responsavel nao identificado";
   const correctiveActions = String(after.correctiveActions || "").trim();
 
   if (nextStatus === "CORRIGIDO") {

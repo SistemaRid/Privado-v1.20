@@ -179,6 +179,7 @@
     return state.allRids
       .filter((rid) => !rid.deleted)
       .filter((rid) => rid.responsibleLeader === state.currentUser?.uid)
+      .filter((rid) => normalizeStatus(rid.status) === "VENCIDO")
       .filter((rid) => {
         if (state.filters.status && normalizeStatus(rid.status) !== normalizeStatus(state.filters.status)) return false;
         if (state.filters.risk && normalizeStatus(rid.riskClassification) !== normalizeStatus(state.filters.risk)) return false;
@@ -207,7 +208,7 @@
       const status = normalizeStatus(rid.status);
       return status !== "CORRIGIDO" && status !== "ENCERRADO";
     }).length);
-    dom.overdueCount.textContent = String(rids.filter((rid) => normalizeStatus(rid.status) === "VENCIDO").length);
+    dom.overdueCount.textContent = String(rids.length);
     const correctedAll = rids.filter((rid) => {
       const status = normalizeStatus(rid.status);
       return status === "CORRIGIDO" || status === "ENCERRADO";
