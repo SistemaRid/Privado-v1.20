@@ -23,6 +23,8 @@
 
   const PAGE_SIZE = 8;
   const CONNECTIVITY_CHECK_INTERVAL = 30000;
+  const RID_IMAGE_MAX_BYTES = 350 * 1024;
+  const RID_IMAGE_MAX_DIMENSION = 1280;
 
   const state = {
     online: navigator.onLine,
@@ -70,6 +72,7 @@
     const formData = new FormData(form);
     const draft = {};
     for (const [key, value] of formData.entries()) {
+      if (value instanceof File) continue;
       draft[key] = value;
     }
     return draft;
@@ -140,6 +143,68 @@
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
+  }
+
+  function estimateBase64Bytes(dataUrl) {
+    const base64 = String(dataUrl || "").split(",")[1] || "";
+    return Math.ceil((base64.length * 3) / 4);
+  }
+
+  function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("Nao foi possivel ler a imagem selecionada."));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function loadImageElement(dataUrl) {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error("Nao foi possivel processar a imagem selecionada."));
+      image.src = dataUrl;
+    });
+  }
+
+  async function prepareRidImage(file) {
+    if (!file || !file.size) return null;
+    if (!String(file.type || "").startsWith("image/")) {
+      throw new Error("Selecione um arquivo de imagem valido.");
+    }
+
+    const sourceDataUrl = await readFileAsDataUrl(file);
+    const image = await loadImageElement(sourceDataUrl);
+    const canvas = document.createElement("canvas");
+    const ratio = Math.min(1, RID_IMAGE_MAX_DIMENSION / Math.max(image.width || 1, image.height || 1));
+
+    canvas.width = Math.max(1, Math.round((image.width || 1) * ratio));
+    canvas.height = Math.max(1, Math.round((image.height || 1) * ratio));
+
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Nao foi possivel preparar a imagem para envio.");
+    }
+
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    let quality = 0.82;
+    let dataUrl = canvas.toDataURL("image/jpeg", quality);
+    while (estimateBase64Bytes(dataUrl) > RID_IMAGE_MAX_BYTES && quality > 0.4) {
+      quality -= 0.08;
+      dataUrl = canvas.toDataURL("image/jpeg", quality);
+    }
+
+    if (estimateBase64Bytes(dataUrl) > RID_IMAGE_MAX_BYTES) {
+      throw new Error("A imagem ficou grande demais mesmo apos compressao. Use uma foto menor.");
+    }
+
+    return {
+      dataUrl,
+      contentType: "image/jpeg",
+      originalName: file.name || "rid.jpg"
+    };
   }
 
   function normalizeCpf(cpf) {
@@ -608,6 +673,9 @@
       description: data.description || "",
       riskClassification: data.riskClassification || "",
       immediateAction: data.immediateAction || "",
+      imageDataUrl: data.imageDataUrl || "",
+      imageContentType: data.imageContentType || "",
+      imageOriginalName: data.imageOriginalName || "",
       correctiveActions: data.correctiveActions || "",
       status: data.status || "VENCIDO",
       responsibleLeader: data.responsibleLeader || "",
@@ -862,6 +930,7 @@
       description: formData.get("description"),
       riskClassification: formData.get("riskClassification"),
       immediateAction: formData.get("immediateAction"),
+      image: null,
       status,
       responsibleLeader: leaderId,
       responsibleLeaderName: leader?.name || "",
@@ -890,6 +959,9 @@
       description: payload.description,
       riskClassification: payload.riskClassification,
       immediateAction: payload.immediateAction,
+      imageDataUrl: payload.image?.dataUrl || null,
+      imageContentType: payload.image?.contentType || null,
+      imageOriginalName: payload.image?.originalName || null,
       status: isCorrectedNow ? "CORRIGIDO" : "VENCIDO",
       responsibleLeader: payload.responsibleLeader || "",
       responsibleLeaderName: payload.responsibleLeaderName || "",
@@ -1032,6 +1104,8 @@
       }
 
       const payload = buildRidPayload(formData);
+      payload.image = await prepareRidImage(formData.get("imageFile"));
+      payload.imageDataUrl = payload.image?.dataUrl || "";
 
       if (state.online) {
         setActionOverlay("Enviando RID", "Aguarde enquanto o envio é concluído.");
@@ -1441,6 +1515,11 @@
               <textarea name="immediateAction" required placeholder="Descreva a ação imediata"></textarea>
             </div>
             <div class="field">
+              <label>Imagem da ocorrencia</label>
+              <input type="file" name="imageFile" accept="image/*" capture="environment">
+              <p class="helper-text">A foto e comprimida e salva direto no documento do Firestore.</p>
+            </div>
+            <div class="field">
               <label>Status inicial</label>
               <select name="status" required>
                 <option value="">Selecione...</option>
@@ -1564,6 +1643,12 @@
               <label>Descrição</label>
               <div class="muted" style="color:#213043;">${escapeHtml(item.description || "Sem descrição")}</div>
             </div>
+            ${item.imageDataUrl ? `
+              <div class="field" style="grid-column:1 / -1;">
+                <label>Imagem da ocorrencia</label>
+                <img src="${escapeHtml(item.imageDataUrl)}" alt="Imagem do RID" style="width:100%; border-radius:18px; border:1px solid rgba(148,163,184,0.22);">
+              </div>
+            ` : ""}
             ${item.deleted ? `
               <div class="field">
                 <label>Motivo da exclusão</label>

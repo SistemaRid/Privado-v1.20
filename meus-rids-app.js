@@ -15,6 +15,8 @@
   const auth = firebase.auth();
   auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
   const db = firebase.firestore();
+  const RID_IMAGE_MAX_BYTES = 350 * 1024;
+  const RID_IMAGE_MAX_DIMENSION = 1280;
 
   const state = {
     currentUser: null,
@@ -149,6 +151,68 @@
     dom.newRidFeedback.className = `${isError ? "text-sm text-red-500" : "text-sm text-emerald-600"}${message ? "" : " hidden-state"}`;
   }
 
+  function estimateBase64Bytes(dataUrl) {
+    const base64 = String(dataUrl || "").split(",")[1] || "";
+    return Math.ceil((base64.length * 3) / 4);
+  }
+
+  function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("Nao foi possivel ler a imagem selecionada."));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function loadImageElement(dataUrl) {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error("Nao foi possivel processar a imagem selecionada."));
+      image.src = dataUrl;
+    });
+  }
+
+  async function prepareRidImage(file) {
+    if (!file || !file.size) return null;
+    if (!String(file.type || "").startsWith("image/")) {
+      throw new Error("Selecione um arquivo de imagem valido.");
+    }
+
+    const sourceDataUrl = await readFileAsDataUrl(file);
+    const image = await loadImageElement(sourceDataUrl);
+    const canvas = document.createElement("canvas");
+    const ratio = Math.min(1, RID_IMAGE_MAX_DIMENSION / Math.max(image.width || 1, image.height || 1));
+
+    canvas.width = Math.max(1, Math.round((image.width || 1) * ratio));
+    canvas.height = Math.max(1, Math.round((image.height || 1) * ratio));
+
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Nao foi possivel preparar a imagem para envio.");
+    }
+
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    let quality = 0.82;
+    let dataUrl = canvas.toDataURL("image/jpeg", quality);
+    while (estimateBase64Bytes(dataUrl) > RID_IMAGE_MAX_BYTES && quality > 0.4) {
+      quality -= 0.08;
+      dataUrl = canvas.toDataURL("image/jpeg", quality);
+    }
+
+    if (estimateBase64Bytes(dataUrl) > RID_IMAGE_MAX_BYTES) {
+      throw new Error("A imagem ficou grande demais mesmo apos compressao. Use uma foto menor.");
+    }
+
+    return {
+      dataUrl,
+      contentType: "image/jpeg",
+      originalName: file.name || "rid.jpg"
+    };
+  }
+
   async function loadLeaders() {
     try {
       const snapshot = await db.collection("leaders_public").get();
@@ -229,6 +293,7 @@
       description: formData.get("description"),
       riskClassification: formData.get("riskClassification"),
       immediateAction: formData.get("immediateAction"),
+      image: null,
       status,
       responsibleLeader: leaderId,
       responsibleLeaderName: leader?.name || ""
@@ -256,6 +321,9 @@
       description: payload.description,
       riskClassification: payload.riskClassification,
       immediateAction: payload.immediateAction,
+      imageDataUrl: payload.image?.dataUrl || null,
+      imageContentType: payload.image?.contentType || null,
+      imageOriginalName: payload.image?.originalName || null,
       status: isCorrectedNow ? "CORRIGIDO" : "VENCIDO",
       responsibleLeader: payload.responsibleLeader || "",
       responsibleLeaderName: payload.responsibleLeaderName || "",
@@ -508,6 +576,12 @@
           <div class="text-sm font-semibold text-gray-900 mt-2 break-words">${escapeHtml(formatField(rid.sector))}</div>
         </div>
       </div>
+      ${rid.imageDataUrl ? `
+        <div class="mt-5 rounded-2xl border border-gray-100 bg-white px-4 py-4">
+          <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Imagem da ocorrencia</div>
+          <img src="${escapeHtml(rid.imageDataUrl)}" alt="Imagem do RID" class="mt-3 w-full rounded-2xl border border-gray-100 object-cover">
+        </div>
+      ` : ""}
       <div class="space-y-3 mt-5">
         ${detailBlocks.map((block) => `
           <div class="rounded-2xl border px-4 py-4 ${block.tone}">
@@ -622,11 +696,13 @@
       setNewRidFeedback("");
 
       try {
-        const payload = buildRidPayload(new FormData(dom.newRidForm));
+        const formData = new FormData(dom.newRidForm);
+        const payload = buildRidPayload(formData);
+        payload.image = await prepareRidImage(formData.get("imageFile"));
         await submitRidToFirestore(payload);
         closeNewRidModal();
       } catch (error) {
-        setNewRidFeedback("Nao foi possivel emitir o RID.");
+        setNewRidFeedback(error?.message || "Nao foi possivel emitir o RID.");
       } finally {
         dom.newRidSubmit.disabled = false;
         dom.newRidSubmit.textContent = "Emitir RID";
