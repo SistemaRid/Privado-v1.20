@@ -1517,7 +1517,7 @@
             <div class="field">
               <label>Imagem da ocorrencia</label>
               <input type="file" name="imageFile" accept="image/*" capture="environment">
-              <p class="helper-text">A foto e comprimida e salva direto no documento do Firestore.</p>
+              <p class="helper-text">Opcional.</p>
             </div>
             <div class="field">
               <label>Status inicial</label>
