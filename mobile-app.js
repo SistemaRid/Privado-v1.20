@@ -45,7 +45,8 @@
     pushPromptDismissed: false,
     pushToken: null,
     pushMessagingBound: false,
-    pushServiceWorkerRegistration: null
+    pushServiceWorkerRegistration: null,
+    ridRealtimeUnsubs: []
   };
 
   const app = document.getElementById("app");
@@ -717,6 +718,37 @@
     persistUserCache();
   }
 
+  function stopRealtimeRidSync() {
+    (state.ridRealtimeUnsubs || []).forEach((unsubscribe) => {
+      try {
+        unsubscribe();
+      } catch (error) {}
+    });
+    state.ridRealtimeUnsubs = [];
+  }
+
+  function startRealtimeRidSync() {
+    if (!state.online || !state.currentUser?.uid || !state.currentUserData) return;
+    if (state.ridRealtimeUnsubs?.length) return;
+
+    const queries = [db.collection("rids").where("emitterId", "==", state.currentUser.uid)];
+    if (state.currentUserData.cpf) {
+      queries.push(db.collection("rids").where("emitterCpf", "==", state.currentUserData.cpf));
+    }
+
+    state.ridRealtimeUnsubs = queries.map((query) => query.onSnapshot(() => {
+      cacheRemoteData()
+        .then(() => {
+          if (state.currentUser) renderApp();
+        })
+        .catch((error) => {
+          console.error("Falha ao atualizar RIDs em tempo real no mobile:", error);
+        });
+    }, (error) => {
+      console.error("Falha no listener em tempo real do mobile:", error);
+    }));
+  }
+
   async function sendServiceWorkerMessage(message) {
     if (!("serviceWorker" in navigator)) return false;
 
@@ -1116,6 +1148,7 @@
         });
 
         await cacheRemoteData();
+        startRealtimeRidSync();
         renderApp();
         await initializeMobilePushNotifications();
         showToast("Login realizado.", "success");
@@ -1151,6 +1184,7 @@
 
   async function logout() {
     try {
+      stopRealtimeRidSync();
       await disableMobilePushToken();
       if (state.online) {
         await auth.signOut();
@@ -1743,6 +1777,7 @@
     state.currentUserData = { id: sessionUser.uid, ...userDoc.data() };
     loadUserCache(sessionUser.uid);
     await refreshOfflineExperience({ showSuccessToast: false, showErrorToast: false });
+    startRealtimeRidSync();
     renderApp();
     await initializeMobilePushNotifications();
     return true;
@@ -1773,6 +1808,7 @@
       if (actualOnline && state.currentUser) {
         refreshOfflineExperience({ showSuccessToast: false, showErrorToast: true })
           .then(() => {
+            startRealtimeRidSync();
             initializeMobilePushNotifications().catch((error) => {
               console.error("Falha ao inicializar push mobile ao reconectar:", error);
             });
@@ -1782,6 +1818,8 @@
             console.error("Falha ao atualizar dados ao reconectar:", error);
             showToast("Não foi possível atualizar os RIDs ao reconectar.", "error");
           });
+      } else if (!actualOnline) {
+        stopRealtimeRidSync();
       }
     });
   }
@@ -1830,6 +1868,7 @@
         if (state.online) {
           refreshOfflineExperience({ showSuccessToast: false, showErrorToast: false })
             .then(() => {
+              startRealtimeRidSync();
               initializeMobilePushNotifications().catch((error) => {
                 console.error("Falha ao inicializar push mobile no auto login:", error);
               });
@@ -1849,6 +1888,7 @@
       }
 
       if (!state.online && restoredStoredSession) {
+        stopRealtimeRidSync();
         setBooting(false);
         renderApp();
         return;
@@ -1861,12 +1901,14 @@
           state.currentUser = { uid: fallbackSession.uid };
           state.currentUserData = fallbackSession.userData;
           loadUserCache(fallbackSession.uid);
+          stopRealtimeRidSync();
           setBooting(false);
           renderApp();
         } else if (fallbackSession?.uid && fallbackSession?.userData && state.online) {
           state.currentUser = { uid: fallbackSession.uid };
           state.currentUserData = fallbackSession.userData;
           loadUserCache(fallbackSession.uid);
+          startRealtimeRidSync();
           renderApp();
           refreshOfflineExperience({ showSuccessToast: false, showErrorToast: false })
             .then(() => {
