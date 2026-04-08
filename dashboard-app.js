@@ -300,7 +300,7 @@
       <div style="display:flex;align-items:flex-start;gap:12px;">
         <div style="width:42px;height:42px;border-radius:14px;background:#2563eb;color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">!</div>
         <div style="min-width:0;flex:1;">
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#2563eb;">Nova RID recebida</div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#2563eb;">Novo RID recebido</div>
           <div style="font-size:15px;font-weight:700;margin-top:4px;">#${escapeHtml(ridNumber)}</div>
           <div style="font-size:13px;color:#334155;margin-top:6px;">${emitterName}</div>
           <div style="font-size:12px;color:#64748b;margin-top:4px;">${location}</div>

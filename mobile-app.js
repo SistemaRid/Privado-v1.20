@@ -12,6 +12,8 @@
   const auth = firebase.auth();
   auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
   const db = firebase.firestore();
+  const messaging = typeof firebase.messaging === "function" ? firebase.messaging() : null;
+  const WEB_PUSH_VAPID_KEY = "BC2FvVfx_PdEvXYqKdMAwZaNetYp_5Ni94FYINhTBxaXZnrhlCFfczJ-ivYtwsErGGcYAIAqUVzRz2HteJSaNuQ";
 
   const STORAGE_KEYS = {
     auth: "ridMobileOfflineAuth",
@@ -39,7 +41,11 @@
     booting: true,
     offlineBundleUpdating: false,
     actionOverlay: null,
-    actionOverlayShownAt: 0
+    actionOverlayShownAt: 0,
+    pushPromptDismissed: false,
+    pushToken: null,
+    pushMessagingBound: false,
+    pushServiceWorkerRegistration: null
   };
 
   const app = document.getElementById("app");
@@ -434,6 +440,153 @@
     const digits = String(ridNumber ?? "").replace(/\D/g, "");
     if (!digits) return "";
     return digits.padStart(5, "0");
+  }
+
+  function canUsePushNotifications() {
+    return !!(state.online && state.currentUser?.uid && messaging && "Notification" in window && "serviceWorker" in navigator);
+  }
+
+  function describePushError(error) {
+    const details = `${String(error?.code || "")} ${String(error?.message || "")}`.toLowerCase();
+    if (Notification.permission === "denied" || details.includes("permission-blocked")) {
+      return "As notificacoes do navegador estao bloqueadas neste celular.";
+    }
+    if (details.includes("service worker") || details.includes("sw.js")) {
+      return "Nao foi possivel iniciar o service worker de notificacoes.";
+    }
+    if (details.includes("insufficient permissions")) {
+      return "O token foi gerado, mas o Firestore nao deixou salvar.";
+    }
+    return "Nao foi possivel ativar as notificacoes neste celular.";
+  }
+
+  async function ensurePushServiceWorkerRegistration() {
+    if (!canUsePushNotifications()) return null;
+    if (state.pushServiceWorkerRegistration) return state.pushServiceWorkerRegistration;
+    await navigator.serviceWorker.register("./sw.js", {
+      scope: "./",
+      updateViaCache: "none"
+    });
+    state.pushServiceWorkerRegistration = await navigator.serviceWorker.ready;
+    return state.pushServiceWorkerRegistration;
+  }
+
+  async function syncMobilePushToken() {
+    if (!canUsePushNotifications()) return null;
+    const registration = await ensurePushServiceWorkerRegistration();
+    if (!registration) return null;
+
+    const token = await messaging.getToken({
+      vapidKey: WEB_PUSH_VAPID_KEY,
+      serviceWorkerRegistration: registration
+    });
+
+    if (!token) return null;
+
+    state.pushToken = token;
+    await db.collection("notificationTokens").doc(token).set({
+      token,
+      uid: state.currentUser.uid,
+      userName: state.currentUserData?.name || "",
+      isAdmin: !!state.currentUserData?.isAdmin,
+      isDeveloper: !!state.currentUserData?.isDeveloper,
+      platform: "web",
+      page: "mobile",
+      channel: "rid-status-change",
+      serviceWorkerScope: registration.scope || "",
+      userAgent: navigator.userAgent,
+      enabled: true,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+
+    return token;
+  }
+
+  async function disableMobilePushToken() {
+    if (!messaging || !state.online || !state.currentUser?.uid) return;
+
+    try {
+      const registration = await ensurePushServiceWorkerRegistration();
+      const token = state.pushToken || await messaging.getToken({
+        vapidKey: WEB_PUSH_VAPID_KEY,
+        serviceWorkerRegistration: registration || undefined
+      });
+
+      if (!token) return;
+      await db.collection("notificationTokens").doc(token).delete().catch(() => null);
+      state.pushToken = null;
+    } catch (error) {
+      console.warn("Nao foi possivel desativar o token mobile:", error);
+    }
+  }
+
+  async function requestMobilePushPermission() {
+    if (!canUsePushNotifications()) return;
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        if (permission === "denied") state.pushPromptDismissed = true;
+        renderApp();
+        showToast("As notificacoes nao foram liberadas neste celular.", "info");
+        return;
+      }
+
+      await syncMobilePushToken();
+      renderApp();
+      showToast("Notificacoes do celular ativadas.", "success");
+    } catch (error) {
+      console.error("Falha ao ativar push mobile:", error);
+      showToast(describePushError(error), "error");
+    }
+  }
+
+  function subscribeForegroundPushMessages() {
+    if (!messaging || state.pushMessagingBound) return;
+    state.pushMessagingBound = true;
+    messaging.onMessage((payload) => {
+      const data = payload?.data || {};
+      const title = data.title || payload?.notification?.title || "Nova notificacao";
+      const body = data.body || payload?.notification?.body || "";
+      showToast(body ? `${title}: ${body}` : title, "info");
+    });
+  }
+
+  async function initializeMobilePushNotifications() {
+    if (!canUsePushNotifications()) return;
+    subscribeForegroundPushMessages();
+
+    try {
+      await ensurePushServiceWorkerRegistration();
+    } catch (error) {
+      console.error("Falha ao registrar push mobile:", error);
+      return;
+    }
+
+    if (Notification.permission === "granted") {
+      try {
+        await syncMobilePushToken();
+      } catch (error) {
+        console.error("Falha ao sincronizar token mobile:", error);
+      }
+    }
+  }
+
+  function renderPushPermissionBanner() {
+    if (!canUsePushNotifications()) return "";
+    if (Notification.permission !== "default") return "";
+    if (state.pushPromptDismissed) return "";
+
+    return `
+      <div class="mobile-push-banner">
+        <div class="mobile-push-title">Ative as notificacoes do celular</div>
+        <div class="mobile-push-copy">Receba aviso quando um lider corrigir um RID seu.</div>
+        <div class="mobile-push-actions">
+          <button class="btn btn-success btn-small" id="enable-mobile-push-btn">Ativar</button>
+          <button class="btn btn-soft btn-small" id="dismiss-mobile-push-btn">Agora nao</button>
+        </div>
+      </div>
+    `;
   }
 
   function serializeRid(doc) {
@@ -964,6 +1117,7 @@
 
         await cacheRemoteData();
         renderApp();
+        await initializeMobilePushNotifications();
         showToast("Login realizado.", "success");
       } else {
         const offlineAuth = getOfflineAuth();
@@ -997,6 +1151,7 @@
 
   async function logout() {
     try {
+      await disableMobilePushToken();
       if (state.online) {
         await auth.signOut();
       }
@@ -1454,6 +1609,8 @@
             </div>
           ` : ""}
 
+          ${renderPushPermissionBanner()}
+
           <section class="section">
             <div class="section-header">
               <h2 class="section-title" style="white-space:nowrap;">Meu desempenho</h2>
@@ -1530,6 +1687,11 @@
     });
     document.getElementById("new-rid-btn")?.addEventListener("click", openRidModal);
     document.getElementById("maintenance-btn")?.addEventListener("click", openMaintenanceModal);
+    document.getElementById("enable-mobile-push-btn")?.addEventListener("click", requestMobilePushPermission);
+    document.getElementById("dismiss-mobile-push-btn")?.addEventListener("click", () => {
+      state.pushPromptDismissed = true;
+      renderApp();
+    });
     document.getElementById("rid-form")?.addEventListener("submit", handleRidSubmit);
     document.getElementById("maintenance-form")?.addEventListener("submit", handleMaintenanceSubmit);
     bindDraftPersistence("rid-form", "ridDraft");
@@ -1582,6 +1744,7 @@
     loadUserCache(sessionUser.uid);
     await refreshOfflineExperience({ showSuccessToast: false, showErrorToast: false });
     renderApp();
+    await initializeMobilePushNotifications();
     return true;
   }
 
@@ -1610,6 +1773,9 @@
       if (actualOnline && state.currentUser) {
         refreshOfflineExperience({ showSuccessToast: false, showErrorToast: true })
           .then(() => {
+            initializeMobilePushNotifications().catch((error) => {
+              console.error("Falha ao inicializar push mobile ao reconectar:", error);
+            });
             renderApp();
           })
           .catch((error) => {
@@ -1623,7 +1789,10 @@
   async function registerServiceWorker() {
     if (!("serviceWorker" in navigator)) return;
     try {
-      await navigator.serviceWorker.register("./sw.js");
+      await navigator.serviceWorker.register("./sw.js", {
+        scope: "./",
+        updateViaCache: "none"
+      });
     } catch (error) {
       console.warn("Falha ao registrar service worker:", error);
     }
@@ -1661,6 +1830,9 @@
         if (state.online) {
           refreshOfflineExperience({ showSuccessToast: false, showErrorToast: false })
             .then(() => {
+              initializeMobilePushNotifications().catch((error) => {
+                console.error("Falha ao inicializar push mobile no auto login:", error);
+              });
               setBooting(false);
               renderApp();
             })
@@ -1698,6 +1870,9 @@
           renderApp();
           refreshOfflineExperience({ showSuccessToast: false, showErrorToast: false })
             .then(() => {
+              initializeMobilePushNotifications().catch((error) => {
+                console.error("Falha ao inicializar push mobile no fallback online:", error);
+              });
               setBooting(false);
               renderApp();
             })
