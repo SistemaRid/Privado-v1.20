@@ -417,10 +417,6 @@
   }
 
   function getCombinedRids() {
-    if (canSeeAssignedRids()) {
-      return sortRidItems((state.cachedAssignedRids || []).filter((item) => !item.deleted));
-    }
-
     const remote = (state.cachedRids || []).map((item) => ({ ...item, isPendingLocal: false }));
     const pending = (state.pendingRids || []).map((item) => ({ ...item, isPendingLocal: true }));
     return sortRidItems([...pending, ...remote]);
@@ -497,11 +493,11 @@
   }
 
   function getAssignedRids() {
-    return getCombinedRids().filter((item) => {
+    return sortRidItems((state.cachedAssignedRids || []).filter((item) => {
       if (item.deleted) return false;
       const status = String(item.status || "").toUpperCase();
       return status === "VENCIDO" || status.includes("ANDAMENTO");
-    });
+    }));
   }
 
   function getPaginatedAssignedRids() {
