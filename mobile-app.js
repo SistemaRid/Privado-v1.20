@@ -1958,8 +1958,8 @@
             </div>
             <div class="field">
               <label>Imagem da ocorrencia</label>
-              <input type="file" name="imageFile" accept="image/*" capture="environment">
-              <p class="helper-text">Opcional.</p>
+              <input type="file" name="imageFile" accept="image/*">
+              <p class="helper-text">Opcional. Voce pode escolher uma foto da galeria ou tirar na hora, dependendo das opcoes do seu celular.</p>
             </div>
             <div class="field">
               <label>Status inicial</label>
