@@ -69,6 +69,7 @@
     announcementTarget: document.getElementById("announcementTarget"),
     announcementActive: document.getElementById("announcementActive"),
     loadAnnouncementButton: document.getElementById("loadAnnouncementButton"),
+    clearAnnouncementButton: document.getElementById("clearAnnouncementButton"),
     saveAnnouncementButton: document.getElementById("saveAnnouncementButton"),
     announcementFeedback: document.getElementById("announcementFeedback"),
     announcementList: document.getElementById("announcementList")
@@ -451,6 +452,10 @@
     dom.goalForm.addEventListener("submit", saveGoal);
     dom.passwordForm.addEventListener("submit", changePassword);
     dom.loadAnnouncementButton.addEventListener("click", loadAnnouncement);
+    dom.clearAnnouncementButton.addEventListener("click", () => {
+      resetAnnouncementForm();
+      dom.announcementFeedback.textContent = "Campos do aviso limpos.";
+    });
     dom.announcementForm.addEventListener("submit", saveAnnouncement);
     dom.announcementList.addEventListener("click", (event) => {
       const toggleButton = event.target.closest("[data-toggle-announcement]");

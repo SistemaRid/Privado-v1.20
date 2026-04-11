@@ -222,7 +222,7 @@
     overlay.style.backdropFilter = "blur(10px)";
     overlay.style.webkitBackdropFilter = "blur(10px)";
     overlay.innerHTML = `
-      <div style="width:min(100%,560px);background:#ffffff;border-radius:24px;padding:18px;box-shadow:0 18px 40px rgba(24,39,75,.18);border:1px solid #dde5eb;">
+      <div style="width:min(100%,560px);max-height:calc(100dvh - 32px);display:flex;flex-direction:column;background:#ffffff;border-radius:24px;padding:18px;box-shadow:0 18px 40px rgba(24,39,75,.18);border:1px solid #dde5eb;">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px;">
           <div>
             <div style="font-size:.72rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#7895a7;">Aviso do sistema</div>
@@ -230,7 +230,7 @@
           </div>
           <button type="button" id="closeGlobalAnnouncementModal" style="width:36px;height:36px;border:0;border-radius:999px;background:#f7fafc;color:#415264;font-size:22px;">×</button>
         </div>
-        <div style="font-size:.96rem;line-height:1.65;color:#475569;white-space:pre-wrap;">${escapeHtml(data.message || "")}</div>
+        <div style="flex:1;min-height:0;overflow-y:auto;padding-right:4px;font-size:.96rem;line-height:1.65;color:#475569;white-space:pre-wrap;">${escapeHtml(data.message || "")}</div>
         <div style="display:flex;justify-content:flex-end;margin-top:16px;">
           <button type="button" id="ackGlobalAnnouncementModal" style="min-height:46px;padding:0 16px;border:0;border-radius:18px;background:linear-gradient(135deg,#9ab4c3,#7895a7);color:white;font-weight:800;">Entendi</button>
         </div>
