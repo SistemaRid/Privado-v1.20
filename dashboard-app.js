@@ -17,6 +17,7 @@
   const db = firebase.firestore();
   const messaging = typeof firebase.messaging === "function" ? firebase.messaging() : null;
   const WEB_PUSH_VAPID_KEY = "BC2FvVfx_PdEvXYqKdMAwZaNetYp_5Ni94FYINhTBxaXZnrhlCFfczJ-ivYtwsErGGcYAIAqUVzRz2HteJSaNuQ";
+  const ANNOUNCEMENTS_COLLECTION = db.collection("globalAnnouncements");
 
   const state = {
     currentUser: null,
@@ -103,6 +104,126 @@
     document.querySelectorAll('[data-developer-only-nav="requests"]').forEach((element) => {
       element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
     });
+  }
+
+  function getTodayKey() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  }
+
+  function getAnnouncementViewKey(uid, dateKey) {
+    return `ridAnnouncementView_${uid}_${dateKey}`;
+  }
+
+  function getStoredAnnouncementViews(uid, dateKey) {
+    try {
+      return JSON.parse(localStorage.getItem(getAnnouncementViewKey(uid, dateKey)) || "{}");
+    } catch (error) {
+      return {};
+    }
+  }
+
+  function saveStoredAnnouncementViews(uid, dateKey, value) {
+    localStorage.setItem(getAnnouncementViewKey(uid, dateKey), JSON.stringify(value));
+  }
+
+  function isAnnouncementActive(data) {
+    if (!data?.isActive || !data.startDate || !data.daysVisible) return false;
+    const start = new Date(`${data.startDate}T00:00:00`);
+    if (Number.isNaN(start.getTime())) return false;
+    const end = new Date(start);
+    end.setDate(end.getDate() + Math.max(1, Number(data.daysVisible || 1)) - 1);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return today >= start && today <= end;
+  }
+
+  function canShowAnnouncement(uid, data) {
+    if (!uid || !data?.updatedAt || !data?.id) return false;
+    if (data.target === "mobile") return false;
+    if (!isAnnouncementActive(data)) return false;
+    const dateKey = getTodayKey();
+    const stored = getStoredAnnouncementViews(uid, dateKey);
+    const announcementId = `${data.id}:${data.updatedAt?.seconds ? data.updatedAt.seconds : String(data.updatedAt || data.startDate || "default")}`;
+    const currentViews = Number(stored[announcementId] || 0);
+    return currentViews < Math.max(1, Number(data.dailyLimit || 1));
+  }
+
+  function markAnnouncementShown(uid, data) {
+    const dateKey = getTodayKey();
+    const stored = getStoredAnnouncementViews(uid, dateKey);
+    const announcementId = `${data.id}:${data.updatedAt?.seconds ? data.updatedAt.seconds : String(data.updatedAt || data.startDate || "default")}`;
+    stored[announcementId] = Number(stored[announcementId] || 0) + 1;
+    saveStoredAnnouncementViews(uid, dateKey, stored);
+  }
+
+  function removeAnnouncementModal() {
+    document.getElementById("globalAnnouncementModal")?.remove();
+  }
+
+  function showAnnouncementModal(data, onClose) {
+    removeAnnouncementModal();
+    const overlay = document.createElement("div");
+    overlay.id = "globalAnnouncementModal";
+    overlay.style.position = "fixed";
+    overlay.style.inset = "0";
+    overlay.style.zIndex = "1300";
+    overlay.style.background = "rgba(15, 23, 42, 0.52)";
+    overlay.style.display = "flex";
+    overlay.style.alignItems = "center";
+    overlay.style.justifyContent = "center";
+    overlay.style.padding = "24px";
+    overlay.style.backdropFilter = "blur(10px)";
+    overlay.style.webkitBackdropFilter = "blur(10px)";
+    overlay.innerHTML = `
+      <div style="width:min(100%,560px);background:#fff;border-radius:28px;padding:24px;border:1px solid #e5e7eb;box-shadow:0 24px 60px rgba(15,23,42,.22);">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;">
+          <div>
+            <div style="font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#94a3b8;">Aviso do sistema</div>
+            <h2 style="margin:6px 0 0;font-size:24px;line-height:1.1;color:#111827;">${escapeHtml(data.title || "Atualização")}</h2>
+          </div>
+          <button type="button" id="closeGlobalAnnouncementModal" style="width:40px;height:40px;border:none;border-radius:999px;background:#f8fafc;color:#475569;font-size:24px;cursor:pointer;">×</button>
+        </div>
+        <div style="font-size:15px;line-height:1.7;color:#334155;white-space:pre-wrap;">${escapeHtml(data.message || "")}</div>
+        <div style="margin-top:18px;display:flex;justify-content:flex-end;">
+          <button type="button" id="ackGlobalAnnouncementModal" style="padding:12px 18px;border:none;border-radius:16px;background:#111827;color:#fff;font-weight:700;cursor:pointer;">Entendi</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const close = () => {
+      removeAnnouncementModal();
+      if (typeof onClose === "function") onClose();
+    };
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) close();
+    });
+    overlay.querySelector("#closeGlobalAnnouncementModal")?.addEventListener("click", close);
+    overlay.querySelector("#ackGlobalAnnouncementModal")?.addEventListener("click", close);
+  }
+
+  async function maybeShowGlobalAnnouncement() {
+    if (!state.currentUser?.uid) return;
+    try {
+      const snap = await ANNOUNCEMENTS_COLLECTION.get();
+      const eligible = snap.docs
+        .map((doc) => ({ id: doc.id, ...doc.data() }))
+        .filter((item) => canShowAnnouncement(state.currentUser.uid, item))
+        .sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
+
+      if (!eligible.length) return;
+
+      const showNext = (index) => {
+        const current = eligible[index];
+        if (!current) return;
+        markAnnouncementShown(state.currentUser.uid, current);
+        showAnnouncementModal(current, () => showNext(index + 1));
+      };
+
+      showNext(0);
+    } catch (error) {
+      console.warn("Nao foi possivel carregar o aviso global:", error);
+    }
   }
 
   function maskCpf(value) {
@@ -505,7 +626,10 @@
     if (!messaging || state.pushMessagingBound) return;
     state.pushMessagingBound = true;
     messaging.onMessage((payload) => {
-      console.debug("Push recebido com dashboard aberto:", payload);
+      const data = payload?.data || {};
+      const title = data.title || payload?.notification?.title || "Nova notificacao";
+      const body = data.body || payload?.notification?.body || "";
+      showPushStatusCard(body ? `${title}: ${body}` : title, "info");
     });
   }
 
@@ -1669,6 +1793,7 @@
     dom.welcomeText.textContent = `Bem-vindo, ${state.currentUserData?.name || "gestor"}`;
     populateSectorFilter();
     void renderDashboard();
+    void maybeShowGlobalAnnouncement();
     void initializePushNotifications();
     lucide.createIcons();
   }
@@ -1817,6 +1942,7 @@
     state.currentUser = user;
 
     if (!user) {
+      removeAnnouncementModal();
       state.currentUserData = null;
       state.allUsers = [];
       state.allRids = [];

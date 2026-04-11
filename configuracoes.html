@@ -275,6 +275,69 @@
           </div>
         </article>
       </section>
+
+      <section id="announcementSection" class="settings-card mt-4 hidden-state">
+        <div class="settings-head">
+          <h2 class="font-semibold text-gray-900 text-sm">Aviso global de atualização</h2>
+          <p class="text-xs text-gray-400 mt-1">Defina uma mensagem para aparecer no dashboard e no mobile por alguns dias.</p>
+        </div>
+        <div class="settings-body">
+          <div id="announcementNotice" class="notice-card text-sm text-gray-600">
+            Configure um aviso para comunicar melhorias, mudanças e atualizações do sistema.
+          </div>
+          <form id="announcementForm" class="space-y-4 mt-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label class="text-xs font-semibold uppercase tracking-wider text-gray-400 block mb-2" for="announcementTitle">Título</label>
+                <input id="announcementTitle" type="text" maxlength="80" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50" placeholder="Ex: Atualização do app mobile">
+              </div>
+              <div>
+                <label class="text-xs font-semibold uppercase tracking-wider text-gray-400 block mb-2" for="announcementStartDate">Data de início</label>
+                <input id="announcementStartDate" type="date" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50">
+              </div>
+            </div>
+            <div>
+              <label class="text-xs font-semibold uppercase tracking-wider text-gray-400 block mb-2" for="announcementMessage">Mensagem</label>
+              <textarea id="announcementMessage" rows="4" class="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50 resize-y" placeholder="Escreva aqui o aviso que será mostrado aos usuários."></textarea>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label class="text-xs font-semibold uppercase tracking-wider text-gray-400 block mb-2" for="announcementDays">Mostrar por quantos dias</label>
+                <input id="announcementDays" type="number" min="1" max="60" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50" placeholder="Ex: 5">
+              </div>
+              <div>
+                <label class="text-xs font-semibold uppercase tracking-wider text-gray-400 block mb-2" for="announcementDailyLimit">Vezes por dia</label>
+                <input id="announcementDailyLimit" type="number" min="1" max="20" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50" placeholder="Ex: 1">
+              </div>
+              <div>
+                <label class="text-xs font-semibold uppercase tracking-wider text-gray-400 block mb-2" for="announcementTarget">Mostrar onde</label>
+                <select id="announcementTarget" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50">
+                  <option value="all">PC e mobile</option>
+                  <option value="dashboard">Somente PC</option>
+                  <option value="mobile">Somente mobile</option>
+                </select>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div class="flex items-end">
+                <label class="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-700">
+                  <input id="announcementActive" type="checkbox" class="rounded border-gray-300 text-black focus:ring-gray-400">
+                  Aviso ativo
+                </label>
+              </div>
+            </div>
+            <div class="flex items-center justify-end gap-3">
+              <button id="loadAnnouncementButton" type="button" class="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50">Atualizar lista</button>
+              <button id="saveAnnouncementButton" type="submit" class="px-4 py-2.5 rounded-xl bg-black text-white text-sm font-semibold">Criar aviso</button>
+            </div>
+            <p id="announcementFeedback" class="text-sm text-gray-500"></p>
+          </form>
+          <div class="mt-5">
+            <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400 mb-3">Avisos cadastrados</div>
+            <div id="announcementList" class="space-y-3"></div>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
 

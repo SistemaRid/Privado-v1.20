@@ -55,6 +55,23 @@ function buildRidStatusNotification(after, ridId) {
   return null;
 }
 
+function buildAnnouncementNotification(data) {
+  const target = String(data.target || "all").trim().toLowerCase();
+  let body = "Sistema atualizado, confira...";
+
+  if (target === "dashboard") {
+    body = "Sistema de gestao dos rids atualizado, confira...";
+  } else if (target === "mobile") {
+    body = "Sistema de emissao dos RIDs atualizado, confira...";
+  }
+
+  return {
+    title: "NOVA ATUALIZACAO",
+    body,
+    tag: `global-announcement-${String(data.updatedAt?.seconds || Date.now())}`
+  };
+}
+
 async function collectTokens(query) {
   const snapshot = await query.get();
   if (snapshot.empty) return [];
@@ -79,6 +96,55 @@ async function deleteInvalidTokens(db, tokens, response) {
 
   if (!invalidTokens.length) return;
   await Promise.all(invalidTokens.map((token) => db.collection("notificationTokens").doc(token).delete().catch(() => null)));
+}
+
+async function sendMulticastToPage(db, page, url, notification) {
+  const tokens = await collectTokens(
+    db.collection("notificationTokens")
+      .where("enabled", "==", true)
+      .where("page", "==", page)
+  );
+
+  if (!tokens.length) {
+    logger.info("Nenhum token ativo para a pagina solicitada.", { page });
+    return;
+  }
+
+  const message = {
+    data: {
+      title: notification.title,
+      body: notification.body,
+      url,
+      click_action: url,
+      icon: "./icon-192.png",
+      tag: notification.tag,
+      type: "global-announcement"
+    },
+    tokens
+  };
+
+  const response = await admin.messaging().sendEachForMulticast(message);
+  await deleteInvalidTokens(db, tokens, response);
+
+  logger.info("Push processado para aviso global.", {
+    page,
+    totalTokens: tokens.length,
+    successCount: response.successCount,
+    failureCount: response.failureCount
+  });
+}
+
+function getAnnouncementTargets(target) {
+  if (target === "dashboard") {
+    return [{ page: "dashboard", url: "./dashboard.html" }];
+  }
+  if (target === "mobile") {
+    return [{ page: "mobile", url: "./mobile.html" }];
+  }
+  return [
+    { page: "dashboard", url: "./dashboard.html" },
+    { page: "mobile", url: "./mobile.html" }
+  ];
 }
 
 exports.sendRidPushNotification = onDocumentCreated("rids/{ridId}", async (event) => {
@@ -190,4 +256,41 @@ exports.sendRidStatusChangedPushNotification = onDocumentUpdated("rids/{ridId}",
     successCount: response.successCount,
     failureCount: response.failureCount
   });
+});
+
+exports.sendGlobalAnnouncementPushNotification = onDocumentCreated("globalAnnouncements/{announcementId}", async (event) => {
+  const data = event.data?.data() || {};
+  if (!data.isActive) return;
+
+  const db = admin.firestore();
+  const notification = buildAnnouncementNotification(data);
+  await Promise.all(
+    getAnnouncementTargets(data.target).map((target) =>
+      sendMulticastToPage(db, target.page, target.url, notification)
+    )
+  );
+});
+
+exports.sendGlobalAnnouncementUpdatedPushNotification = onDocumentUpdated("globalAnnouncements/{announcementId}", async (event) => {
+  const before = event.data?.before?.data() || {};
+  const after = event.data?.after?.data() || {};
+  if (!after.isActive) return;
+
+  const changed =
+    String(before.title || "") !== String(after.title || "") ||
+    String(before.message || "") !== String(after.message || "") ||
+    String(before.startDate || "") !== String(after.startDate || "") ||
+    Number(before.daysVisible || 0) !== Number(after.daysVisible || 0) ||
+    Number(before.dailyLimit || 0) !== Number(after.dailyLimit || 0) ||
+    Boolean(before.isActive) !== Boolean(after.isActive);
+
+  if (!changed) return;
+
+  const db = admin.firestore();
+  const notification = buildAnnouncementNotification(after);
+  await Promise.all(
+    getAnnouncementTargets(after.target).map((target) =>
+      sendMulticastToPage(db, target.page, target.url, notification)
+    )
+  );
 });

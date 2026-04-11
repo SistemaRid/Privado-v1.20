@@ -12,6 +12,7 @@
   const auth = firebase.auth();
   auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
   const db = firebase.firestore();
+  const ANNOUNCEMENTS_COLLECTION = db.collection("globalAnnouncements");
   const messaging = typeof firebase.messaging === "function" ? firebase.messaging() : null;
   const WEB_PUSH_VAPID_KEY = "BC2FvVfx_PdEvXYqKdMAwZaNetYp_5Ni94FYINhTBxaXZnrhlCFfczJ-ivYtwsErGGcYAIAqUVzRz2HteJSaNuQ";
 
@@ -34,6 +35,7 @@
     currentMaintenancePage: 1,
     currentAssignedPage: 1,
     activeTab: "rids",
+    maintenanceView: "emitted",
     cachedRids: [],
     cachedMaintenances: [],
     cachedAssignedRids: [],
@@ -149,6 +151,125 @@
   function formatDateTime(value) {
     const date = toDate(value);
     return date ? date.toLocaleString("pt-BR") : "Sem data";
+  }
+
+  function getTodayKey() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  }
+
+  function getAnnouncementViewKey(uid, dateKey) {
+    return `ridAnnouncementView_${uid}_${dateKey}`;
+  }
+
+  function getStoredAnnouncementViews(uid, dateKey) {
+    try {
+      return JSON.parse(localStorage.getItem(getAnnouncementViewKey(uid, dateKey)) || "{}");
+    } catch (error) {
+      return {};
+    }
+  }
+
+  function saveStoredAnnouncementViews(uid, dateKey, value) {
+    localStorage.setItem(getAnnouncementViewKey(uid, dateKey), JSON.stringify(value));
+  }
+
+  function isAnnouncementActive(data) {
+    if (!data?.isActive || !data.startDate || !data.daysVisible) return false;
+    const start = new Date(`${data.startDate}T00:00:00`);
+    if (Number.isNaN(start.getTime())) return false;
+    const end = new Date(start);
+    end.setDate(end.getDate() + Math.max(1, Number(data.daysVisible || 1)) - 1);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return today >= start && today <= end;
+  }
+
+  function canShowAnnouncement(uid, data) {
+    if (!uid || !data?.updatedAt || !data?.id) return false;
+    if (data.target === "dashboard") return false;
+    if (!isAnnouncementActive(data)) return false;
+    const dateKey = getTodayKey();
+    const stored = getStoredAnnouncementViews(uid, dateKey);
+    const announcementId = `${data.id}:${data.updatedAt?.seconds ? data.updatedAt.seconds : String(data.updatedAt || data.startDate || "default")}`;
+    const currentViews = Number(stored[announcementId] || 0);
+    return currentViews < Math.max(1, Number(data.dailyLimit || 1));
+  }
+
+  function markAnnouncementShown(uid, data) {
+    const dateKey = getTodayKey();
+    const stored = getStoredAnnouncementViews(uid, dateKey);
+    const announcementId = `${data.id}:${data.updatedAt?.seconds ? data.updatedAt.seconds : String(data.updatedAt || data.startDate || "default")}`;
+    stored[announcementId] = Number(stored[announcementId] || 0) + 1;
+    saveStoredAnnouncementViews(uid, dateKey, stored);
+  }
+
+  function removeAnnouncementModal() {
+    document.getElementById("globalAnnouncementModal")?.remove();
+  }
+
+  function showAnnouncementModal(data, onClose) {
+    removeAnnouncementModal();
+    const overlay = document.createElement("div");
+    overlay.id = "globalAnnouncementModal";
+    overlay.style.position = "fixed";
+    overlay.style.inset = "0";
+    overlay.style.zIndex = "120";
+    overlay.style.display = "grid";
+    overlay.style.placeItems = "center";
+    overlay.style.padding = "16px";
+    overlay.style.background = "rgba(17, 24, 39, 0.48)";
+    overlay.style.backdropFilter = "blur(10px)";
+    overlay.style.webkitBackdropFilter = "blur(10px)";
+    overlay.innerHTML = `
+      <div style="width:min(100%,560px);background:#ffffff;border-radius:24px;padding:18px;box-shadow:0 18px 40px rgba(24,39,75,.18);border:1px solid #dde5eb;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px;">
+          <div>
+            <div style="font-size:.72rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#7895a7;">Aviso do sistema</div>
+            <h2 style="margin:6px 0 0;font-size:1.35rem;line-height:1.15;color:#213043;">${escapeHtml(data.title || "Atualização")}</h2>
+          </div>
+          <button type="button" id="closeGlobalAnnouncementModal" style="width:36px;height:36px;border:0;border-radius:999px;background:#f7fafc;color:#415264;font-size:22px;">×</button>
+        </div>
+        <div style="font-size:.96rem;line-height:1.65;color:#475569;white-space:pre-wrap;">${escapeHtml(data.message || "")}</div>
+        <div style="display:flex;justify-content:flex-end;margin-top:16px;">
+          <button type="button" id="ackGlobalAnnouncementModal" style="min-height:46px;padding:0 16px;border:0;border-radius:18px;background:linear-gradient(135deg,#9ab4c3,#7895a7);color:white;font-weight:800;">Entendi</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const close = () => {
+      removeAnnouncementModal();
+      if (typeof onClose === "function") onClose();
+    };
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) close();
+    });
+    overlay.querySelector("#closeGlobalAnnouncementModal")?.addEventListener("click", close);
+    overlay.querySelector("#ackGlobalAnnouncementModal")?.addEventListener("click", close);
+  }
+
+  async function maybeShowGlobalAnnouncement() {
+    if (!state.currentUser?.uid) return;
+    try {
+      const snap = await ANNOUNCEMENTS_COLLECTION.get();
+      const eligible = snap.docs
+        .map((doc) => ({ id: doc.id, ...doc.data() }))
+        .filter((item) => canShowAnnouncement(state.currentUser.uid, item))
+        .sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
+
+      if (!eligible.length) return;
+
+      const showNext = (index) => {
+        const current = eligible[index];
+        if (!current) return;
+        markAnnouncementShown(state.currentUser.uid, current);
+        showAnnouncementModal(current, () => showNext(index + 1));
+      };
+
+      showNext(0);
+    } catch (error) {
+      console.warn("Nao foi possivel carregar o aviso global:", error);
+    }
   }
 
   function escapeHtml(value) {
@@ -441,6 +562,7 @@
       id: doc.id,
       maintenanceNumber: data.maintenanceNumber || "",
       requesterId: data.requesterId || "",
+      requesterCpf: data.requesterCpf || "",
       requesterName: data.requesterName || "",
       requesterSector: data.requesterSector || data.sector || "",
       kind: data.kind || "",
@@ -466,12 +588,20 @@
   }
 
   function getCombinedMaintenances() {
-    const remote = (state.cachedMaintenances || []).map((item) => ({ ...item, isPendingLocal: false }));
-    const pending = (state.pendingMaintenances || []).map((item) => ({
-      ...item,
-      status: item.status || "PENDENTE",
-      isPendingLocal: true
-    }));
+    const mode = canSeeAssignedRids() ? state.maintenanceView : "emitted";
+    const remote = (state.cachedMaintenances || [])
+      .map((item) => ({ ...item, isPendingLocal: false }))
+      .filter((item) => {
+        if (mode === "designated") return item.assignedTo === state.currentUser?.uid;
+        return item.requesterId === state.currentUser?.uid || item.requesterCpf === state.currentUserData?.cpf;
+      });
+    const pending = mode === "emitted"
+      ? (state.pendingMaintenances || []).map((item) => ({
+          ...item,
+          status: item.status || "PENDENTE",
+          isPendingLocal: true
+        }))
+      : [];
     return sortMaintenanceItems([...pending, ...remote]);
   }
 
@@ -881,11 +1011,13 @@
   }
 
   async function collectMaintenances() {
-    const queries = canSeeAssignedRids()
-      ? [db.collection("maintenances").where("assignedTo", "==", state.currentUser.uid)]
-      : [db.collection("maintenances").where("requesterId", "==", state.currentUser.uid)];
+    const queries = [db.collection("maintenances").where("requesterId", "==", state.currentUser.uid)];
 
-    if (!canSeeAssignedRids() && state.currentUserData.cpf) {
+    if (canSeeAssignedRids()) {
+      queries.push(db.collection("maintenances").where("assignedTo", "==", state.currentUser.uid));
+    }
+
+    if (state.currentUserData.cpf) {
       queries.push(db.collection("maintenances").where("requesterCpf", "==", state.currentUserData.cpf));
     }
 
@@ -1159,6 +1291,7 @@
 
     return {
       requesterId: state.currentUser.uid,
+      requesterCpf: state.currentUserData.cpf || "",
       requesterName: state.currentUserData.name,
       requesterSector: state.currentUserData.sector || "",
       kind: formData.get("kind"),
@@ -1176,6 +1309,7 @@
     await db.collection("maintenances").add({
       maintenanceNumber: `MAN-${Date.now()}`,
       requesterId: payload.requesterId,
+      requesterCpf: payload.requesterCpf || "",
       requesterName: payload.requesterName,
       requesterSector: payload.requesterSector,
       equipment: payload.item,
@@ -1248,6 +1382,7 @@
       }
 
       state.currentMaintenancePage = 1;
+      state.maintenanceView = "emitted";
       state.activeTab = "maintenances";
       state.maintenanceDraft = null;
       closeModal();
@@ -1399,6 +1534,7 @@
         await cacheRemoteData();
         startRealtimeRidSync();
         renderApp();
+        await maybeShowGlobalAnnouncement();
         await initializeMobilePushNotifications();
         showToast("Login realizado.", "success");
       } else {
@@ -1421,6 +1557,7 @@
           userData: offlineAuth.userData
         });
         renderApp();
+        await maybeShowGlobalAnnouncement();
         showToast("Modo offline liberado com dados locais.", "info");
       }
     } catch (error) {
@@ -1443,6 +1580,7 @@
     } finally {
       clearOfflineAuth();
       clearLastSession();
+      removeAnnouncementModal();
       state.currentUser = null;
       state.currentUserData = null;
       state.cachedRids = [];
@@ -1454,6 +1592,7 @@
       state.currentMaintenancePage = 1;
       state.currentAssignedPage = 1;
       state.activeTab = "rids";
+      state.maintenanceView = "emitted";
       state.modalOpen = false;
       state.maintenanceModalOpen = false;
       state.selectedRidId = null;
@@ -1485,6 +1624,13 @@
     const allowedTabs = canSeeAssignedRids() ? ["rids", "maintenances", "assigned"] : ["rids", "maintenances"];
     if (!allowedTabs.includes(tab)) return;
     state.activeTab = tab;
+    renderApp();
+  }
+
+  function setMaintenanceView(view) {
+    if (!["emitted", "designated"].includes(view)) return;
+    state.maintenanceView = view;
+    state.currentMaintenancePage = 1;
     renderApp();
   }
 
@@ -2089,22 +2235,30 @@
     const isRidsTab = state.activeTab === "rids";
     const isMaintenanceTab = state.activeTab === "maintenances";
     const isAssignedTab = state.activeTab === "assigned";
-    const secondaryTitle = canSeeAssignedRids() ? "Melhorias designadas a mim" : "Sugestões de melhorias";
+    const canToggleMaintenance = canSeeAssignedRids();
+    const secondaryTitle = "Sugestões de melhorias";
+    const showActionButton = isRidsTab || isMaintenanceTab;
     return `
       <section class="section">
         <div class="section-header">
           <div class="tabbed-section-head">
             <h2 class="section-title" style="white-space:nowrap; margin-bottom:10px;">${isRidsTab ? "Meus RIDs" : isMaintenanceTab ? secondaryTitle : "RIDs designados vencidos"}</h2>
+            ${isMaintenanceTab && canToggleMaintenance ? `
+              <div class="tab-switcher maintenance-switcher" role="tablist" aria-label="Filtro de melhorias">
+                <button class="tab-chip ${state.maintenanceView === "emitted" ? "active" : ""}" data-maintenance-view="emitted" role="tab" aria-selected="${state.maintenanceView === "emitted" ? "true" : "false"}">Emitidas</button>
+                <button class="tab-chip ${state.maintenanceView === "designated" ? "active" : ""}" data-maintenance-view="designated" role="tab" aria-selected="${state.maintenanceView === "designated" ? "true" : "false"}">Designadas</button>
+              </div>
+            ` : ""}
           </div>
         </div>
         <div class="mobile-tab-panel" id="mobile-tab-panel">
-          ${isAssignedTab || canSeeAssignedRids() ? "" : `
+          ${showActionButton ? `
             <div class="page-actions page-actions-nowrap">
               ${isRidsTab
                 ? '<button class="btn btn-success" id="new-rid-btn" style="flex:1;">Novo RID</button>'
                 : '<button class="btn btn-success" id="maintenance-btn" style="flex:1;">Nova melhoria</button>'}
             </div>
-          `}
+          ` : ""}
           <article class="panel">
             ${isRidsTab
               ? (pageData.totalItems
@@ -2113,7 +2267,7 @@
               : isMaintenanceTab
                 ? (maintenancePageData.totalItems
                   ? `<div class="rid-list">${maintenancePageData.items.map(renderMaintenanceCard).join("")}</div>${renderMaintenancePagination(maintenancePageData)}`
-                  : `<div class="empty-state">${canSeeAssignedRids() ? "Nenhuma melhoria designada para este usuário." : "Nenhuma sugestão de melhoria encontrada para este usuário."}</div>`)
+                  : `<div class="empty-state">${canSeeAssignedRids() ? (state.maintenanceView === "designated" ? "Nenhuma melhoria designada para este usuário." : "Nenhuma melhoria emitida por este usuário.") : "Nenhuma sugestão de melhoria encontrada para este usuário."}</div>`)
                 : (assignedPageData.totalItems
                   ? `<div class="rid-list">${assignedPageData.items.map(renderAssignedRidCard).join("")}</div>${renderAssignedPagination(assignedPageData)}`
                   : '<div class="empty-state">Nenhum RID vencido designado para este usuário.</div>')}
@@ -2228,6 +2382,9 @@
     });
     document.getElementById("new-rid-btn")?.addEventListener("click", openRidModal);
     document.getElementById("maintenance-btn")?.addEventListener("click", openMaintenanceModal);
+    document.querySelectorAll("[data-maintenance-view]").forEach((button) => {
+      button.addEventListener("click", () => setMaintenanceView(button.dataset.maintenanceView));
+    });
     document.getElementById("enable-mobile-push-btn")?.addEventListener("click", requestMobilePushPermission);
     document.getElementById("dismiss-mobile-push-btn")?.addEventListener("click", () => {
       state.pushPromptDismissed = true;
@@ -2360,6 +2517,7 @@
     await refreshOfflineExperience({ showSuccessToast: false, showErrorToast: false });
     startRealtimeRidSync();
     renderApp();
+    await maybeShowGlobalAnnouncement();
     await initializeMobilePushNotifications();
     return true;
   }
@@ -2372,6 +2530,7 @@
     state.currentUserData = session.userData;
     loadUserCache(session.uid);
     renderApp();
+    void maybeShowGlobalAnnouncement();
     return true;
   }
 
