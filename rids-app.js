@@ -26,7 +26,8 @@
     unsubRids: null,
     currentPage: 1,
     selectedRidId: null,
-    actionRidId: null
+    actionRidId: null,
+    footerTimerId: null
   };
 
   const dom = {
@@ -70,7 +71,8 @@
     ridRemovalRequestSubmit: document.getElementById("ridRemovalRequestSubmit"),
     prevPageButton: document.getElementById("prevPageButton"),
     nextPageButton: document.getElementById("nextPageButton"),
-    paginationInfo: document.getElementById("paginationInfo")
+    paginationInfo: document.getElementById("paginationInfo"),
+    siteFooter: document.getElementById("siteFooter")
   };
 
   function updateAdminNavigation() {
@@ -169,6 +171,19 @@
 
   function closeFiltersPanel() {
     dom.filtersPanel.classList.remove("visible");
+  }
+
+  function showTimedFooter() {
+    if (!dom.siteFooter) return;
+    if (state.footerTimerId) {
+      clearTimeout(state.footerTimerId);
+      state.footerTimerId = null;
+    }
+    dom.siteFooter.classList.add("visible");
+    state.footerTimerId = window.setTimeout(() => {
+      dom.siteFooter?.classList.remove("visible");
+      state.footerTimerId = null;
+    }, 10000);
   }
 
   function getSelectedFilters() {
@@ -572,9 +587,13 @@
     if (state.currentPage > totalPages) state.currentPage = totalPages;
     const startIndex = (state.currentPage - 1) * PAGE_SIZE;
     const pageItems = filtered.slice(startIndex, startIndex + PAGE_SIZE);
+    const rangeStart = filtered.length ? startIndex + 1 : 0;
+    const rangeEnd = filtered.length ? startIndex + pageItems.length : 0;
 
     dom.listCount.textContent = `${filtered.length} registros`;
-    dom.paginationInfo.textContent = `Pagina ${state.currentPage} de ${totalPages}`;
+    dom.paginationInfo.textContent = filtered.length
+      ? `Pagina ${state.currentPage} de ${totalPages} • ${rangeStart}-${rangeEnd} de ${filtered.length}`
+      : `Pagina 1 de 1 • 0 registros`;
     dom.prevPageButton.disabled = state.currentPage === 1;
     dom.nextPageButton.disabled = state.currentPage === totalPages;
 
@@ -673,6 +692,7 @@
     populateSectorFilter();
     resetFiltersToCurrentMonth();
     renderRidsPage();
+    showTimedFooter();
     lucide.createIcons();
   }
 

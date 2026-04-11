@@ -57,7 +57,8 @@
     pushToken: null,
     pushMessagingBound: false,
     pushServiceWorkerRegistration: null,
-    ridRealtimeUnsubs: []
+    ridRealtimeUnsubs: [],
+    tabTransitionDirection: "none"
   };
 
   const app = document.getElementById("app");
@@ -1625,12 +1626,16 @@
   function setActiveTab(tab) {
     const allowedTabs = canSeeAssignedRids() ? ["rids", "maintenances", "assigned"] : ["rids", "maintenances"];
     if (!allowedTabs.includes(tab)) return;
+    const currentIndex = allowedTabs.indexOf(state.activeTab);
+    const nextIndex = allowedTabs.indexOf(tab);
+    state.tabTransitionDirection = nextIndex > currentIndex ? "forward" : nextIndex < currentIndex ? "backward" : "none";
     state.activeTab = tab;
     renderApp();
   }
 
   function setMaintenanceView(view) {
     if (!["emitted", "designated"].includes(view)) return;
+    state.tabTransitionDirection = "forward";
     state.maintenanceView = view;
     state.currentMaintenancePage = 1;
     renderApp();
@@ -2240,6 +2245,12 @@
     const canToggleMaintenance = canSeeAssignedRids();
     const secondaryTitle = "Sugestões de melhorias";
     const showActionButton = isRidsTab || isMaintenanceTab;
+    const transitionClass =
+      state.tabTransitionDirection === "forward"
+        ? "slide-forward"
+        : state.tabTransitionDirection === "backward"
+          ? "slide-backward"
+          : "";
     return `
       <section class="section">
         <div class="section-header">
@@ -2253,7 +2264,7 @@
             ` : ""}
           </div>
         </div>
-        <div class="mobile-tab-panel" id="mobile-tab-panel">
+        <div class="mobile-tab-panel ${transitionClass}" id="mobile-tab-panel">
           ${showActionButton ? `
             <div class="page-actions page-actions-nowrap">
               ${isRidsTab
@@ -2375,6 +2386,7 @@
 
     bindAppEvents();
     clearAutoFocus();
+    state.tabTransitionDirection = "none";
   }
 
   function bindAppEvents() {
