@@ -2307,24 +2307,26 @@
   }
 
   function bindTabSwipe() {
-    const panel = document.getElementById("mobile-tab-panel");
-    if (!panel) return;
+    const surface = document.querySelector(".mobile-shell");
+    if (!surface) return;
 
     let startX = 0;
     let startY = 0;
     let tracking = false;
 
-    panel.addEventListener("touchstart", (event) => {
+    surface.addEventListener("touchstart", (event) => {
       if (event.touches.length !== 1) return;
+      if (event.target.closest(".modal-root")) return;
       const touch = event.touches[0];
       startX = touch.clientX;
       startY = touch.clientY;
       tracking = true;
     }, { passive: true });
 
-    panel.addEventListener("touchend", (event) => {
+    surface.addEventListener("touchend", (event) => {
       if (!tracking || !event.changedTouches.length) return;
       tracking = false;
+      if (event.target.closest(".modal-root")) return;
       const touch = event.changedTouches[0];
       const deltaX = touch.clientX - startX;
       const deltaY = touch.clientY - startY;
