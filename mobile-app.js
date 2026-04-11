@@ -31,7 +31,12 @@
     currentUser: null,
     currentUserData: null,
     currentPage: 1,
+    currentMaintenancePage: 1,
+    currentAssignedPage: 1,
+    activeTab: "rids",
     cachedRids: [],
+    cachedMaintenances: [],
+    cachedAssignedRids: [],
     pendingRids: [],
     pendingMaintenances: [],
     leaders: loadStorage(STORAGE_KEYS.leaders, []),
@@ -40,6 +45,8 @@
     ridDraft: null,
     maintenanceDraft: null,
     selectedRidId: null,
+    selectedMaintenanceId: null,
+    selectedAssignedRidId: null,
     booting: true,
     offlineBundleUpdating: false,
     actionOverlay: null,
@@ -116,6 +123,14 @@
 
   function maintenanceKey(uid) {
     return `ridMobileMaintenances_${uid}`;
+  }
+
+  function maintenanceCacheKey(uid) {
+    return `ridMobileMaintenancesCache_${uid}`;
+  }
+
+  function assignedRidCacheKey(uid) {
+    return `ridMobileAssignedCache_${uid}`;
   }
 
   function toDate(value) {
@@ -346,6 +361,8 @@
 
   function loadUserCache(uid) {
     state.cachedRids = loadStorage(cacheKey(uid), []);
+    state.cachedMaintenances = loadStorage(maintenanceCacheKey(uid), []);
+    state.cachedAssignedRids = loadStorage(assignedRidCacheKey(uid), []);
     state.pendingRids = loadStorage(pendingKey(uid), []);
     state.pendingMaintenances = loadStorage(maintenanceKey(uid), []);
   }
@@ -353,6 +370,8 @@
   function persistUserCache() {
     if (!state.currentUser?.uid) return;
     saveStorage(cacheKey(state.currentUser.uid), state.cachedRids);
+    saveStorage(maintenanceCacheKey(state.currentUser.uid), state.cachedMaintenances);
+    saveStorage(assignedRidCacheKey(state.currentUser.uid), state.cachedAssignedRids);
     saveStorage(pendingKey(state.currentUser.uid), state.pendingRids);
     saveStorage(maintenanceKey(state.currentUser.uid), state.pendingMaintenances);
     localStorage.setItem(syncKey(state.currentUser.uid), new Date().toISOString());
@@ -413,6 +432,84 @@
       totalItems: items.length,
       totalPages,
       page: state.currentPage
+    };
+  }
+
+  function serializeMaintenance(doc) {
+    const data = doc.data() || {};
+    return {
+      id: doc.id,
+      maintenanceNumber: data.maintenanceNumber || "",
+      requesterId: data.requesterId || "",
+      requesterName: data.requesterName || "",
+      requesterSector: data.requesterSector || data.sector || "",
+      kind: data.kind || "",
+      item: data.equipment || data.item || "",
+      location: data.location || "",
+      priority: data.priority || "",
+      description: data.description || "",
+      status: data.status || "ABERTA",
+      assignedTo: data.assignedTo || "",
+      assignedToName: data.assignedToName || "",
+      createdAt: data.createdAt || null,
+      updatedAt: data.updatedAt || null,
+      source: data.source || ""
+    };
+  }
+
+  function sortMaintenanceItems(items) {
+    return [...items].sort((a, b) => {
+      const aTime = toDate(a.updatedAt || a.createdAt || a.localCreatedAt)?.getTime() || 0;
+      const bTime = toDate(b.updatedAt || b.createdAt || b.localCreatedAt)?.getTime() || 0;
+      return bTime - aTime;
+    });
+  }
+
+  function getCombinedMaintenances() {
+    const remote = (state.cachedMaintenances || []).map((item) => ({ ...item, isPendingLocal: false }));
+    const pending = (state.pendingMaintenances || []).map((item) => ({
+      ...item,
+      status: item.status || "PENDENTE",
+      isPendingLocal: true
+    }));
+    return sortMaintenanceItems([...pending, ...remote]);
+  }
+
+  function getPaginatedMaintenances() {
+    const items = getCombinedMaintenances();
+    const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+    state.currentMaintenancePage = Math.min(Math.max(state.currentMaintenancePage, 1), totalPages);
+    const start = (state.currentMaintenancePage - 1) * PAGE_SIZE;
+    return {
+      items: items.slice(start, start + PAGE_SIZE),
+      totalItems: items.length,
+      totalPages,
+      page: state.currentMaintenancePage
+    };
+  }
+
+  function canSeeAssignedRids() {
+    return Boolean(state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper);
+  }
+
+  function getAssignedRids() {
+    return sortRidItems((state.cachedAssignedRids || []).filter((item) => {
+      if (item.deleted) return false;
+      const status = String(item.status || "").toUpperCase();
+      return status === "VENCIDO" || status.includes("ANDAMENTO");
+    }));
+  }
+
+  function getPaginatedAssignedRids() {
+    const items = getAssignedRids();
+    const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+    state.currentAssignedPage = Math.min(Math.max(state.currentAssignedPage, 1), totalPages);
+    const start = (state.currentAssignedPage - 1) * PAGE_SIZE;
+    return {
+      items: items.slice(start, start + PAGE_SIZE),
+      totalItems: items.length,
+      totalPages,
+      page: state.currentAssignedPage
     };
   }
 
@@ -777,8 +874,42 @@
     snapshots.forEach((snapshot) => snapshot.docs.forEach((doc) => pushUnique(serializeRid(doc))));
 
     state.cachedRids = sortRidItems(await enrichDeletedRidsWithRequests(docs));
+    state.cachedMaintenances = await collectMaintenances();
+    state.cachedAssignedRids = canSeeAssignedRids() ? await collectAssignedRidSnapshots() : [];
     await refreshLeadersCache();
     persistUserCache();
+  }
+
+  async function collectMaintenances() {
+    const queries = [db.collection("maintenances").where("requesterId", "==", state.currentUser.uid)];
+
+    if (state.currentUserData.cpf) {
+      queries.push(db.collection("maintenances").where("requesterCpf", "==", state.currentUserData.cpf));
+    }
+
+    const settled = await Promise.allSettled(queries.map((query) => query.get()));
+    const docs = [];
+    const seen = new Set();
+
+    settled.forEach((result) => {
+      if (result.status !== "fulfilled") return;
+      result.value.docs.forEach((doc) => {
+        if (seen.has(doc.id)) return;
+        seen.add(doc.id);
+        docs.push(serializeMaintenance(doc));
+      });
+    });
+
+    return sortMaintenanceItems(docs);
+  }
+
+  async function collectAssignedRidSnapshots() {
+    if (!canSeeAssignedRids() || !state.currentUser?.uid) return [];
+    const snapshot = await db.collection("rids")
+      .where("responsibleLeader", "==", state.currentUser.uid)
+      .get();
+
+    return sortRidItems(await enrichDeletedRidsWithRequests(snapshot.docs.map((doc) => serializeRid(doc))));
   }
 
   function stopRealtimeRidSync() {
@@ -830,8 +961,13 @@
     if (state.ridRealtimeUnsubs?.length) return;
 
     const emitterQuery = db.collection("rids").where("emitterId", "==", state.currentUser.uid);
+    const queries = [emitterQuery];
 
-    state.ridRealtimeUnsubs = [emitterQuery.onSnapshot(() => {
+    if (canSeeAssignedRids()) {
+      queries.push(db.collection("rids").where("responsibleLeader", "==", state.currentUser.uid));
+    }
+
+    state.ridRealtimeUnsubs = queries.map((query) => query.onSnapshot(() => {
       cacheRemoteData()
         .then(() => {
           if (state.currentUser) renderApp();
@@ -841,7 +977,7 @@
         });
     }, (error) => {
       console.error("Falha no listener em tempo real do mobile:", error);
-    })];
+    }));
   }
 
   async function sendServiceWorkerMessage(message) {
@@ -1066,13 +1202,19 @@
     if (!state.online || !state.pendingMaintenances.length) return;
 
     const pendingItems = [...state.pendingMaintenances];
+    let syncedAny = false;
     for (const item of pendingItems) {
       try {
         await submitMaintenanceToFirestore(item);
         state.pendingMaintenances = state.pendingMaintenances.filter((entry) => entry.localId !== item.localId);
+        syncedAny = true;
       } catch (error) {
         console.error("Falha ao sincronizar melhoria pendente:", error);
       }
+    }
+
+    if (syncedAny) {
+      state.cachedMaintenances = await collectMaintenances();
     }
 
     persistUserCache();
@@ -1095,12 +1237,16 @@
       const payload = buildMaintenancePayload(formData);
       if (state.online) {
         await submitMaintenanceToFirestore(payload);
+        await cacheRemoteData();
+        persistUserCache();
         showToast("Sugestão enviada com sucesso.", "success");
       } else {
         savePendingMaintenance(payload);
         showToast("Sugestão salva no celular. Ela será enviada quando a internet voltar.", "info");
       }
 
+      state.currentMaintenancePage = 1;
+      state.activeTab = "maintenances";
       state.maintenanceDraft = null;
       closeModal();
     } catch (error) {
@@ -1298,11 +1444,19 @@
       state.currentUser = null;
       state.currentUserData = null;
       state.cachedRids = [];
+      state.cachedMaintenances = [];
+      state.cachedAssignedRids = [];
       state.pendingRids = [];
       state.pendingMaintenances = [];
       state.currentPage = 1;
+      state.currentMaintenancePage = 1;
+      state.currentAssignedPage = 1;
+      state.activeTab = "rids";
       state.modalOpen = false;
       state.maintenanceModalOpen = false;
+      state.selectedRidId = null;
+      state.selectedMaintenanceId = null;
+      state.selectedAssignedRidId = null;
       renderLogin();
     }
   }
@@ -1311,6 +1465,8 @@
     state.modalOpen = true;
     state.maintenanceModalOpen = false;
     state.selectedRidId = null;
+    state.selectedMaintenanceId = null;
+    state.selectedAssignedRidId = null;
     renderApp();
   }
 
@@ -1318,6 +1474,15 @@
     state.maintenanceModalOpen = true;
     state.modalOpen = false;
     state.selectedRidId = null;
+    state.selectedMaintenanceId = null;
+    state.selectedAssignedRidId = null;
+    renderApp();
+  }
+
+  function setActiveTab(tab) {
+    const allowedTabs = canSeeAssignedRids() ? ["rids", "maintenances", "assigned"] : ["rids", "maintenances"];
+    if (!allowedTabs.includes(tab)) return;
+    state.activeTab = tab;
     renderApp();
   }
 
@@ -1327,11 +1492,28 @@
     state.ridDraft = null;
     state.maintenanceDraft = null;
     state.selectedRidId = null;
+    state.selectedMaintenanceId = null;
+    state.selectedAssignedRidId = null;
     renderApp();
   }
 
   function openRidDetails(ridId) {
     state.selectedRidId = ridId;
+    state.selectedMaintenanceId = null;
+    renderApp();
+  }
+
+  function openMaintenanceDetails(maintenanceId) {
+    state.selectedMaintenanceId = maintenanceId;
+    state.selectedRidId = null;
+    state.selectedAssignedRidId = null;
+    renderApp();
+  }
+
+  function openAssignedRidDetails(ridId) {
+    state.selectedAssignedRidId = ridId;
+    state.selectedRidId = null;
+    state.selectedMaintenanceId = null;
     renderApp();
   }
 
@@ -1341,6 +1523,19 @@
       if (item.localId && item.localId === state.selectedRidId) return true;
       return item.id === state.selectedRidId;
     }) || null;
+  }
+
+  function getSelectedMaintenance() {
+    if (!state.selectedMaintenanceId) return null;
+    return getCombinedMaintenances().find((item) => {
+      if (item.localId && item.localId === state.selectedMaintenanceId) return true;
+      return item.id === state.selectedMaintenanceId;
+    }) || null;
+  }
+
+  function getSelectedAssignedRid() {
+    if (!state.selectedAssignedRidId) return null;
+    return getAssignedRids().find((item) => item.id === state.selectedAssignedRidId) || null;
   }
 
   function renderLogin() {
@@ -1438,6 +1633,36 @@
     `;
   }
 
+  function getMaintenanceBadgeClass(item) {
+    if (item.isPendingLocal) return "pending";
+    const status = String(item.status || "").toUpperCase();
+    if (status.includes("CONCLU")) return "corrected";
+    if (status.includes("ANDAMENTO")) return "synced";
+    if (status.includes("CANCEL")) return "closed";
+    return "overdue";
+  }
+
+  function getMaintenanceStatusLabel(item) {
+    if (item.isPendingLocal) return "PENDENTE SYNC";
+    return String(item.status || "ABERTA");
+  }
+
+  function renderMaintenanceCard(item) {
+    return `
+      <article class="rid-card" data-open-maintenance="${escapeHtml(item.localId || item.id)}" style="cursor:pointer;">
+        <div class="rid-head">
+          <div>
+            <h3 class="rid-title">${escapeHtml(item.maintenanceNumber || "Sugestão pendente")}</h3>
+          </div>
+          <span class="badge ${getMaintenanceBadgeClass(item)}">${escapeHtml(getMaintenanceStatusLabel(item))}</span>
+        </div>
+        <div class="rid-meta">
+          <span class="muted">${formatDate(item.localCreatedAt || item.createdAt || item.updatedAt)}</span>
+        </div>
+      </article>
+    `;
+  }
+
   function renderPagination(pageData) {
     if (pageData.totalPages <= 1) return "";
 
@@ -1446,6 +1671,46 @@
         <button class="btn btn-soft btn-small" data-page-nav="prev" ${pageData.page === 1 ? "disabled" : ""}>Anterior</button>
         <span class="muted">Página ${pageData.page} de ${pageData.totalPages}</span>
         <button class="btn btn-soft btn-small" data-page-nav="next" ${pageData.page === pageData.totalPages ? "disabled" : ""}>Próxima</button>
+      </div>
+    `;
+  }
+
+  function renderMaintenancePagination(pageData) {
+    if (pageData.totalPages <= 1) return "";
+
+    return `
+      <div class="pagination">
+        <button class="btn btn-soft btn-small" data-maintenance-page-nav="prev" ${pageData.page === 1 ? "disabled" : ""}>Anterior</button>
+        <span class="muted">Página ${pageData.page} de ${pageData.totalPages}</span>
+        <button class="btn btn-soft btn-small" data-maintenance-page-nav="next" ${pageData.page === pageData.totalPages ? "disabled" : ""}>Próxima</button>
+      </div>
+    `;
+  }
+
+  function renderAssignedRidCard(item) {
+    return `
+      <article class="rid-card" data-open-assigned-rid="${escapeHtml(item.id)}" style="cursor:pointer;">
+        <div class="rid-head">
+          <div>
+            <h3 class="rid-title">${item.ridNumber ? `RID #${escapeHtml(formatRidNumber(item.ridNumber))}` : "RID sem número"}</h3>
+          </div>
+          <span class="badge ${getBadgeClass(item.status, false)}">${getStatusLabel(item)}</span>
+        </div>
+        <div class="rid-meta">
+          <span class="muted">${formatDate(item.emissionDate || item.createdAt)}</span>
+        </div>
+      </article>
+    `;
+  }
+
+  function renderAssignedPagination(pageData) {
+    if (pageData.totalPages <= 1) return "";
+
+    return `
+      <div class="pagination">
+        <button class="btn btn-soft btn-small" data-assigned-page-nav="prev" ${pageData.page === 1 ? "disabled" : ""}>Anterior</button>
+        <span class="muted">Página ${pageData.page} de ${pageData.totalPages}</span>
+        <button class="btn btn-soft btn-small" data-assigned-page-nav="next" ${pageData.page === pageData.totalPages ? "disabled" : ""}>Próxima</button>
       </div>
     `;
   }
@@ -1720,8 +1985,145 @@
     `;
   }
 
+  function renderMaintenanceDetailsModal() {
+    const item = getSelectedMaintenance();
+    if (!item) return "";
+
+    const cleanDescription = String(item.description || "").replace(/^\[[^\]]+\]\s*/, "");
+
+    return `
+      <div class="modal-root" id="maintenance-details-modal">
+        <div class="modal-card">
+          <div class="modal-head">
+            <h2>${escapeHtml(item.maintenanceNumber || "Sugestão pendente")}</h2>
+            <button type="button" class="close-btn" data-close-modal="true">×</button>
+          </div>
+          <div class="form-grid" style="margin-top:0;">
+            <div class="field">
+              <label>Status</label>
+              <div class="badge ${getMaintenanceBadgeClass(item)}" style="width:max-content;">
+                ${escapeHtml(getMaintenanceStatusLabel(item))}
+              </div>
+            </div>
+            <div class="field">
+              <label>Data de emissão</label>
+              <div class="muted" style="color:#213043;">${escapeHtml(formatDate(item.localCreatedAt || item.createdAt || item.updatedAt))}</div>
+            </div>
+            <div class="field">
+              <label>Tipo</label>
+              <div class="muted" style="color:#213043;">${escapeHtml(item.kind || "Não informado")}</div>
+            </div>
+            <div class="field">
+              <label>Equipamento ou item</label>
+              <div class="muted" style="color:#213043;">${escapeHtml(item.item || "Não informado")}</div>
+            </div>
+            <div class="field">
+              <label>Local</label>
+              <div class="muted" style="color:#213043;">${escapeHtml(item.location || "Não informado")}</div>
+            </div>
+            <div class="field">
+              <label>Prioridade</label>
+              <div class="muted" style="color:#213043;">${escapeHtml(item.priority || "Não informada")}</div>
+            </div>
+            <div class="field">
+              <label>Responsável</label>
+              <div class="muted" style="color:#213043;">${escapeHtml(item.assignedToName || "Não informado")}</div>
+            </div>
+            <div class="field">
+              <label>Descrição</label>
+              <div class="muted" style="color:#213043;">${escapeHtml(cleanDescription || "Sem descrição")}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderAssignedRidDetailsModal() {
+    const item = getSelectedAssignedRid();
+    if (!item) return "";
+
+    return `
+      <div class="modal-root" id="assigned-rid-details-modal">
+        <div class="modal-card">
+          <div class="modal-head">
+            <h2>${item.ridNumber ? `RID #${escapeHtml(formatRidNumber(item.ridNumber))}` : "RID designado"}</h2>
+            <button type="button" class="close-btn" data-close-modal="true">×</button>
+          </div>
+          <div class="form-grid" style="margin-top:0;">
+            <div class="field">
+              <label>Status</label>
+              <div class="badge ${getBadgeClass(item.status, false)}" style="width:max-content;">
+                ${getStatusLabel(item)}
+              </div>
+            </div>
+            <div class="field">
+              <label>Data de emissão</label>
+              <div class="muted" style="color:#213043;">${escapeHtml(formatDate(item.emissionDate || item.createdAt))}</div>
+            </div>
+            <div class="field">
+              <label>Quem emitiu</label>
+              <div class="muted" style="color:#213043;">${escapeHtml(item.emitterName || "Não informado")}</div>
+            </div>
+            <div class="field">
+              <label>Local</label>
+              <div class="muted" style="color:#213043;">${escapeHtml(item.location || "Não informado")}</div>
+            </div>
+            <div class="field">
+              <label>Descrição</label>
+              <div class="muted" style="color:#213043;">${escapeHtml(item.description || "Sem descrição")}</div>
+            </div>
+            <div class="field">
+              <label>Ação imediata</label>
+              <div class="muted" style="color:#213043;">${escapeHtml(item.immediateAction || "Não informada")}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderTabbedSection(pageData, maintenancePageData, assignedPageData) {
+    const isRidsTab = state.activeTab === "rids";
+    const isMaintenanceTab = state.activeTab === "maintenances";
+    const isAssignedTab = state.activeTab === "assigned";
+    return `
+      <section class="section">
+        <div class="section-header">
+          <div class="tabbed-section-head">
+            <h2 class="section-title" style="white-space:nowrap; margin-bottom:10px;">${isRidsTab ? "Meus RIDs" : isMaintenanceTab ? "Sugestões de melhorias" : "RIDs designados"}</h2>
+          </div>
+        </div>
+        <div class="mobile-tab-panel" id="mobile-tab-panel">
+          ${isAssignedTab ? "" : `
+            <div class="page-actions page-actions-nowrap">
+              ${isRidsTab
+                ? '<button class="btn btn-success" id="new-rid-btn" style="flex:1;">Novo RID</button>'
+                : '<button class="btn btn-success" id="maintenance-btn" style="flex:1;">Nova melhoria</button>'}
+            </div>
+          `}
+          <article class="panel">
+            ${isRidsTab
+              ? (pageData.totalItems
+                ? `<div class="rid-list">${pageData.items.map(renderRidCard).join("")}</div>${renderPagination(pageData)}`
+                : '<div class="empty-state">Nenhum RID disponível no cache local.</div>')
+              : isMaintenanceTab
+                ? (maintenancePageData.totalItems
+                  ? `<div class="rid-list">${maintenancePageData.items.map(renderMaintenanceCard).join("")}</div>${renderMaintenancePagination(maintenancePageData)}`
+                  : '<div class="empty-state">Nenhuma sugestão de melhoria encontrada para este usuário.</div>')
+                : (assignedPageData.totalItems
+                  ? `<div class="rid-list">${assignedPageData.items.map(renderAssignedRidCard).join("")}</div>${renderAssignedPagination(assignedPageData)}`
+                  : '<div class="empty-state">Nenhum RID designado para este usuário.</div>')}
+          </article>
+        </div>
+      </section>
+    `;
+  }
+
   function renderApp() {
     const pageData = getPaginatedRids();
+    const maintenancePageData = getPaginatedMaintenances();
+    const assignedPageData = getPaginatedAssignedRids();
     const stats = calcStats();
     const monthProgress = calcCurrentMonthProgress();
     const lastSyncLabel = getLastSyncLabel();
@@ -1799,26 +2201,13 @@
             </div>
           </section>
 
-          <section class="section">
-            <div class="section-header">
-              <div style="width:100%;">
-                <h2 class="section-title" style="white-space:nowrap; margin-bottom:10px;">Meus RIDs</h2>
-                <div class="page-actions" style="display:flex; gap:8px; flex-wrap:nowrap;">
-                  <button class="btn btn-success btn-small" id="new-rid-btn" style="flex:1;">Novo RID</button>
-                  <button class="btn btn-soft btn-small" id="maintenance-btn" style="flex:1;">Melhorias</button>
-                </div>
-              </div>
-            </div>
-            <article class="panel">
-              ${pageData.totalItems
-                ? `<div class="rid-list">${pageData.items.map(renderRidCard).join("")}</div>${renderPagination(pageData)}`
-                : `<div class="empty-state">Nenhum RID disponível no cache local.</div>`}
-            </article>
-          </section>
+          ${renderTabbedSection(pageData, maintenancePageData, assignedPageData)}
         </section>
         ${renderRidModal()}
         ${renderMaintenanceModal()}
         ${renderRidDetailsModal()}
+        ${renderMaintenanceDetailsModal()}
+        ${renderAssignedRidDetailsModal()}
       </main>
     `;
 
@@ -1854,12 +2243,36 @@
       card.addEventListener("click", () => openRidDetails(card.dataset.openRid));
     });
 
+    document.querySelectorAll("[data-open-maintenance]").forEach((card) => {
+      card.addEventListener("click", () => openMaintenanceDetails(card.dataset.openMaintenance));
+    });
+
+    document.querySelectorAll("[data-open-assigned-rid]").forEach((card) => {
+      card.addEventListener("click", () => openAssignedRidDetails(card.dataset.openAssignedRid));
+    });
+
     document.querySelectorAll("[data-page-nav]").forEach((button) => {
       button.addEventListener("click", () => {
         state.currentPage += button.dataset.pageNav === "next" ? 1 : -1;
         renderApp();
       });
     });
+
+    document.querySelectorAll("[data-maintenance-page-nav]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.currentMaintenancePage += button.dataset.maintenancePageNav === "next" ? 1 : -1;
+        renderApp();
+      });
+    });
+
+    document.querySelectorAll("[data-assigned-page-nav]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.currentAssignedPage += button.dataset.assignedPageNav === "next" ? 1 : -1;
+        renderApp();
+      });
+    });
+
+    bindTabSwipe();
 
     document.querySelectorAll("[data-close-modal]").forEach((button) => {
       button.addEventListener("click", closeModal);
@@ -1876,6 +2289,54 @@
     document.getElementById("maintenance-modal")?.addEventListener("click", (event) => {
       if (event.target.id === "maintenance-modal") closeModal();
     });
+
+    document.getElementById("maintenance-details-modal")?.addEventListener("click", (event) => {
+      if (event.target.id === "maintenance-details-modal") closeModal();
+    });
+
+    document.getElementById("assigned-rid-details-modal")?.addEventListener("click", (event) => {
+      if (event.target.id === "assigned-rid-details-modal") closeModal();
+    });
+  }
+
+  function bindTabSwipe() {
+    const panel = document.getElementById("mobile-tab-panel");
+    if (!panel) return;
+
+    let startX = 0;
+    let startY = 0;
+    let tracking = false;
+
+    panel.addEventListener("touchstart", (event) => {
+      if (event.touches.length !== 1) return;
+      const touch = event.touches[0];
+      startX = touch.clientX;
+      startY = touch.clientY;
+      tracking = true;
+    }, { passive: true });
+
+    panel.addEventListener("touchend", (event) => {
+      if (!tracking || !event.changedTouches.length) return;
+      tracking = false;
+      const touch = event.changedTouches[0];
+      const deltaX = touch.clientX - startX;
+      const deltaY = touch.clientY - startY;
+      const tabs = canSeeAssignedRids()
+        ? ["rids", "maintenances", "assigned"]
+        : ["rids", "maintenances"];
+      const currentIndex = tabs.indexOf(state.activeTab);
+
+      if (Math.abs(deltaX) < 60 || Math.abs(deltaX) < Math.abs(deltaY) * 1.3) return;
+
+      if (deltaX < 0 && currentIndex < tabs.length - 1) {
+        setActiveTab(tabs[currentIndex + 1]);
+        return;
+      }
+
+      if (deltaX > 0 && currentIndex > 0) {
+        setActiveTab(tabs[currentIndex - 1]);
+      }
+    }, { passive: true });
   }
 
   async function bootstrapFromFirebaseSession() {
