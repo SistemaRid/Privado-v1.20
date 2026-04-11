@@ -1531,10 +1531,10 @@
           userData: state.currentUserData
         });
 
+        await maybeShowGlobalAnnouncement();
         await cacheRemoteData();
         startRealtimeRidSync();
         renderApp();
-        await maybeShowGlobalAnnouncement();
         await initializeMobilePushNotifications();
         showToast("Login realizado.", "success");
       } else {
@@ -1556,8 +1556,8 @@
           uid: offlineAuth.uid,
           userData: offlineAuth.userData
         });
-        renderApp();
         await maybeShowGlobalAnnouncement();
+        renderApp();
         showToast("Modo offline liberado com dados locais.", "info");
       }
     } catch (error) {
@@ -2514,10 +2514,10 @@
     state.currentUser = { uid: sessionUser.uid };
     state.currentUserData = { id: sessionUser.uid, ...userDoc.data() };
     loadUserCache(sessionUser.uid);
+    await maybeShowGlobalAnnouncement();
     await refreshOfflineExperience({ showSuccessToast: false, showErrorToast: false });
     startRealtimeRidSync();
     renderApp();
-    await maybeShowGlobalAnnouncement();
     await initializeMobilePushNotifications();
     return true;
   }
@@ -2529,8 +2529,8 @@
     state.currentUser = { uid: session.uid };
     state.currentUserData = session.userData;
     loadUserCache(session.uid);
-    renderApp();
     void maybeShowGlobalAnnouncement();
+    renderApp();
     return true;
   }
 
