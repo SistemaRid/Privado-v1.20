@@ -1531,8 +1531,10 @@
           userData: state.currentUserData
         });
 
-        await maybeShowGlobalAnnouncement();
-        await cacheRemoteData();
+        const announcementPromise = maybeShowGlobalAnnouncement();
+        const cachePromise = cacheRemoteData();
+        await announcementPromise;
+        await cachePromise;
         startRealtimeRidSync();
         renderApp();
         await initializeMobilePushNotifications();
@@ -2514,8 +2516,10 @@
     state.currentUser = { uid: sessionUser.uid };
     state.currentUserData = { id: sessionUser.uid, ...userDoc.data() };
     loadUserCache(sessionUser.uid);
-    await maybeShowGlobalAnnouncement();
-    await refreshOfflineExperience({ showSuccessToast: false, showErrorToast: false });
+    const announcementPromise = maybeShowGlobalAnnouncement();
+    const refreshPromise = refreshOfflineExperience({ showSuccessToast: false, showErrorToast: false });
+    await announcementPromise;
+    await refreshPromise;
     startRealtimeRidSync();
     renderApp();
     await initializeMobilePushNotifications();
