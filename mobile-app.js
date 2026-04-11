@@ -492,12 +492,12 @@
     return Boolean(state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper);
   }
 
+  function getAllAssignedRids() {
+    return sortRidItems((state.cachedAssignedRids || []).filter((item) => !item.deleted));
+  }
+
   function getAssignedRids() {
-    return sortRidItems((state.cachedAssignedRids || []).filter((item) => {
-      if (item.deleted) return false;
-      const status = String(item.status || "").toUpperCase();
-      return status === "VENCIDO" || status.includes("ANDAMENTO");
-    }));
+    return getAllAssignedRids().filter((item) => String(item.status || "").toUpperCase() === "VENCIDO");
   }
 
   function getPaginatedAssignedRids() {
@@ -881,9 +881,11 @@
   }
 
   async function collectMaintenances() {
-    const queries = [db.collection("maintenances").where("requesterId", "==", state.currentUser.uid)];
+    const queries = canSeeAssignedRids()
+      ? [db.collection("maintenances").where("assignedTo", "==", state.currentUser.uid)]
+      : [db.collection("maintenances").where("requesterId", "==", state.currentUser.uid)];
 
-    if (state.currentUserData.cpf) {
+    if (!canSeeAssignedRids() && state.currentUserData.cpf) {
       queries.push(db.collection("maintenances").where("requesterCpf", "==", state.currentUserData.cpf));
     }
 
@@ -2087,15 +2089,16 @@
     const isRidsTab = state.activeTab === "rids";
     const isMaintenanceTab = state.activeTab === "maintenances";
     const isAssignedTab = state.activeTab === "assigned";
+    const secondaryTitle = canSeeAssignedRids() ? "Melhorias designadas a mim" : "Sugestões de melhorias";
     return `
       <section class="section">
         <div class="section-header">
           <div class="tabbed-section-head">
-            <h2 class="section-title" style="white-space:nowrap; margin-bottom:10px;">${isRidsTab ? "Meus RIDs" : isMaintenanceTab ? "Sugestões de melhorias" : "RIDs designados"}</h2>
+            <h2 class="section-title" style="white-space:nowrap; margin-bottom:10px;">${isRidsTab ? "Meus RIDs" : isMaintenanceTab ? secondaryTitle : "RIDs designados vencidos"}</h2>
           </div>
         </div>
         <div class="mobile-tab-panel" id="mobile-tab-panel">
-          ${isAssignedTab ? "" : `
+          ${isAssignedTab || canSeeAssignedRids() ? "" : `
             <div class="page-actions page-actions-nowrap">
               ${isRidsTab
                 ? '<button class="btn btn-success" id="new-rid-btn" style="flex:1;">Novo RID</button>'
@@ -2110,10 +2113,10 @@
               : isMaintenanceTab
                 ? (maintenancePageData.totalItems
                   ? `<div class="rid-list">${maintenancePageData.items.map(renderMaintenanceCard).join("")}</div>${renderMaintenancePagination(maintenancePageData)}`
-                  : '<div class="empty-state">Nenhuma sugestão de melhoria encontrada para este usuário.</div>')
+                  : `<div class="empty-state">${canSeeAssignedRids() ? "Nenhuma melhoria designada para este usuário." : "Nenhuma sugestão de melhoria encontrada para este usuário."}</div>`)
                 : (assignedPageData.totalItems
                   ? `<div class="rid-list">${assignedPageData.items.map(renderAssignedRidCard).join("")}</div>${renderAssignedPagination(assignedPageData)}`
-                  : '<div class="empty-state">Nenhum RID designado para este usuário.</div>')}
+                  : '<div class="empty-state">Nenhum RID vencido designado para este usuário.</div>')}
           </article>
         </div>
       </section>
