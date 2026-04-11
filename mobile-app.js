@@ -417,6 +417,10 @@
   }
 
   function getCombinedRids() {
+    if (canSeeAssignedRids()) {
+      return sortRidItems((state.cachedAssignedRids || []).filter((item) => !item.deleted));
+    }
+
     const remote = (state.cachedRids || []).map((item) => ({ ...item, isPendingLocal: false }));
     const pending = (state.pendingRids || []).map((item) => ({ ...item, isPendingLocal: true }));
     return sortRidItems([...pending, ...remote]);
@@ -493,11 +497,11 @@
   }
 
   function getAssignedRids() {
-    return sortRidItems((state.cachedAssignedRids || []).filter((item) => {
+    return getCombinedRids().filter((item) => {
       if (item.deleted) return false;
       const status = String(item.status || "").toUpperCase();
       return status === "VENCIDO" || status.includes("ANDAMENTO");
-    }));
+    });
   }
 
   function getPaginatedAssignedRids() {
@@ -2127,6 +2131,7 @@
     const stats = calcStats();
     const monthProgress = calcCurrentMonthProgress();
     const lastSyncLabel = getLastSyncLabel();
+    const showPerformanceSection = state.activeTab === "rids";
 
     app.innerHTML = `
       <main class="app-shell">
@@ -2159,47 +2164,49 @@
 
           ${renderPushPermissionBanner()}
 
-          <section class="section">
-            <div class="section-header">
-              <h2 class="section-title" style="white-space:nowrap;">Meu desempenho</h2>
-            </div>
-            <div class="stats-grid">
-              <article class="stats-card red-soft">
-                <div class="stats-label">Total</div>
-                <div class="stats-value">${stats.total}</div>
-                <div class="stats-foot">Inclui pendentes locais</div>
-              </article>
-              <article class="stats-card blue-soft">
-                <div class="stats-label">Corrigidos</div>
-                <div class="stats-value">${stats.corrected}</div>
-                <div class="stats-foot">RIDs concluídos na base</div>
-              </article>
-              <article class="stats-card green-soft">
-                <div class="stats-label">Pendentes sync</div>
-                <div class="stats-value">${stats.pendingSync}</div>
-                <div class="stats-foot">Salvos no aparelho</div>
-              </article>
-              <article class="stats-card yellow-soft">
-                <div class="stats-label">Em aberto</div>
-                <div class="stats-value">${stats.overdue}</div>
-                <div class="stats-foot">RIDs vencidos ou em andamento</div>
-              </article>
-            </div>
-            <div style="
-              margin-top:10px;
-              font-size:0.78rem;
-              line-height:1.35;
-              padding:10px 12px;
-              border-radius:999px;
-              background:${monthProgress.hitGoal ? "#eef9ea" : "#fff7e8"};
-              border:1px solid ${monthProgress.hitGoal ? "#cfe8c8" : "#f1ddb0"};
-              color:${monthProgress.hitGoal ? "#35653b" : "#8a6717"};
-            ">
-              Você emitiu <strong>${monthProgress.emittedThisMonth}</strong> RID${monthProgress.emittedThisMonth === 1 ? "" : "s"} no mês atual.
-              Sua meta é <strong>${monthProgress.goal}</strong>.
-              <strong>${monthProgress.hitGoal ? "Meta atingida" : "Meta não atingida"}</strong>.
-            </div>
-          </section>
+          ${showPerformanceSection ? `
+            <section class="section">
+              <div class="section-header">
+                <h2 class="section-title" style="white-space:nowrap;">Meu desempenho</h2>
+              </div>
+              <div class="stats-grid">
+                <article class="stats-card red-soft">
+                  <div class="stats-label">Total</div>
+                  <div class="stats-value">${stats.total}</div>
+                  <div class="stats-foot">Inclui pendentes locais</div>
+                </article>
+                <article class="stats-card blue-soft">
+                  <div class="stats-label">Corrigidos</div>
+                  <div class="stats-value">${stats.corrected}</div>
+                  <div class="stats-foot">RIDs concluídos na base</div>
+                </article>
+                <article class="stats-card green-soft">
+                  <div class="stats-label">Pendentes sync</div>
+                  <div class="stats-value">${stats.pendingSync}</div>
+                  <div class="stats-foot">Salvos no aparelho</div>
+                </article>
+                <article class="stats-card yellow-soft">
+                  <div class="stats-label">Em aberto</div>
+                  <div class="stats-value">${stats.overdue}</div>
+                  <div class="stats-foot">RIDs vencidos ou em andamento</div>
+                </article>
+              </div>
+              <div style="
+                margin-top:10px;
+                font-size:0.78rem;
+                line-height:1.35;
+                padding:10px 12px;
+                border-radius:999px;
+                background:${monthProgress.hitGoal ? "#eef9ea" : "#fff7e8"};
+                border:1px solid ${monthProgress.hitGoal ? "#cfe8c8" : "#f1ddb0"};
+                color:${monthProgress.hitGoal ? "#35653b" : "#8a6717"};
+              ">
+                Você emitiu <strong>${monthProgress.emittedThisMonth}</strong> RID${monthProgress.emittedThisMonth === 1 ? "" : "s"} no mês atual.
+                Sua meta é <strong>${monthProgress.goal}</strong>.
+                <strong>${monthProgress.hitGoal ? "Meta atingida" : "Meta não atingida"}</strong>.
+              </div>
+            </section>
+          ` : ""}
 
           ${renderTabbedSection(pageData, maintenancePageData, assignedPageData)}
         </section>
