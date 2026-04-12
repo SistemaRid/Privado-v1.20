@@ -51,6 +51,13 @@
     selectedAssignedRidId: null,
     imageViewerSrc: "",
     imageViewerScale: 1,
+    imageViewerOffsetX: 0,
+    imageViewerOffsetY: 0,
+    imageViewerDragStartX: 0,
+    imageViewerDragStartY: 0,
+    imageViewerDragging: false,
+    imageViewerPinchDistance: 0,
+    imageViewerPinchStartScale: 1,
     booting: true,
     offlineBundleUpdating: false,
     actionOverlay: null,
@@ -1653,6 +1660,10 @@
     state.selectedAssignedRidId = null;
     state.imageViewerSrc = "";
     state.imageViewerScale = 1;
+    state.imageViewerOffsetX = 0;
+    state.imageViewerOffsetY = 0;
+    state.imageViewerDragging = false;
+    state.imageViewerPinchDistance = 0;
     renderApp();
   }
 
@@ -1664,21 +1675,89 @@
     if (!src) return;
     state.imageViewerSrc = src;
     state.imageViewerScale = 1;
+    state.imageViewerOffsetX = 0;
+    state.imageViewerOffsetY = 0;
+    state.imageViewerDragging = false;
+    state.imageViewerPinchDistance = 0;
     renderApp();
   }
 
   function closeImageViewer() {
     state.imageViewerSrc = "";
     state.imageViewerScale = 1;
+    state.imageViewerOffsetX = 0;
+    state.imageViewerOffsetY = 0;
+    state.imageViewerDragging = false;
+    state.imageViewerPinchDistance = 0;
     renderApp();
+  }
+
+  function applyImageViewerTransform() {
+    const image = document.getElementById("mobile-image-viewer-image");
+    if (!image) return;
+    image.style.transform = `translate(${state.imageViewerOffsetX}px, ${state.imageViewerOffsetY}px) scale(${state.imageViewerScale})`;
   }
 
   function setImageViewerScale(value) {
     state.imageViewerScale = clampImageViewerScale(value);
-    const image = document.getElementById("mobile-image-viewer-image");
-    if (image) {
-      image.style.transform = `scale(${state.imageViewerScale})`;
+    if (state.imageViewerScale <= 1) {
+      state.imageViewerOffsetX = 0;
+      state.imageViewerOffsetY = 0;
+      state.imageViewerDragging = false;
     }
+    applyImageViewerTransform();
+  }
+
+  function getTouchDistance(touchA, touchB) {
+    const deltaX = touchA.clientX - touchB.clientX;
+    const deltaY = touchA.clientY - touchB.clientY;
+    return Math.hypot(deltaX, deltaY);
+  }
+
+  function bindImageViewerTouch() {
+    const stage = document.getElementById("mobile-image-viewer-stage");
+    if (!stage) return;
+
+    stage.addEventListener("touchstart", (event) => {
+      if (event.touches.length === 2) {
+        state.imageViewerPinchDistance = getTouchDistance(event.touches[0], event.touches[1]);
+        state.imageViewerPinchStartScale = state.imageViewerScale;
+        state.imageViewerDragging = false;
+        return;
+      }
+
+      if (event.touches.length === 1 && state.imageViewerScale > 1) {
+        const touch = event.touches[0];
+        state.imageViewerDragging = true;
+        state.imageViewerDragStartX = touch.clientX - state.imageViewerOffsetX;
+        state.imageViewerDragStartY = touch.clientY - state.imageViewerOffsetY;
+      }
+    }, { passive: true });
+
+    stage.addEventListener("touchmove", (event) => {
+      if (event.touches.length === 2 && state.imageViewerPinchDistance > 0) {
+        event.preventDefault();
+        const nextDistance = getTouchDistance(event.touches[0], event.touches[1]);
+        const ratio = nextDistance / state.imageViewerPinchDistance;
+        setImageViewerScale(state.imageViewerPinchStartScale * ratio);
+        return;
+      }
+
+      if (event.touches.length === 1 && state.imageViewerDragging && state.imageViewerScale > 1) {
+        event.preventDefault();
+        const touch = event.touches[0];
+        state.imageViewerOffsetX = touch.clientX - state.imageViewerDragStartX;
+        state.imageViewerOffsetY = touch.clientY - state.imageViewerDragStartY;
+        applyImageViewerTransform();
+      }
+    }, { passive: false });
+
+    stage.addEventListener("touchend", () => {
+      if (state.imageViewerPinchDistance > 0) {
+        state.imageViewerPinchDistance = 0;
+      }
+      state.imageViewerDragging = false;
+    });
   }
 
   function openRidDetails(ridId) {
@@ -2180,22 +2259,33 @@
     if (!state.imageViewerSrc) return "";
 
     return `
-      <div class="modal-root" id="mobile-image-viewer" style="background:rgba(15,23,42,0.9); padding:16px;">
-        <div class="modal-card" style="width:min(100%, 100vw - 16px); max-width:100%; height:calc(100vh - 32px); max-height:calc(100vh - 32px); background:#0f172a; border:1px solid rgba(255,255,255,0.08); display:flex; flex-direction:column; gap:12px; padding:16px;">
-          <div style="display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap;">
-            <button type="button" class="btn btn-soft btn-small" data-image-zoom-out="true">-</button>
-            <button type="button" class="btn btn-soft btn-small" data-image-zoom-reset="true">100%</button>
-            <button type="button" class="btn btn-soft btn-small" data-image-zoom-in="true">+</button>
-            <button type="button" class="btn btn-soft btn-small" data-close-image-viewer="true">Fechar</button>
-          </div>
-          <div id="mobile-image-viewer-stage" style="flex:1; min-height:0; overflow:auto; border-radius:20px; background:rgba(255,255,255,0.04); display:flex; align-items:center; justify-content:center;">
-            <img
-              id="mobile-image-viewer-image"
-              src="${escapeHtml(state.imageViewerSrc)}"
-              alt="Imagem ampliada do RID"
-              style="max-width:none; max-height:none; width:auto; height:auto; border-radius:18px; transform:scale(${state.imageViewerScale}); transform-origin:center center;"
-            >
-          </div>
+      <div class="modal-root" id="mobile-image-viewer" style="background:rgba(15,23,42,0.94); padding:0;">
+        <div
+          id="mobile-image-viewer-stage"
+          style="
+            width:100vw;
+            height:100vh;
+            overflow:hidden;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            touch-action:none;
+          "
+        >
+          <img
+            id="mobile-image-viewer-image"
+            src="${escapeHtml(state.imageViewerSrc)}"
+            alt="Imagem ampliada do RID"
+            style="
+              max-width:100vw;
+              max-height:100vh;
+              width:auto;
+              height:auto;
+              transform:translate(${state.imageViewerOffsetX}px, ${state.imageViewerOffsetY}px) scale(${state.imageViewerScale});
+              transform-origin:center center;
+              will-change:transform;
+            "
+          >
         </div>
       </div>
     `;
@@ -2549,24 +2639,12 @@
     document.getElementById("mobile-image-viewer")?.addEventListener("click", (event) => {
       if (event.target.id === "mobile-image-viewer") closeImageViewer();
     });
-
-    document.querySelector("[data-image-zoom-in=\"true\"]")?.addEventListener("click", () => {
-      setImageViewerScale(state.imageViewerScale + 0.25);
-    });
-
-    document.querySelector("[data-image-zoom-out=\"true\"]")?.addEventListener("click", () => {
-      setImageViewerScale(state.imageViewerScale - 0.25);
-    });
-
-    document.querySelector("[data-image-zoom-reset=\"true\"]")?.addEventListener("click", () => {
-      setImageViewerScale(1);
-    });
-
     document.getElementById("mobile-image-viewer-stage")?.addEventListener("wheel", (event) => {
       event.preventDefault();
       const delta = event.deltaY < 0 ? 0.2 : -0.2;
       setImageViewerScale(state.imageViewerScale + delta);
     }, { passive: false });
+    bindImageViewerTouch();
   }
 
   function bindTabSwipe() {

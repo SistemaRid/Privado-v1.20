@@ -12,7 +12,8 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" href="icon.png">
   <style>
-    * { font-family: 'DM Sans', sans-serif; }
+    * { font-family: 'DM Sans', sans-serif; scrollbar-width: none; -ms-overflow-style: none; }
+    *::-webkit-scrollbar { width: 0; height: 0; display: none; }
     html, body { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; }
     .sidebar { width: 72px; height: 100dvh; transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1); overflow: hidden; }
     .sidebar:hover { width: 260px; }
