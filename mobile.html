@@ -59,6 +59,9 @@
   <a id="siteFooter" class="site-footer" href="https://wa.me/5563992076136" target="_blank" rel="noopener noreferrer" aria-label="Falar com Juan Carlos no WhatsApp">&copy; | Todos os direitos reservados. Dev. por Juan Carlos</a>
   <script>
     (function () {
+      if (window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone) {
+        document.body.classList.add("pwa-mode");
+      }
       const footer = document.getElementById("siteFooter");
       if (!footer) return;
       footer.classList.add("visible");

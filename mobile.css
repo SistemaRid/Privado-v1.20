@@ -582,6 +582,10 @@ button:disabled {
   z-index: 40;
 }
 
+body.pwa-mode .modal-root {
+  background: rgba(17, 24, 39, 0.56);
+}
+
 .modal-card {
   width: min(100%, 760px);
   max-height: calc(100dvh - 24px);
@@ -700,6 +704,12 @@ button:disabled {
   z-index: 120;
 }
 
+body.pwa-mode .boot-overlay {
+  background: rgba(233, 240, 245, 0.82);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 .boot-card {
   width: min(100%, 320px);
   background: #ffffff;
@@ -743,6 +753,12 @@ button:disabled {
   -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
   z-index: 130;
+}
+
+body.pwa-mode .action-overlay {
+  background: rgba(233, 240, 245, 0.74);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .action-overlay-card {

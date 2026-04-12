@@ -2264,8 +2264,11 @@
   function renderImageViewerModal() {
     if (!state.imageViewerSrc) return "";
 
+    const isStandalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
+    const viewerBackground = isStandalone ? "rgba(15,23,42,0.62)" : "rgba(15,23,42,0.94)";
+
     return `
-      <div class="modal-root" id="mobile-image-viewer" style="background:rgba(15,23,42,0.94); padding:0; z-index:1300;">
+      <div class="modal-root" id="mobile-image-viewer" style="background:${viewerBackground}; padding:0; z-index:1300;">
         <div
           id="mobile-image-viewer-stage"
           style="
@@ -2276,6 +2279,7 @@
             align-items:center;
             justify-content:center;
             touch-action:none;
+            background:transparent;
           "
         >
           <img
