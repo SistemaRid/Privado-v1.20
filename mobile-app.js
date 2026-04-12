@@ -1758,6 +1758,12 @@
       }
       state.imageViewerDragging = false;
     });
+
+    stage.addEventListener("touchend", (event) => {
+      if (event.target?.id === "mobile-image-viewer-stage" && event.changedTouches.length === 1) {
+        closeImageViewer();
+      }
+    });
   }
 
   function openRidDetails(ridId) {
@@ -2259,7 +2265,7 @@
     if (!state.imageViewerSrc) return "";
 
     return `
-      <div class="modal-root" id="mobile-image-viewer" style="background:rgba(15,23,42,0.94); padding:0;">
+      <div class="modal-root" id="mobile-image-viewer" style="background:rgba(15,23,42,0.94); padding:0; z-index:1300;">
         <div
           id="mobile-image-viewer-stage"
           style="
@@ -2640,6 +2646,9 @@
       if (event.target.id === "mobile-image-viewer") closeImageViewer();
     });
     document.getElementById("mobile-image-viewer-stage")?.addEventListener("click", (event) => {
+      if (event.target.id === "mobile-image-viewer-stage") closeImageViewer();
+    });
+    document.getElementById("mobile-image-viewer-stage")?.addEventListener("pointerup", (event) => {
       if (event.target.id === "mobile-image-viewer-stage") closeImageViewer();
     });
     document.getElementById("mobile-image-viewer-stage")?.addEventListener("wheel", (event) => {
