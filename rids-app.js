@@ -27,7 +27,14 @@
     currentPage: 1,
     selectedRidId: null,
     actionRidId: null,
-    footerTimerId: null
+    footerTimerId: null,
+    ridImageViewerScale: 1,
+    ridImageViewerOffsetX: 0,
+    ridImageViewerOffsetY: 0,
+    ridImageViewerDragging: false,
+    ridImageViewerDragStartX: 0,
+    ridImageViewerDragStartY: 0,
+    ridImageViewerDidDrag: false
   };
 
   const dom = {
@@ -69,6 +76,9 @@
     ridRemovalRequestFeedback: document.getElementById("ridRemovalRequestFeedback"),
     ridRemovalRequestCancel: document.getElementById("ridRemovalRequestCancel"),
     ridRemovalRequestSubmit: document.getElementById("ridRemovalRequestSubmit"),
+    ridImageViewer: document.getElementById("ridImageViewer"),
+    ridImageViewerImage: document.getElementById("ridImageViewerImage"),
+    ridImageViewerStage: document.getElementById("ridImageViewerStage"),
     prevPageButton: document.getElementById("prevPageButton"),
     nextPageButton: document.getElementById("nextPageButton"),
     paginationInfo: document.getElementById("paginationInfo"),
@@ -245,6 +255,88 @@
     return `${year}-${month}-${day}`;
   }
 
+  function getRidImageSource(rid) {
+    const candidates = [
+      rid?.imageDataUrl,
+      rid?.imageUrl,
+      rid?.photoUrl,
+      rid?.fotoUrl,
+      rid?.imagemUrl
+    ];
+
+    return candidates.find((value) => typeof value === "string" && value.trim()) || "";
+  }
+
+  function clampRidImageScale(value) {
+    return Math.min(4, Math.max(1, value));
+  }
+
+  function applyRidImageViewerScale() {
+    if (!dom.ridImageViewerImage || !dom.ridImageViewerStage) return;
+    dom.ridImageViewerImage.style.transform = `translate(${state.ridImageViewerOffsetX}px, ${state.ridImageViewerOffsetY}px) scale(${state.ridImageViewerScale})`;
+    dom.ridImageViewerStage.classList.toggle("zoomed", state.ridImageViewerScale > 1);
+    dom.ridImageViewerStage.classList.toggle("dragging", state.ridImageViewerDragging);
+  }
+
+  function setRidImageViewerScale(value) {
+    state.ridImageViewerScale = clampRidImageScale(value);
+    if (state.ridImageViewerScale <= 1) {
+      state.ridImageViewerOffsetX = 0;
+      state.ridImageViewerOffsetY = 0;
+      state.ridImageViewerDragging = false;
+    }
+    applyRidImageViewerScale();
+  }
+
+  function openRidImageViewer(src) {
+    if (!src || !dom.ridImageViewer || !dom.ridImageViewerImage) return;
+    dom.ridImageViewerImage.src = src;
+    state.ridImageViewerScale = 1;
+    state.ridImageViewerOffsetX = 0;
+    state.ridImageViewerOffsetY = 0;
+    state.ridImageViewerDragging = false;
+    state.ridImageViewerDidDrag = false;
+    applyRidImageViewerScale();
+    dom.ridImageViewer.classList.add("visible");
+    document.body.style.overflow = "hidden";
+  }
+
+  function closeRidImageViewer() {
+    if (!dom.ridImageViewer || !dom.ridImageViewerImage) return;
+    dom.ridImageViewer.classList.remove("visible");
+    dom.ridImageViewerImage.removeAttribute("src");
+    state.ridImageViewerScale = 1;
+    state.ridImageViewerOffsetX = 0;
+    state.ridImageViewerOffsetY = 0;
+    state.ridImageViewerDragging = false;
+    state.ridImageViewerDidDrag = false;
+    applyRidImageViewerScale();
+    document.body.style.overflow = "";
+  }
+
+  function startRidImageViewerDrag(event) {
+    if (state.ridImageViewerScale <= 1) return;
+    state.ridImageViewerDragging = true;
+    state.ridImageViewerDidDrag = false;
+    state.ridImageViewerDragStartX = event.clientX - state.ridImageViewerOffsetX;
+    state.ridImageViewerDragStartY = event.clientY - state.ridImageViewerOffsetY;
+    applyRidImageViewerScale();
+  }
+
+  function moveRidImageViewerDrag(event) {
+    if (!state.ridImageViewerDragging) return;
+    state.ridImageViewerOffsetX = event.clientX - state.ridImageViewerDragStartX;
+    state.ridImageViewerOffsetY = event.clientY - state.ridImageViewerDragStartY;
+    state.ridImageViewerDidDrag = true;
+    applyRidImageViewerScale();
+  }
+
+  function stopRidImageViewerDrag() {
+    if (!state.ridImageViewerDragging) return;
+    state.ridImageViewerDragging = false;
+    applyRidImageViewerScale();
+  }
+
   function findRidById(ridId) {
     return state.allRids.find((rid) => rid.id === ridId) || null;
   }
@@ -255,6 +347,7 @@
     state.selectedRidId = ridId;
     const status = getStatusMeta(rid.status);
     const leaders = getLeaderOptions();
+    const ridImageSource = getRidImageSource(rid);
     dom.ridDetailsTitle.textContent = `RID #${formatRidNumber(rid.ridNumber)}`;
     dom.ridDetailsFeedback.classList.add("hidden-state");
     dom.ridDetailsFeedback.textContent = "";
@@ -318,6 +411,23 @@
           <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Classificacao de risco</div>
           <div class="text-sm font-semibold text-gray-900 mt-2">${escapeHtml(rid.riskClassification || "-")}</div>
         </div>
+        <div class="rounded-2xl border border-gray-100 bg-white px-4 py-4 md:col-span-2">
+          <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Foto enviada pelo emissor</div>
+          ${ridImageSource ? `
+            <button type="button" class="rid-detail-image-button" data-rid-image-src="${escapeHtml(ridImageSource)}" aria-label="Abrir foto do RID">
+              <img
+                src="${escapeHtml(ridImageSource)}"
+                alt="Foto enviada no RID"
+                class="w-full rounded-2xl border border-gray-100 bg-gray-50 object-cover"
+                style="max-height: 360px;"
+              >
+            </button>
+          ` : `
+            <div class="mt-3 rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-500">
+              Nenhuma foto foi anexada a este RID.
+            </div>
+          `}
+        </div>
         <div class="rounded-2xl border border-sky-100 bg-sky-50 px-4 py-4 md:col-span-2">
           <div class="text-[11px] uppercase tracking-wider font-semibold text-sky-700">Descricao do RID</div>
           <div class="text-sm text-slate-700 mt-2 leading-6">${escapeHtml(rid.description || "Sem descricao")}</div>
@@ -365,6 +475,11 @@
         </div>
       </div>
     `;
+    dom.ridDetailsBody.querySelectorAll("[data-rid-image-src]").forEach((button) => {
+      button.addEventListener("click", () => {
+        openRidImageViewer(button.getAttribute("data-rid-image-src") || "");
+      });
+    });
     dom.ridDetailsModal.classList.add("visible");
   }
 
@@ -802,6 +917,27 @@
     dom.ridRemovalRequestModal.addEventListener("click", (event) => {
       if (event.target === dom.ridRemovalRequestModal) closeRidRemovalRequestModal();
     });
+    dom.ridImageViewer.addEventListener("click", (event) => {
+      if (event.target === dom.ridImageViewer) closeRidImageViewer();
+    });
+    dom.ridImageViewerStage.addEventListener("click", () => {
+      if (state.ridImageViewerDidDrag) {
+        state.ridImageViewerDidDrag = false;
+        return;
+      }
+      if (state.ridImageViewerDragging) return;
+      setRidImageViewerScale(state.ridImageViewerScale > 1 ? 1 : 2);
+    });
+    dom.ridImageViewerStage.addEventListener("mousedown", (event) => {
+      startRidImageViewerDrag(event);
+    });
+    window.addEventListener("mousemove", moveRidImageViewerDrag);
+    window.addEventListener("mouseup", stopRidImageViewerDrag);
+    dom.ridImageViewerStage.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      const delta = event.deltaY < 0 ? 0.2 : -0.2;
+      setRidImageViewerScale(state.ridImageViewerScale + delta);
+    }, { passive: false });
     dom.ridRemovalRequestSubmit.addEventListener("click", async () => {
       const rid = findRidById(state.actionRidId);
       if (!rid) return;
@@ -845,6 +981,9 @@
       }
       if (event.key === "Escape" && dom.ridDetailsModal.classList.contains("visible")) {
         closeRidDetailsModal();
+      }
+      if (event.key === "Escape" && dom.ridImageViewer.classList.contains("visible")) {
+        closeRidImageViewer();
       }
       if (event.key === "Escape" && dom.ridDeleteConfirmModal.classList.contains("visible")) {
         closeRidDeleteConfirmModal();

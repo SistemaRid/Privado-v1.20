@@ -49,6 +49,8 @@
     selectedRidId: null,
     selectedMaintenanceId: null,
     selectedAssignedRidId: null,
+    imageViewerSrc: "",
+    imageViewerScale: 1,
     booting: true,
     offlineBundleUpdating: false,
     actionOverlay: null,
@@ -1649,7 +1651,34 @@
     state.selectedRidId = null;
     state.selectedMaintenanceId = null;
     state.selectedAssignedRidId = null;
+    state.imageViewerSrc = "";
+    state.imageViewerScale = 1;
     renderApp();
+  }
+
+  function clampImageViewerScale(value) {
+    return Math.min(4, Math.max(1, value));
+  }
+
+  function openImageViewer(src) {
+    if (!src) return;
+    state.imageViewerSrc = src;
+    state.imageViewerScale = 1;
+    renderApp();
+  }
+
+  function closeImageViewer() {
+    state.imageViewerSrc = "";
+    state.imageViewerScale = 1;
+    renderApp();
+  }
+
+  function setImageViewerScale(value) {
+    state.imageViewerScale = clampImageViewerScale(value);
+    const image = document.getElementById("mobile-image-viewer-image");
+    if (image) {
+      image.style.transform = `scale(${state.imageViewerScale})`;
+    }
   }
 
   function openRidDetails(ridId) {
@@ -2093,7 +2122,14 @@
             ${item.imageDataUrl ? `
               <div class="field" style="grid-column:1 / -1;">
                 <label>Imagem da ocorrencia</label>
-                <img src="${escapeHtml(item.imageDataUrl)}" alt="Imagem do RID" style="width:100%; border-radius:18px; border:1px solid rgba(148,163,184,0.22);">
+                <button
+                  type="button"
+                  data-open-image-viewer="${escapeHtml(item.imageDataUrl)}"
+                  style="display:block; width:100%; margin-top:8px; padding:0; border:0; background:transparent;"
+                  aria-label="Abrir imagem do RID"
+                >
+                  <img src="${escapeHtml(item.imageDataUrl)}" alt="Imagem do RID" style="width:100%; border-radius:18px; border:1px solid rgba(148,163,184,0.22);">
+                </button>
               </div>
             ` : ""}
             ${item.deleted ? `
@@ -2134,6 +2170,31 @@
                 <div class="muted" style="color:#35653b;">${escapeHtml(correctiveActions)}</div>
               </div>
             ` : ""}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderImageViewerModal() {
+    if (!state.imageViewerSrc) return "";
+
+    return `
+      <div class="modal-root" id="mobile-image-viewer" style="background:rgba(15,23,42,0.9); padding:16px;">
+        <div class="modal-card" style="width:min(100%, 100vw - 16px); max-width:100%; height:calc(100vh - 32px); max-height:calc(100vh - 32px); background:#0f172a; border:1px solid rgba(255,255,255,0.08); display:flex; flex-direction:column; gap:12px; padding:16px;">
+          <div style="display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap;">
+            <button type="button" class="btn btn-soft btn-small" data-image-zoom-out="true">-</button>
+            <button type="button" class="btn btn-soft btn-small" data-image-zoom-reset="true">100%</button>
+            <button type="button" class="btn btn-soft btn-small" data-image-zoom-in="true">+</button>
+            <button type="button" class="btn btn-soft btn-small" data-close-image-viewer="true">Fechar</button>
+          </div>
+          <div id="mobile-image-viewer-stage" style="flex:1; min-height:0; overflow:auto; border-radius:20px; background:rgba(255,255,255,0.04); display:flex; align-items:center; justify-content:center;">
+            <img
+              id="mobile-image-viewer-image"
+              src="${escapeHtml(state.imageViewerSrc)}"
+              alt="Imagem ampliada do RID"
+              style="max-width:none; max-height:none; width:auto; height:auto; border-radius:18px; transform:scale(${state.imageViewerScale}); transform-origin:center center;"
+            >
           </div>
         </div>
       </div>
@@ -2379,6 +2440,7 @@
         ${renderRidModal()}
         ${renderMaintenanceModal()}
         ${renderRidDetailsModal()}
+        ${renderImageViewerModal()}
         ${renderMaintenanceDetailsModal()}
         ${renderAssignedRidDetailsModal()}
       </main>
@@ -2418,6 +2480,13 @@
 
     document.querySelectorAll("[data-open-rid]").forEach((card) => {
       card.addEventListener("click", () => openRidDetails(card.dataset.openRid));
+    });
+
+    document.querySelectorAll("[data-open-image-viewer]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openImageViewer(button.dataset.openImageViewer);
+      });
     });
 
     document.querySelectorAll("[data-open-maintenance]").forEach((card) => {
@@ -2474,6 +2543,30 @@
     document.getElementById("assigned-rid-details-modal")?.addEventListener("click", (event) => {
       if (event.target.id === "assigned-rid-details-modal") closeModal();
     });
+
+    document.querySelector("[data-close-image-viewer=\"true\"]")?.addEventListener("click", closeImageViewer);
+
+    document.getElementById("mobile-image-viewer")?.addEventListener("click", (event) => {
+      if (event.target.id === "mobile-image-viewer") closeImageViewer();
+    });
+
+    document.querySelector("[data-image-zoom-in=\"true\"]")?.addEventListener("click", () => {
+      setImageViewerScale(state.imageViewerScale + 0.25);
+    });
+
+    document.querySelector("[data-image-zoom-out=\"true\"]")?.addEventListener("click", () => {
+      setImageViewerScale(state.imageViewerScale - 0.25);
+    });
+
+    document.querySelector("[data-image-zoom-reset=\"true\"]")?.addEventListener("click", () => {
+      setImageViewerScale(1);
+    });
+
+    document.getElementById("mobile-image-viewer-stage")?.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      const delta = event.deltaY < 0 ? 0.2 : -0.2;
+      setImageViewerScale(state.imageViewerScale + delta);
+    }, { passive: false });
   }
 
   function bindTabSwipe() {
