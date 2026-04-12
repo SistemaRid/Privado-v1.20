@@ -2639,6 +2639,9 @@
     document.getElementById("mobile-image-viewer")?.addEventListener("click", (event) => {
       if (event.target.id === "mobile-image-viewer") closeImageViewer();
     });
+    document.getElementById("mobile-image-viewer-stage")?.addEventListener("click", (event) => {
+      if (event.target.id === "mobile-image-viewer-stage") closeImageViewer();
+    });
     document.getElementById("mobile-image-viewer-stage")?.addEventListener("wheel", (event) => {
       event.preventDefault();
       const delta = event.deltaY < 0 ? 0.2 : -0.2;
