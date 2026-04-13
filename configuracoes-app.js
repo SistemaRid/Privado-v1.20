@@ -22,7 +22,8 @@
   const state = {
     currentUser: null,
     currentUserData: null,
-    announcementImage: null
+    announcementImage: null,
+    editingAnnouncementId: null
   };
 
   const dom = {
@@ -233,6 +234,13 @@
     renderAnnouncementImagePreview();
   }
 
+  function setAnnouncementEditingState(id) {
+    state.editingAnnouncementId = id || null;
+    if (dom.saveAnnouncementButton) {
+      dom.saveAnnouncementButton.textContent = state.editingAnnouncementId ? "Atualizar aviso" : "Criar aviso";
+    }
+  }
+
   function resetAnnouncementForm() {
     dom.announcementTitle.value = "";
     dom.announcementStartDate.value = "";
@@ -242,6 +250,7 @@
     dom.announcementTarget.value = "all";
     dom.announcementActive.checked = false;
     clearAnnouncementImageSelection();
+    setAnnouncementEditingState(null);
   }
 
   function renderAnnouncementList(items) {
@@ -265,6 +274,7 @@
         ${item.imageDataUrl ? `<img src="${escapeHtml(item.imageDataUrl)}" alt="Foto do aviso" class="w-full mt-3 rounded-2xl border border-gray-200 object-cover max-h-56">` : ""}
         <div class="text-[11px] text-gray-400 mt-3">Atualizado em ${escapeHtml(formatDateTime(item.updatedAt))}</div>
         <div class="flex items-center justify-end gap-2 mt-3">
+          <button type="button" data-edit-announcement="${escapeHtml(item.id)}" class="px-3 py-2 rounded-xl border border-sky-200 bg-sky-50 text-xs font-semibold text-sky-700 hover:bg-sky-100">Editar</button>
           <button type="button" data-duplicate-announcement="${escapeHtml(item.id)}" class="px-3 py-2 rounded-xl border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50">Usar como base</button>
           <button type="button" data-toggle-announcement="${escapeHtml(item.id)}" data-next-active="${item.isActive ? "false" : "true"}" class="px-3 py-2 rounded-xl ${item.isActive ? "bg-red-50 text-red-600 border border-red-100" : "bg-emerald-50 text-emerald-700 border border-emerald-100"} text-xs font-semibold">
             ${item.isActive ? "Encerrar" : "Reativar"}
@@ -389,7 +399,7 @@
     dom.announcementFeedback.textContent = "Salvando aviso...";
     try {
       const preparedImage = state.announcementImage;
-      await ANNOUNCEMENTS_COLLECTION.add({
+      const payload = {
         title,
         message,
         startDate,
@@ -403,12 +413,18 @@
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
         updatedBy: state.currentUser.uid,
         updatedByName: state.currentUserData.name || ""
-      });
+      };
+      const wasEditing = Boolean(state.editingAnnouncementId);
+      if (state.editingAnnouncementId) {
+        await ANNOUNCEMENTS_COLLECTION.doc(state.editingAnnouncementId).set(payload, { merge: true });
+      } else {
+        await ANNOUNCEMENTS_COLLECTION.add(payload);
+      }
       resetAnnouncementForm();
       dom.announcementNotice.textContent = isActive
         ? `Aviso ativo para ${formatAnnouncementWindow({ startDate, daysVisible })} em ${getAnnouncementTargetLabel(target)}.`
         : "Aviso salvo, porém desativado.";
-      dom.announcementFeedback.textContent = "Aviso salvo com sucesso.";
+      dom.announcementFeedback.textContent = wasEditing ? "Aviso atualizado com sucesso." : "Aviso salvo com sucesso.";
       await loadAnnouncement();
     } catch (error) {
       dom.announcementFeedback.textContent = "Não foi possível salvar o aviso.";
@@ -454,6 +470,33 @@
       dom.announcementFeedback.textContent = "Campos preenchidos com base no aviso selecionado.";
     } catch (error) {
       dom.announcementFeedback.textContent = "Não foi possível carregar esse aviso para edição.";
+    }
+  }
+
+  async function editAnnouncement(id) {
+    try {
+      const snap = await ANNOUNCEMENTS_COLLECTION.doc(id).get();
+      if (!snap.exists) return;
+      const data = snap.data() || {};
+      dom.announcementTitle.value = String(data.title || "");
+      dom.announcementStartDate.value = String(data.startDate || "");
+      dom.announcementMessage.value = String(data.message || "");
+      dom.announcementDays.value = data.daysVisible ? String(data.daysVisible) : "";
+      dom.announcementDailyLimit.value = data.dailyLimit ? String(data.dailyLimit) : "";
+      dom.announcementTarget.value = String(data.target || "all");
+      dom.announcementActive.checked = Boolean(data.isActive);
+      state.announcementImage = data.imageDataUrl ? {
+        dataUrl: String(data.imageDataUrl || ""),
+        contentType: String(data.imageContentType || "image/jpeg"),
+        originalName: String(data.imageOriginalName || "Foto do aviso")
+      } : null;
+      if (dom.announcementImage) dom.announcementImage.value = "";
+      renderAnnouncementImagePreview();
+      setAnnouncementEditingState(id);
+      dom.announcementFeedback.textContent = "Aviso carregado para edicao.";
+      dom.saveAnnouncementButton.scrollIntoView({ behavior: "smooth", block: "center" });
+    } catch (error) {
+      dom.announcementFeedback.textContent = "Nao foi possivel abrir esse aviso para edicao.";
     }
   }
 
@@ -579,6 +622,12 @@
     });
     dom.announcementForm.addEventListener("submit", saveAnnouncement);
     dom.announcementList.addEventListener("click", (event) => {
+      const editButton = event.target.closest("[data-edit-announcement]");
+      if (editButton) {
+        editAnnouncement(editButton.dataset.editAnnouncement);
+        return;
+      }
+
       const toggleButton = event.target.closest("[data-toggle-announcement]");
       if (toggleButton) {
         toggleAnnouncementStatus(toggleButton.dataset.toggleAnnouncement, toggleButton.dataset.nextActive === "true");
