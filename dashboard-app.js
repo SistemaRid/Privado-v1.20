@@ -175,8 +175,11 @@
     overlay.style.padding = "24px";
     overlay.style.backdropFilter = "blur(10px)";
     overlay.style.webkitBackdropFilter = "blur(10px)";
+    const announcementImageHtml = data.imageDataUrl
+      ? `<div style="margin-bottom:16px;"><img src="${escapeHtml(data.imageDataUrl)}" alt="Imagem do aviso" style="display:block;width:100%;max-height:280px;object-fit:cover;border-radius:20px;border:1px solid #e5e7eb;"></div>`
+      : "";
     overlay.innerHTML = `
-      <div style="width:min(100%,560px);max-height:calc(100dvh - 48px);display:flex;flex-direction:column;background:#fff;border-radius:28px;padding:24px;border:1px solid #e5e7eb;box-shadow:0 24px 60px rgba(15,23,42,.22);">
+      <div style="width:min(100%,560px);max-height:calc(100dvh - 48px);display:flex;flex-direction:column;background:#fff;border-radius:28px;padding:24px;border:1px solid #e5e7eb;box-shadow:0 24px 60px rgba(15,23,42,.22);overflow:hidden;">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;">
           <div>
             <div style="font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#94a3b8;">Aviso do sistema</div>
@@ -184,7 +187,10 @@
           </div>
           <button type="button" id="closeGlobalAnnouncementModal" style="width:40px;height:40px;border:none;border-radius:999px;background:#f8fafc;color:#475569;font-size:24px;cursor:pointer;">×</button>
         </div>
-        <div style="flex:1;min-height:0;overflow-y:auto;padding-right:6px;font-size:15px;line-height:1.7;color:#334155;white-space:pre-wrap;">${escapeHtml(data.message || "")}</div>
+        <div style="flex:1;min-height:0;overflow-y:auto;padding-right:6px;">
+          ${announcementImageHtml}
+          <div style="font-size:15px;line-height:1.7;color:#334155;white-space:pre-wrap;">${escapeHtml(data.message || "")}</div>
+        </div>
         <div style="margin-top:18px;display:flex;justify-content:flex-end;">
           <button type="button" id="ackGlobalAnnouncementModal" style="padding:12px 18px;border:none;border-radius:16px;background:#111827;color:#fff;font-weight:700;cursor:pointer;">Entendi</button>
         </div>
@@ -766,6 +772,71 @@
     };
   }
 
+  function countNonSundayDaysLocal(start, end) {
+    if (!(start instanceof Date) || !(end instanceof Date)) return 0;
+    const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+    const limit = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+    let total = 0;
+
+    while (cursor <= limit) {
+      if (cursor.getDay() !== 0) total += 1;
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    return total;
+  }
+
+  function countSundaysInMonthLocal(year, month1to12) {
+    const totalDays = daysInMonthLocal(year, month1to12);
+    let sundays = 0;
+
+    for (let day = 1; day <= totalDays; day += 1) {
+      const date = new Date(year, month1to12 - 1, day);
+      if (date.getDay() === 0) sundays += 1;
+    }
+
+    return sundays;
+  }
+
+  function getRemainingGoalDailyPace(period, currentCount, goal) {
+    if (!goal || goal <= 0 || period.showAllMonths) return null;
+
+    const monthStart = new Date(period.year, period.month - 1, 1, 0, 0, 0, 0);
+    const monthEnd = new Date(period.year, period.month, 0, 23, 59, 59, 999);
+    const today = new Date();
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
+    const remaining = Math.max(goal - currentCount, 0);
+    const totalMonthDays = daysInMonthLocal(period.year, period.month);
+    const totalMonthSundays = countSundaysInMonthLocal(period.year, period.month);
+    const totalWorkingDays = Math.max(totalMonthDays - totalMonthSundays, 0);
+
+    if (todayStart > monthEnd) {
+      return {
+        remaining,
+        daysLeft: 0,
+        perDay: remaining > 0 ? remaining : 0,
+        totalMonthSundays,
+        totalWorkingDays,
+        isPastPeriod: true,
+        isCurrentPeriod: false
+      };
+    }
+
+    const isCurrentPeriod = todayStart >= monthStart && todayStart <= monthEnd;
+    const countingStart = isCurrentPeriod ? todayStart : monthStart;
+    const daysLeft = countNonSundayDaysLocal(countingStart, monthEnd);
+
+    return {
+      remaining,
+      daysLeft,
+      perDay: remaining > 0 && daysLeft > 0 ? Math.ceil(remaining / daysLeft) : 0,
+      totalMonthSundays,
+      totalWorkingDays,
+      isPastPeriod: false,
+      isCurrentPeriod
+    };
+  }
+
   async function loadMonthlyGoal(period) {
     if (period.showAllMonths) {
       state.monthlyGoal = null;
@@ -1336,16 +1407,22 @@
     const remaining = Math.max(goal - currentCount, 0);
     const percentage = Math.min(Math.round((currentCount / goal) * 100), 999);
     const progressWidth = Math.max(6, Math.min((currentCount / goal) * 100, 100));
+    const dailyPace = getRemainingGoalDailyPace(data.period, currentCount, goal);
     const extra = state.monthlyGoalMeta
       ? `Desconto: ${Math.ceil(state.monthlyGoalMeta.discount || 0)}`
       : "Calculo automatico do mes";
-    const manualGoalCopy = state.manualGoalValue && !data.period.sector
-      ? `Meta manual registrada: ${state.manualGoalValue}`
-      : "Nenhuma meta manual registrada";
-    const canManageManualGoal = !!state.currentUserData?.isDeveloper && !data.period.showAllMonths && !data.period.sector;
-    const manualButton = canManageManualGoal
-      ? `<button type="button" id="openManualGoalButton" class="goal-manual-trigger inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-gray-700 hover:bg-gray-50">Definir meta manual</button>`
-      : "";
+    let dailyPaceCopy = "";
+    if (dailyPace) {
+      if (remaining === 0) {
+        dailyPaceCopy = "Meta batida. Nenhum RID por dia necessario.";
+      } else if (dailyPace.isPastPeriod) {
+        dailyPaceCopy = "Periodo encerrado. Nao ha mais dias uteis sem domingo neste mes.";
+      } else if (dailyPace.daysLeft <= 0) {
+        dailyPaceCopy = `Restam ${remaining} RID${remaining !== 1 ? "s" : ""} e nao ha mais dias disponiveis sem domingo.`;
+      } else {
+        dailyPaceCopy = `Necessarios ${dailyPace.perDay} RID${dailyPace.perDay !== 1 ? "s" : ""} por dia para bater a meta.`;
+      }
+    }
     const hitGoal = currentCount >= goal;
     const introClass = state.shouldAnimateGoalIntro ? " goal-panel-intro" : "";
     const progressClass = state.shouldAnimateGoalIntro ? " goal-progress-fill-intro" : "";
@@ -1381,12 +1458,11 @@
                 <span class="inline-flex items-center rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">Meta automatica</span>
               </div>
               <div class="text-xs text-gray-500 mt-2">${currentCount >= goal ? "Meta atingida no periodo atual." : `Faltam ${remaining} RID${remaining !== 1 ? "s" : ""} para atingir a meta.`}</div>
-              <div class="text-xs text-gray-400 mt-2">${manualGoalCopy}</div>
+              <div class="text-xs text-slate-500 mt-2">${dailyPaceCopy}</div>
             </div>
             <div class="text-right">
               <div class="text-2xl font-bold text-gray-900">${percentage}%</div>
               <div class="text-[11px] text-gray-400 mt-1">${extra}</div>
-              <div class="mt-3">${manualButton}</div>
             </div>
           </div>
           <div class="mt-4">
@@ -1398,10 +1474,6 @@
       </div>
     `;
 
-    const openManualGoalButton = document.getElementById("openManualGoalButton");
-    if (openManualGoalButton) {
-      openManualGoalButton.addEventListener("click", openManualGoalModal);
-    }
     if (state.shouldAnimateGoalIntro && !hitGoal) {
       const goalPanelCard = document.getElementById("goalPanelCard");
       if (goalPanelCard) {

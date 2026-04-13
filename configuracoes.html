@@ -322,6 +322,18 @@
               <label class="text-xs font-semibold uppercase tracking-wider text-gray-400 block mb-2" for="announcementMessage">Mensagem</label>
               <textarea id="announcementMessage" rows="4" class="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50 resize-y" placeholder="Escreva aqui o aviso que será mostrado aos usuários."></textarea>
             </div>
+            <div>
+              <label class="text-xs font-semibold uppercase tracking-wider text-gray-400 block mb-2" for="announcementImage">Foto do aviso</label>
+              <input id="announcementImage" type="file" accept="image/*" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50">
+              <p class="text-xs text-gray-400 mt-2">Opcional. A imagem aparece junto do aviso no dashboard e no mobile.</p>
+              <div id="announcementImagePreview" class="hidden-state mt-3 rounded-2xl border border-gray-200 bg-gray-50 p-3">
+                <img id="announcementImagePreviewImg" src="" alt="Preview da foto do aviso" class="w-full max-h-56 object-cover rounded-xl border border-gray-200">
+                <div class="mt-2 flex items-center justify-between gap-3">
+                  <span id="announcementImagePreviewName" class="text-xs text-gray-500 break-all"></span>
+                  <button id="removeAnnouncementImageButton" type="button" class="px-3 py-2 rounded-xl border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-100">Remover foto</button>
+                </div>
+              </div>
+            </div>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
                 <label class="text-xs font-semibold uppercase tracking-wider text-gray-400 block mb-2" for="announcementDays">Mostrar por quantos dias</label>
