@@ -32,9 +32,6 @@
     manualGoalValue: null,
     manualGoalMonthKey: null,
     shouldAnimateGoalIntro: false,
-    hasLoadedRidsOnce: false,
-    notificationAudio: null,
-    notificationAudioUnlocked: false,
     pushPromptDismissed: false,
     pushMessagingBound: false,
     pushToken: null,
@@ -349,134 +346,6 @@
     return digits.padStart(5, "0");
   }
 
-  function ensureLiveRidNotificationRoot() {
-    let root = document.getElementById("liveRidNotificationRoot");
-    if (root) return root;
-
-    root = document.createElement("div");
-    root.id = "liveRidNotificationRoot";
-    root.style.position = "fixed";
-    root.style.top = "20px";
-    root.style.right = "20px";
-    root.style.zIndex = "1200";
-    root.style.display = "flex";
-    root.style.flexDirection = "column";
-    root.style.gap = "12px";
-    root.style.maxWidth = "360px";
-    root.style.width = "calc(100vw - 32px)";
-    document.body.appendChild(root);
-    return root;
-  }
-
-  function playRidNotificationSound() {
-    if (!state.notificationAudio) {
-      state.notificationAudio = new Audio("notify.ogg");
-      state.notificationAudio.preload = "auto";
-      state.notificationAudio.volume = 0.8;
-    }
-
-    try {
-      state.notificationAudio.currentTime = 0;
-    } catch (error) {}
-
-    state.notificationAudio.play().catch(() => {});
-  }
-
-  function unlockRidNotificationSound() {
-    if (state.notificationAudioUnlocked) return;
-    if (!state.notificationAudio) {
-      state.notificationAudio = new Audio("notify.ogg");
-      state.notificationAudio.preload = "auto";
-      state.notificationAudio.volume = 0.8;
-    }
-
-    const audio = state.notificationAudio;
-    const playAttempt = audio.play();
-    if (!playAttempt || typeof playAttempt.then !== "function") {
-      state.notificationAudioUnlocked = true;
-      return;
-    }
-
-    playAttempt
-      .then(() => {
-        audio.pause();
-        audio.currentTime = 0;
-        state.notificationAudioUnlocked = true;
-      })
-      .catch(() => {});
-  }
-
-  function bindNotificationAudioUnlock() {
-    const unlockOnce = () => {
-      unlockRidNotificationSound();
-      if (state.notificationAudioUnlocked) {
-        window.removeEventListener("pointerdown", unlockOnce);
-        window.removeEventListener("keydown", unlockOnce);
-      }
-    };
-
-    window.addEventListener("pointerdown", unlockOnce, { passive: true });
-    window.addEventListener("keydown", unlockOnce);
-  }
-
-  function showLiveRidNotification(rid) {
-    if (!isAdminProfile()) return;
-
-    const root = ensureLiveRidNotificationRoot();
-    const item = document.createElement("button");
-    item.type = "button";
-    item.style.width = "100%";
-    item.style.textAlign = "left";
-    item.style.border = "1px solid #bfdbfe";
-    item.style.background = "linear-gradient(135deg, #eff6ff 0%, #ffffff 100%)";
-    item.style.borderRadius = "18px";
-    item.style.padding = "14px 16px";
-    item.style.boxShadow = "0 18px 38px rgba(15, 23, 42, 0.14)";
-    item.style.color = "#0f172a";
-    item.style.cursor = "pointer";
-    item.style.animation = "none";
-
-    const ridNumber = formatRidNumber(rid?.ridNumber);
-    const emitterName = escapeHtml(rid?.emitterName || "Emissor nao identificado");
-    const location = escapeHtml(rid?.location || rid?.sector || "Local nao informado");
-
-    item.innerHTML = `
-      <div style="display:flex;align-items:flex-start;gap:12px;">
-        <div style="width:42px;height:42px;border-radius:14px;background:#2563eb;color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">!</div>
-        <div style="min-width:0;flex:1;">
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#2563eb;">Novo RID recebido</div>
-          <div style="font-size:15px;font-weight:700;margin-top:4px;">#${escapeHtml(ridNumber)}</div>
-          <div style="font-size:13px;color:#334155;margin-top:6px;">${emitterName}</div>
-          <div style="font-size:12px;color:#64748b;margin-top:4px;">${location}</div>
-        </div>
-      </div>
-    `;
-
-    item.addEventListener("click", () => item.remove());
-    root.prepend(item);
-    while (root.children.length > 3) {
-      root.lastElementChild?.remove();
-    }
-
-    window.setTimeout(() => {
-      item.remove();
-    }, 6000);
-
-    playRidNotificationSound();
-  }
-
-  function processLiveRidNotifications(snapshot) {
-    if (!state.hasLoadedRidsOnce) {
-      state.hasLoadedRidsOnce = true;
-      return;
-    }
-
-    snapshot.docChanges().forEach((change) => {
-      if (change.type !== "added") return;
-      showLiveRidNotification(change.doc.data());
-    });
-  }
-
   function prepareGoalIntroAnimation() {
     state.shouldAnimateGoalIntro = true;
   }
@@ -530,6 +399,25 @@
 
   function removePushPermissionPrompt() {
     document.getElementById("pushPermissionPrompt")?.remove();
+  }
+
+  function ensureLiveRidNotificationRoot() {
+    let root = document.getElementById("liveRidNotificationRoot");
+    if (root) return root;
+
+    root = document.createElement("div");
+    root.id = "liveRidNotificationRoot";
+    root.style.position = "fixed";
+    root.style.top = "20px";
+    root.style.right = "20px";
+    root.style.zIndex = "1200";
+    root.style.display = "flex";
+    root.style.flexDirection = "column";
+    root.style.gap = "12px";
+    root.style.maxWidth = "360px";
+    root.style.width = "calc(100vw - 32px)";
+    document.body.appendChild(root);
+    return root;
   }
 
   function showPushStatusCard(message, tone = "info") {
@@ -1894,9 +1782,7 @@
 
   function listenRids() {
     if (typeof state.unsubRids === "function") state.unsubRids();
-    state.hasLoadedRidsOnce = false;
     state.unsubRids = db.collection("rids").onSnapshot((snapshot) => {
-      processLiveRidNotifications(snapshot);
       state.allRids = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       if (isAdminProfile()) void renderDashboard();
     });
@@ -1918,8 +1804,6 @@
   }
 
   function bindEvents() {
-    bindNotificationAudioUnlock();
-
     dom.loginCpf.addEventListener("input", () => {
       dom.loginCpf.value = maskCpf(dom.loginCpf.value);
     });
