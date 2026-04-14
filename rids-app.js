@@ -15,6 +15,7 @@
   const auth = firebase.auth();
   auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
   const db = firebase.firestore();
+  const RID_NOTIFICATION_STORAGE_KEY = "ridNotificationOpenId";
 
   const PAGE_SIZE = 12;
 
@@ -85,18 +86,35 @@
     siteFooter: document.getElementById("siteFooter")
   };
 
+  function isAdminProfile(user = state.currentUserData) {
+    const userType = String(user?.userType || "").trim().toLowerCase();
+    return !!(
+      user?.isAdmin ||
+      userType === "administrador" ||
+      userType === "desenvolvedor"
+    );
+  }
+
+  function isDeveloperProfile(user = state.currentUserData) {
+    const userType = String(user?.userType || "").trim().toLowerCase();
+    return !!(
+      (user?.isAdmin && user?.isDeveloper) ||
+      userType === "desenvolvedor"
+    );
+  }
+
   function updateAdminNavigation() {
     document.querySelectorAll('[data-admin-only-nav="designated"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !(state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper));
+      element.classList.toggle("hidden-state", !isAdminProfile());
     });
     document.querySelectorAll('[data-developer-only-nav="control-center"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
+      element.classList.toggle("hidden-state", !isDeveloperProfile());
     });
     document.querySelectorAll('[data-privileged-nav="changes"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
+      element.classList.toggle("hidden-state", !isDeveloperProfile());
     });
     document.querySelectorAll('[data-developer-only-nav="requests"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
+      element.classList.toggle("hidden-state", !isDeveloperProfile());
     });
   }
 
@@ -341,6 +359,31 @@
     return state.allRids.find((rid) => rid.id === ridId) || null;
   }
 
+  function getPendingRidNotificationTarget() {
+    const params = new URLSearchParams(window.location.search);
+    return String(sessionStorage.getItem(RID_NOTIFICATION_STORAGE_KEY) || params.get("rid") || "").trim();
+  }
+
+  function clearPendingRidNotificationTarget() {
+    sessionStorage.removeItem(RID_NOTIFICATION_STORAGE_KEY);
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("rid")) return;
+    url.searchParams.delete("rid");
+    const nextSearch = url.searchParams.toString();
+    const nextUrl = `${url.pathname}${nextSearch ? `?${nextSearch}` : ""}${url.hash || ""}`;
+    window.history.replaceState({}, "", nextUrl);
+  }
+
+  function tryOpenRidNotificationTarget() {
+    const ridId = getPendingRidNotificationTarget();
+    if (!ridId) return false;
+    const rid = findRidById(ridId);
+    if (!rid) return false;
+    openRidDetailsModal(rid.id);
+    clearPendingRidNotificationTarget();
+    return true;
+  }
+
   function openRidDetailsModal(ridId) {
     const rid = findRidById(ridId);
     if (!rid) return;
@@ -355,7 +398,7 @@
     dom.ridDetailsDeleteAction.textContent = "";
     dom.ridDetailsDeleteAction.className = "hidden-state px-4 py-2.5 rounded-xl border text-sm font-semibold";
 
-    if (state.currentUserData?.isDeveloper) {
+    if (isDeveloperProfile()) {
       dom.ridDetailsDeleteAction.textContent = "Excluir";
       dom.ridDetailsDeleteAction.className = "px-4 py-2.5 rounded-xl border border-red-200 bg-red-50 text-red-700 text-sm font-semibold";
       dom.ridDetailsDeleteAction.classList.remove("hidden-state");
@@ -807,6 +850,7 @@
     populateSectorFilter();
     resetFiltersToCurrentMonth();
     renderRidsPage();
+    tryOpenRidNotificationTarget();
     showTimedFooter();
     lucide.createIcons();
   }
@@ -820,7 +864,10 @@
     if (typeof state.unsubRids === "function") state.unsubRids();
     state.unsubRids = db.collection("rids").onSnapshot((snapshot) => {
       state.allRids = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      if (state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper) renderRidsPage();
+      if (isAdminProfile()) {
+        renderRidsPage();
+        tryOpenRidNotificationTarget();
+      }
     });
   }
 
@@ -887,7 +934,7 @@
     dom.ridDetailsDeleteAction.addEventListener("click", () => {
       const rid = findRidById(state.selectedRidId);
       if (!rid) return;
-      if (state.currentUserData?.isDeveloper) {
+      if (isDeveloperProfile()) {
         openRidDeleteConfirmModal(rid.id);
       } else if (state.currentUserData?.isAdmin) {
         openRidRemovalRequestModal(rid.id);
@@ -1006,10 +1053,11 @@
       return;
     }
 
-    const userDoc = await db.collection("users").doc(user.uid).get();
-    state.currentUserData = userDoc.exists ? { id: user.uid, ...userDoc.data() } : null;
+    state.currentUserData = window.ridUserProfileResolver?.resolveUserProfile
+      ? await window.ridUserProfileResolver.resolveUserProfile(db, user)
+      : null;
 
-    if (!state.currentUserData || (!state.currentUserData.isAdmin && !state.currentUserData.isDeveloper)) {
+    if (!isAdminProfile()) {
       sessionStorage.setItem("ridLoginFeedback", "Sua conta nao tem permissao para este painel.");
       await auth.signOut();
       return;
@@ -1023,4 +1071,9 @@
   bindEvents();
   resetFiltersToCurrentMonth();
   lucide.createIcons();
+  window.openRidNotificationTarget = function (ridId) {
+    if (!ridId) return false;
+    sessionStorage.setItem(RID_NOTIFICATION_STORAGE_KEY, ridId);
+    return tryOpenRidNotificationTarget();
+  };
 })();

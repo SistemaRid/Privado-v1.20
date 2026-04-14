@@ -60,18 +60,26 @@
     designatedModalSave: document.getElementById("designatedModalSave")
   };
 
+  function isAdminProfile(user = state.currentUserData) {
+    return !!user?.isAdmin;
+  }
+
+  function isDeveloperProfile(user = state.currentUserData) {
+    return !!(user?.isAdmin && user?.isDeveloper);
+  }
+
   function updateRoleNavigation() {
     document.querySelectorAll('[data-admin-only-nav="designated"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !(state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper));
+      element.classList.toggle("hidden-state", !isAdminProfile());
     });
     document.querySelectorAll('[data-developer-only-nav="control-center"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
+      element.classList.toggle("hidden-state", !isDeveloperProfile());
     });
     document.querySelectorAll('[data-privileged-nav="changes"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
+      element.classList.toggle("hidden-state", !isDeveloperProfile());
     });
     document.querySelectorAll('[data-developer-only-nav="requests"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
+      element.classList.toggle("hidden-state", !isDeveloperProfile());
     });
   }
 
@@ -452,7 +460,7 @@
     if (typeof state.unsubRids === "function") state.unsubRids();
     state.unsubRids = db.collection("rids").onSnapshot((snapshot) => {
       state.allRids = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      if (state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper) renderList();
+      if (isAdminProfile()) renderList();
     });
   }
 
@@ -546,7 +554,7 @@
     const userDoc = await db.collection("users").doc(user.uid).get();
     state.currentUserData = userDoc.exists ? { id: user.uid, ...userDoc.data() } : null;
 
-    if (!state.currentUserData?.isAdmin && !state.currentUserData?.isDeveloper) {
+    if (!isAdminProfile()) {
       sessionStorage.setItem("ridLoginFeedback", "Somente administradores ou desenvolvedores podem acessar esta tela.");
       await auth.signOut();
       return;

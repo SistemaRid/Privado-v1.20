@@ -91,18 +91,35 @@
     weekRidCount: document.getElementById("weekRidCount")
   };
 
+  function isAdminProfile(user = state.currentUserData) {
+    const userType = String(user?.userType || "").trim().toLowerCase();
+    return !!(
+      user?.isAdmin ||
+      userType === "administrador" ||
+      userType === "desenvolvedor"
+    );
+  }
+
+  function isDeveloperProfile(user = state.currentUserData) {
+    const userType = String(user?.userType || "").trim().toLowerCase();
+    return !!(
+      (user?.isAdmin && user?.isDeveloper) ||
+      userType === "desenvolvedor"
+    );
+  }
+
   function updateAdminNavigation() {
     document.querySelectorAll('[data-admin-only-nav="designated"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !(state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper));
+      element.classList.toggle("hidden-state", !isAdminProfile());
     });
     document.querySelectorAll('[data-developer-only-nav="control-center"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
+      element.classList.toggle("hidden-state", !isDeveloperProfile());
     });
     document.querySelectorAll('[data-privileged-nav="changes"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
+      element.classList.toggle("hidden-state", !isDeveloperProfile());
     });
     document.querySelectorAll('[data-developer-only-nav="requests"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
+      element.classList.toggle("hidden-state", !isDeveloperProfile());
     });
   }
 
@@ -403,7 +420,7 @@
   }
 
   function showLiveRidNotification(rid) {
-    if (!(state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper)) return;
+    if (!isAdminProfile()) return;
 
     const root = ensureLiveRidNotificationRoot();
     const item = document.createElement("button");
@@ -497,7 +514,7 @@
   }
 
   function isPrivilegedUser() {
-    return !!(state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper);
+    return isAdminProfile();
   }
 
   async function ensurePushServiceWorkerRegistration() {
@@ -1282,7 +1299,7 @@
   }
 
   function openManualGoalModal() {
-    if (!state.currentUserData?.isDeveloper) return;
+    if (!isDeveloperProfile()) return;
     const period = getSelectedPeriod();
     if (period.showAllMonths || period.sector) return;
     dom.manualGoalFeedback.classList.add("hidden-state");
@@ -1881,7 +1898,7 @@
     state.unsubRids = db.collection("rids").onSnapshot((snapshot) => {
       processLiveRidNotifications(snapshot);
       state.allRids = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      if (state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper) void renderDashboard();
+      if (isAdminProfile()) void renderDashboard();
     });
   }
 
@@ -1893,10 +1910,10 @@
       .where("requesterId", "==", state.currentUser.uid)
       .onSnapshot((snapshot) => {
         state.allDeleteRequests = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-        if (state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper) void renderDashboard();
+        if (isAdminProfile()) void renderDashboard();
       }, () => {
         state.allDeleteRequests = [];
-        if (state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper) void renderDashboard();
+        if (isAdminProfile()) void renderDashboard();
       });
   }
 
@@ -1945,7 +1962,7 @@
 
     dom.manualGoalForm.addEventListener("submit", async (event) => {
       event.preventDefault();
-      if (!state.currentUserData?.isDeveloper) return;
+      if (!isDeveloperProfile()) return;
 
       const period = getSelectedPeriod();
       if (period.showAllMonths || period.sector) {
@@ -2025,10 +2042,11 @@
       return;
     }
 
-    const userDoc = await db.collection("users").doc(user.uid).get();
-    state.currentUserData = userDoc.exists ? { id: user.uid, ...userDoc.data() } : null;
+    state.currentUserData = window.ridUserProfileResolver?.resolveUserProfile
+      ? await window.ridUserProfileResolver.resolveUserProfile(db, user)
+      : null;
 
-    if (!state.currentUserData || (!state.currentUserData.isAdmin && !state.currentUserData.isDeveloper)) {
+    if (!isAdminProfile()) {
       sessionStorage.setItem("ridLoginFeedback", "Sua conta nao tem permissao para este painel.");
       await auth.signOut();
       return;

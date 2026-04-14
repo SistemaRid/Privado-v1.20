@@ -84,6 +84,14 @@
     announcementList: document.getElementById("announcementList")
   };
 
+  function isAdminProfile(user = state.currentUserData) {
+    return !!user?.isAdmin;
+  }
+
+  function isDeveloperProfile(user = state.currentUserData) {
+    return !!(user?.isAdmin && user?.isDeveloper);
+  }
+
   function maskCpf(value) {
     return String(value || "")
       .replace(/\D/g, "")
@@ -286,16 +294,16 @@
 
   function updateRoleNavigation() {
     document.querySelectorAll('[data-admin-only-nav="designated"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !(state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper));
+      element.classList.toggle("hidden-state", !isAdminProfile());
     });
     document.querySelectorAll('[data-developer-only-nav="control-center"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
+      element.classList.toggle("hidden-state", !isDeveloperProfile());
     });
     document.querySelectorAll('[data-privileged-nav="changes"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
+      element.classList.toggle("hidden-state", !isDeveloperProfile());
     });
     document.querySelectorAll('[data-developer-only-nav="requests"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
+      element.classList.toggle("hidden-state", !isDeveloperProfile());
     });
   }
 
@@ -325,7 +333,7 @@
 
   async function saveGoal(event) {
     event.preventDefault();
-    if (!state.currentUserData?.isDeveloper) {
+    if (!isDeveloperProfile()) {
       dom.goalFeedback.textContent = "Apenas desenvolvedor pode salvar meta manual.";
       return;
     }
@@ -377,7 +385,7 @@
 
   async function saveAnnouncement(event) {
     event.preventDefault();
-    if (!state.currentUserData?.isDeveloper) {
+    if (!isDeveloperProfile()) {
       dom.announcementFeedback.textContent = "Apenas desenvolvedor pode salvar aviso global.";
       return;
     }
@@ -643,8 +651,9 @@
 
   async function handleAuthenticatedUser(user) {
     state.currentUser = user;
-    const userDoc = await db.collection("users").doc(user.uid).get();
-    state.currentUserData = userDoc.exists ? { id: userDoc.id, ...userDoc.data() } : null;
+    state.currentUserData = window.ridUserProfileResolver?.resolveUserProfile
+      ? await window.ridUserProfileResolver.resolveUserProfile(db, user)
+      : null;
     updateRoleNavigation();
     renderProfile();
     dom.authOverlay.classList.remove("visible");
@@ -654,7 +663,7 @@
       window.lucide.createIcons();
     }
     await loadGoal();
-    if (state.currentUserData?.isDeveloper) {
+    if (isDeveloperProfile()) {
       await loadAnnouncement();
     }
   }

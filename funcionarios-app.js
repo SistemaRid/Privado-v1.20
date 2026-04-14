@@ -83,18 +83,26 @@
     employeeRemovalRequestSubmit: document.getElementById("employeeRemovalRequestSubmit")
   };
 
+  function isAdminProfile(user = state.currentUserData) {
+    return !!user?.isAdmin;
+  }
+
+  function isDeveloperProfile(user = state.currentUserData) {
+    return !!(user?.isAdmin && user?.isDeveloper);
+  }
+
   function updateAdminNavigation() {
     document.querySelectorAll('[data-admin-only-nav="designated"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !(state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper));
+      element.classList.toggle("hidden-state", !isAdminProfile());
     });
     document.querySelectorAll('[data-developer-only-nav="control-center"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
+      element.classList.toggle("hidden-state", !isDeveloperProfile());
     });
     document.querySelectorAll('[data-privileged-nav="changes"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
+      element.classList.toggle("hidden-state", !isDeveloperProfile());
     });
     document.querySelectorAll('[data-developer-only-nav="requests"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
+      element.classList.toggle("hidden-state", !isDeveloperProfile());
     });
   }
 
@@ -264,7 +272,7 @@
           </div>
           <div class="flex items-center gap-2 flex-wrap justify-start md:justify-end">
             <button type="button" data-edit-employee="${escapeHtml(employee.id)}" class="px-3 py-2 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50">Editar</button>
-            ${state.currentUserData?.isDeveloper
+            ${isDeveloperProfile()
               ? `<button type="button" data-delete-employee="${escapeHtml(employee.id)}" class="px-3 py-2 rounded-xl border border-red-200 bg-red-50 text-sm font-semibold text-red-700">Excluir</button>`
               : state.currentUserData?.isAdmin
                 ? `<button type="button" data-request-employee="${escapeHtml(employee.id)}" class="px-3 py-2 rounded-xl border border-amber-200 bg-amber-50 text-sm font-semibold text-amber-700">Solicitar remocao</button>`
@@ -373,7 +381,7 @@
     dom.employeeModalTitle.textContent = "Adicionar funcionario";
     dom.employeeVacationField.classList.add("hidden-state");
     dom.employeePasswordField.classList.remove("hidden-state");
-    if (state.currentUserData?.isDeveloper) {
+    if (isDeveloperProfile()) {
       dom.employeeAdminField.classList.remove("hidden-state");
     } else {
       dom.employeeAdminField.classList.add("hidden-state");
@@ -447,7 +455,7 @@
     const sector = String(dom.employeeSector.value || "").trim();
     const role = String(dom.employeeRole.value || "").trim();
     const password = String(dom.employeePassword.value || "").trim();
-    const makeAdmin = !!dom.employeeIsAdmin.checked && !!state.currentUserData?.isDeveloper;
+    const makeAdmin = !!dom.employeeIsAdmin.checked && isDeveloperProfile();
     const { vacationPeriod, error: vacationError } = readVacationPeriodFromForm();
 
     if (!name || !cpfClean || !password) {
@@ -738,7 +746,7 @@
     const userDoc = await db.collection("users").doc(user.uid).get();
     state.currentUserData = userDoc.exists ? { id: user.uid, ...userDoc.data() } : null;
 
-    if (!state.currentUserData?.isAdmin && !state.currentUserData?.isDeveloper) {
+    if (!isAdminProfile()) {
       sessionStorage.setItem("ridLoginFeedback", "Sua conta nao tem permissao para este painel.");
       await auth.signOut();
       return;

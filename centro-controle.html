@@ -277,6 +277,16 @@
           <div id="deletedList" class="p-3 space-y-2.5"></div>
         </article>
       </section>
+
+      <section class="grid grid-cols-1 gap-4 mt-4">
+        <article class="border border-gray-100 rounded-2xl overflow-hidden">
+          <div class="px-5 py-3 border-b border-gray-100">
+            <h2 class="font-semibold text-gray-900 text-sm">Ultimo login de ADMs e DEVs</h2>
+            <p class="text-xs text-gray-400 mt-1">Acompanhamento do acesso mais recente ao site de gestao por administradores e desenvolvedores.</p>
+          </div>
+          <div id="managementLoginList" class="p-3 space-y-2.5"></div>
+        </article>
+      </section>
     </main>
   </div>
 
@@ -289,6 +299,9 @@
       window.setTimeout(() => footer.classList.remove("visible"), 10000);
     })();
   </script>
+  <script src="user-profile-resolver.js"></script>
   <script src="centro-controle-app.js"></script>
+  <script src="rid-notifications.js"></script>
+  <script src="management-login-tracker.js"></script>
 </body>
 </html>

@@ -13,7 +13,18 @@
   }
 
   const auth = firebase.auth();
+  const db = typeof firebase.firestore === "function" ? firebase.firestore() : null;
   auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+  const DEVELOPER_ONLY_PAGES = new Set(["centro-controle.html", "alteracoes.html", "solicitacoes.html"]);
+  const PRIVILEGED_PAGES = new Set([
+    "dashboard.html",
+    "rids.html",
+    "funcionarios.html",
+    "relatorios.html",
+    "melhorias.html",
+    "designados.html",
+    "configuracoes.html"
+  ]);
 
   const dom = {
     bootOverlay: document.getElementById("bootOverlay"),
@@ -51,6 +62,42 @@
     dom.loginFeedback.classList.add("visible");
   }
 
+  async function getUserProfile(uid) {
+    if (!db || !uid) return null;
+    if (window.ridUserProfileResolver?.resolveUserProfile) {
+      return window.ridUserProfileResolver.resolveUserProfile(db, {
+        uid,
+        email: auth.currentUser?.email || ""
+      });
+    }
+    const snapshot = await db.collection("users").doc(uid).get();
+    return snapshot.exists ? { id: uid, ...snapshot.data() } : null;
+  }
+
+  function isDeveloperProfile(profile) {
+    const userType = String(profile?.userType || "").trim().toLowerCase();
+    return !!(
+      (profile?.isAdmin === true && profile?.isDeveloper === true) ||
+      userType === "desenvolvedor"
+    );
+  }
+
+  function isAdminProfile(profile) {
+    const userType = String(profile?.userType || "").trim().toLowerCase();
+    return !!(
+      profile?.isAdmin === true ||
+      userType === "administrador" ||
+      userType === "desenvolvedor"
+    );
+  }
+
+  function canAccessPage(profile, page) {
+    if (!profile) return false;
+    if (DEVELOPER_ONLY_PAGES.has(page)) return isDeveloperProfile(profile);
+    if (PRIVILEGED_PAGES.has(page)) return isAdminProfile(profile);
+    return true;
+  }
+
   function consumeStoredFeedback() {
     const message = sessionStorage.getItem("ridLoginFeedback");
     if (!message) return;
@@ -76,9 +123,19 @@
     dom.loginSubmitButton.disabled = true;
     dom.loginSubmitButton.textContent = "Entrando...";
     try {
-      await auth.signInWithEmailAndPassword(cpfToEmail(dom.loginCpf.value), dom.loginPassword.value);
+      const credential = await auth.signInWithEmailAndPassword(cpfToEmail(dom.loginCpf.value), dom.loginPassword.value);
+      const profile = await getUserProfile(credential.user?.uid || "");
+      const nextPage = getNextPage();
+
+      if (!profile || !canAccessPage(profile, nextPage)) {
+        sessionStorage.setItem("ridLoginFeedback", "Sua conta nao tem permissao para este painel.");
+        await auth.signOut();
+        showFeedback("Sua conta nao tem permissao para este painel.");
+        return;
+      }
+
       sessionStorage.setItem("ridDashboardGoalIntro", "pending");
-      redirectAuthenticatedUser();
+      window.location.replace(nextPage);
     } catch (error) {
       showFeedback("Nao foi possivel entrar. Confira CPF e senha.");
     } finally {
@@ -87,10 +144,20 @@
     }
   });
 
-  auth.onAuthStateChanged((user) => {
+  auth.onAuthStateChanged(async (user) => {
     consumeStoredFeedback();
     if (user) {
-      redirectAuthenticatedUser();
+      try {
+        const profile = await getUserProfile(user.uid);
+        const nextPage = getNextPage();
+        if (profile && canAccessPage(profile, nextPage)) {
+          window.location.replace(nextPage);
+          return;
+        }
+        await auth.signOut();
+      } catch (error) {
+        await auth.signOut();
+      }
       return;
     }
     hideBoot();
