@@ -506,9 +506,16 @@
 
   function persistUserCache() {
     if (!state.currentUser?.uid) return;
-    saveStorage(cacheKey(state.currentUser.uid), state.cachedRids);
+    const sanitizeRidForCache = (item) => ({
+      ...item,
+      imageDataUrl: "",
+      imageContentType: "",
+      imageOriginalName: ""
+    });
+
+    saveStorage(cacheKey(state.currentUser.uid), state.cachedRids.map(sanitizeRidForCache));
     saveStorage(maintenanceCacheKey(state.currentUser.uid), state.cachedMaintenances);
-    saveStorage(assignedRidCacheKey(state.currentUser.uid), state.cachedAssignedRids);
+    saveStorage(assignedRidCacheKey(state.currentUser.uid), state.cachedAssignedRids.map(sanitizeRidForCache));
     saveStorage(pendingKey(state.currentUser.uid), state.pendingRids);
     saveStorage(maintenanceKey(state.currentUser.uid), state.pendingMaintenances);
     localStorage.setItem(syncKey(state.currentUser.uid), new Date().toISOString());
@@ -1436,9 +1443,14 @@
       if (state.online) {
         setActionOverlay("Enviando RID", "Aguarde enquanto o envio é concluído.");
         await submitRidToFirestore(payload);
-        await cacheRemoteData();
-        persistUserCache();
-        showToast("RID enviada com sucesso.", "success");
+
+        try {
+          await cacheRemoteData();
+          showToast("RID enviada com sucesso.", "success");
+        } catch (cacheError) {
+          console.error("RID enviada, mas houve falha ao atualizar o cache local:", cacheError);
+          showToast("RID enviada com sucesso, mas o cache do celular nao foi atualizado.", "info");
+        }
       } else {
         setActionOverlay("Salvando localmente", "Seu RID está sendo guardado offline.");
         savePendingRid(payload);
