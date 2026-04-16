@@ -2,12 +2,12 @@
   if (typeof window === "undefined" || typeof document === "undefined" || typeof firebase === "undefined") return;
 
   const firebaseConfig = {
-    apiKey: "AIzaSyDAcuwo5FZBs5013klfSMfWkQZbFjqYpbw",
-    authDomain: "novo-rid-dezembro.firebaseapp.com",
-    projectId: "novo-rid-dezembro",
-    storageBucket: "novo-rid-dezembro.firebasestorage.app",
-    messagingSenderId: "629184938088",
-    appId: "1:629184938088:web:3821e7ea07897ae655fbdd"
+    apiKey: "AIzaSyBVnWDyQXWNf9JFE3S5W_eDqmrp7B4_nTE",
+    authDomain: "natical-rids.firebaseapp.com",
+    projectId: "natical-rids",
+    storageBucket: "natical-rids.firebasestorage.app",
+    messagingSenderId: "954479408416",
+    appId: "1:954479408416:web:3821e7ea07897ae655fbdd"
   };
 
   if (!firebase.apps.length) {

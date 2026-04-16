@@ -2,12 +2,12 @@
   if (typeof window === "undefined" || typeof document === "undefined" || typeof firebase === "undefined") return;
 
   const firebaseConfig = {
-    apiKey: "AIzaSyDAcuwo5FZBs5013klfSMfWkQZbFjqYpbw",
-    authDomain: "novo-rid-dezembro.firebaseapp.com",
-    projectId: "novo-rid-dezembro",
-    storageBucket: "novo-rid-dezembro.firebasestorage.app",
-    messagingSenderId: "629184938088",
-    appId: "1:629184938088:web:3821e7ea07897ae655fbdd"
+    apiKey: "AIzaSyBVnWDyQXWNf9JFE3S5W_eDqmrp7B4_nTE",
+    authDomain: "natical-rids.firebaseapp.com",
+    projectId: "natical-rids",
+    storageBucket: "natical-rids.firebasestorage.app",
+    messagingSenderId: "954479408416",
+    appId: "1:954479408416:web:3821e7ea07897ae655fbdd"
   };
 
   if (!firebase.apps.length) {
@@ -406,15 +406,6 @@
       return;
     }
 
-    const toggleButton = document.getElementById("toggleFiltersButton");
-    const togglePopover = toggleButton?.parentElement?.classList?.contains("filter-popover")
-      ? toggleButton.parentElement
-      : null;
-    if (togglePopover && togglePopover.parentElement) {
-      togglePopover.insertAdjacentElement("afterend", dom.root);
-      return;
-    }
-
     const pageHeader = document.querySelector("main header.page-header, main header.dashboard-header, main > header");
     if (!pageHeader) return;
 
@@ -429,6 +420,15 @@
       }
       pageHeader.appendChild(actions);
     }
+
+    const toggleButton = document.getElementById("toggleFiltersButton");
+    const togglePopover = toggleButton?.parentElement?.classList?.contains("filter-popover")
+      ? toggleButton.parentElement
+      : null;
+    if (togglePopover && togglePopover.parentElement !== actions) {
+      actions.appendChild(togglePopover);
+    }
+
     actions.appendChild(dom.root);
   }
 
