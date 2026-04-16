@@ -1441,6 +1441,17 @@
       payload.imageDataUrl = payload.image?.dataUrl || "";
 
       if (state.online) {
+        const authenticated = await hasAuthenticatedOnlineSession();
+        if (!authenticated) {
+          setActionOverlay("Salvando localmente", "Sua sessao expirou e o RID sera guardado no celular.");
+          savePendingRid(payload);
+          showToast("Sua sessão expirou. RID salva no celular. Entre novamente e sincronize.", "info");
+          state.currentPage = 1;
+          state.ridDraft = null;
+          closeModal();
+          return;
+        }
+
         setActionOverlay("Enviando RID", "Aguarde enquanto o envio é concluído.");
         await submitRidToFirestore(payload);
 
@@ -2755,6 +2766,25 @@
     return true;
   }
 
+  function waitForInitialAuthState() {
+    return new Promise((resolve) => {
+      const unsubscribe = auth.onAuthStateChanged((user) => {
+        unsubscribe();
+        resolve(user || null);
+      }, () => {
+        unsubscribe();
+        resolve(null);
+      });
+    });
+  }
+
+  async function hasAuthenticatedOnlineSession() {
+    if (!state.online || !state.currentUser?.uid) return false;
+    if (auth.currentUser?.uid === state.currentUser.uid) return true;
+    const restoredUser = await waitForInitialAuthState();
+    return restoredUser?.uid === state.currentUser.uid;
+  }
+
   function updateConnectivity(nextOnline) {
     state.online = nextOnline;
     if (!state.currentUser) {
@@ -2767,13 +2797,25 @@
       showToast(actualOnline ? "Internet disponível." : "Modo offline ativo.", actualOnline ? "success" : "info");
 
       if (actualOnline && state.currentUser) {
-        refreshOfflineExperience({ showSuccessToast: false, showErrorToast: true })
-          .then(() => {
-            startRealtimeRidSync();
-            initializeMobilePushNotifications().catch((error) => {
-              console.error("Falha ao inicializar push mobile ao reconectar:", error);
-            });
-            renderApp();
+        hasAuthenticatedOnlineSession()
+          .then((authenticated) => {
+            if (!authenticated) {
+              stopRealtimeRidSync();
+              state.currentUser = null;
+              state.currentUserData = null;
+              renderLogin();
+              showToast("Sua sessão expirou. Entre novamente para continuar online.", "error");
+              return;
+            }
+
+            return refreshOfflineExperience({ showSuccessToast: false, showErrorToast: true })
+              .then(() => {
+                startRealtimeRidSync();
+                initializeMobilePushNotifications().catch((error) => {
+                  console.error("Falha ao inicializar push mobile ao reconectar:", error);
+                });
+                renderApp();
+              });
           })
           .catch((error) => {
             console.error("Falha ao atualizar dados ao reconectar:", error);
@@ -2798,10 +2840,7 @@
   }
 
   async function init() {
-    const restoredStoredSession = bootstrapFromStoredSession();
-    if (!restoredStoredSession) {
-      renderLogin();
-    }
+    renderLogin();
     setBooting(true);
     setTimeout(() => {
       if (state.booting) setBooting(false);
@@ -2821,77 +2860,48 @@
 
     try {
       const offlineAuth = getOfflineAuth();
-      if (offlineAuth?.uid && offlineAuth?.userData) {
+      const restoredFirebaseUser = state.online ? await waitForInitialAuthState() : null;
+
+      if (restoredFirebaseUser && state.online) {
+        const restored = await bootstrapFromFirebaseSession();
+        if (restored) {
+          setBooting(false);
+          return;
+        }
+      }
+
+      if (!state.online && offlineAuth?.uid && offlineAuth?.userData) {
         state.currentUser = { uid: offlineAuth.uid };
         state.currentUserData = offlineAuth.userData;
         loadUserCache(offlineAuth.uid);
 
-        if (state.online) {
-          refreshOfflineExperience({ showSuccessToast: false, showErrorToast: false })
-            .then(() => {
-              startRealtimeRidSync();
-              initializeMobilePushNotifications().catch((error) => {
-                console.error("Falha ao inicializar push mobile no auto login:", error);
-              });
-              setBooting(false);
-              renderApp();
-            })
-            .catch((error) => {
-              console.error("Falha ao atualizar cache do auto login:", error);
-              setBooting(false);
-              renderApp();
-            });
-        } else {
-          setBooting(false);
-          renderApp();
-        }
-        return;
-      }
-
-      if (!state.online && restoredStoredSession) {
         stopRealtimeRidSync();
         setBooting(false);
         renderApp();
         return;
       }
 
-      const restored = await bootstrapFromFirebaseSession();
-      if (!restored) {
-        const fallbackSession = getLastSession();
-        if (fallbackSession?.uid && fallbackSession?.userData && !state.online) {
-          state.currentUser = { uid: fallbackSession.uid };
-          state.currentUserData = fallbackSession.userData;
-          loadUserCache(fallbackSession.uid);
-          stopRealtimeRidSync();
-          setBooting(false);
-          renderApp();
-        } else if (fallbackSession?.uid && fallbackSession?.userData && state.online) {
-          state.currentUser = { uid: fallbackSession.uid };
-          state.currentUserData = fallbackSession.userData;
-          loadUserCache(fallbackSession.uid);
-          startRealtimeRidSync();
-          renderApp();
-          refreshOfflineExperience({ showSuccessToast: false, showErrorToast: false })
-            .then(() => {
-              initializeMobilePushNotifications().catch((error) => {
-                console.error("Falha ao inicializar push mobile no fallback online:", error);
-              });
-              setBooting(false);
-              renderApp();
-            })
-            .catch((error) => {
-              console.error("Falha ao atualizar cache inicial:", error);
-              setBooting(false);
-            });
-        } else {
-          setBooting(false);
-        }
-      } else {
+      const fallbackSession = getLastSession();
+      if (!state.online && fallbackSession?.uid && fallbackSession?.userData) {
+        state.currentUser = { uid: fallbackSession.uid };
+        state.currentUserData = fallbackSession.userData;
+        loadUserCache(fallbackSession.uid);
+        stopRealtimeRidSync();
         setBooting(false);
+        renderApp();
+        return;
       }
+
+      state.currentUser = null;
+      state.currentUserData = null;
+      stopRealtimeRidSync();
+      renderLogin();
+      setBooting(false);
     } catch (error) {
       console.error("Falha ao iniciar app mobile:", error);
       showToast("Não foi possível restaurar a sessão.", "error");
+      renderLogin();
+      setBooting(false);
     }
   }
 
