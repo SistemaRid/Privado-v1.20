@@ -175,6 +175,9 @@
     overlay.style.padding = "24px";
     overlay.style.backdropFilter = "blur(10px)";
     overlay.style.webkitBackdropFilter = "blur(10px)";
+    const announcementImageHtml = data.imageDataUrl
+      ? `<div style="margin-bottom:14px;"><img src="${escapeHtml(data.imageDataUrl)}" alt="Imagem do aviso" style="display:block;width:100%;max-height:240px;object-fit:cover;border-radius:18px;border:1px solid #dde5eb;"></div>`
+      : "";
     overlay.innerHTML = `
       <div style="width:min(100%,560px);max-height:calc(100dvh - 48px);display:flex;flex-direction:column;background:#fff;border-radius:28px;padding:24px;border:1px solid #e5e7eb;box-shadow:0 24px 60px rgba(15,23,42,.22);">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;">
@@ -184,7 +187,10 @@
           </div>
           <button type="button" id="closeGlobalAnnouncementModal" style="width:40px;height:40px;border:none;border-radius:999px;background:#f8fafc;color:#475569;font-size:24px;cursor:pointer;">×</button>
         </div>
-        <div style="flex:1;min-height:0;overflow-y:auto;padding-right:6px;font-size:15px;line-height:1.7;color:#334155;white-space:pre-wrap;">${escapeHtml(data.message || "")}</div>
+        <div style="flex:1;min-height:0;overflow-y:auto;padding-right:6px;">
+          ${announcementImageHtml}
+          <div style="font-size:15px;line-height:1.7;color:#334155;white-space:pre-wrap;">${escapeHtml(data.message || "")}</div>
+        </div>
         <div style="margin-top:18px;display:flex;justify-content:flex-end;">
           <button type="button" id="ackGlobalAnnouncementModal" style="padding:12px 18px;border:none;border-radius:16px;background:#111827;color:#fff;font-weight:700;cursor:pointer;">Entendi</button>
         </div>
