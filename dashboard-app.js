@@ -580,6 +580,39 @@
     return new Date(year, month1to12, 0).getDate();
   }
 
+  function countNonSundayDaysBetween(startDate, endDate) {
+    const start = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+    const end = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+    let count = 0;
+
+    for (let cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
+      if (cursor.getDay() !== 0) count += 1;
+    }
+
+    return count;
+  }
+
+  function getRemainingGoalWorkdays(period) {
+    if (period.showAllMonths) return 0;
+
+    const now = new Date();
+    const selectedMonth = Number(period.month);
+    const selectedYear = Number(period.year);
+    const currentMonth = now.getMonth() + 1;
+    const currentYear = now.getFullYear();
+
+    if (selectedYear < currentYear || (selectedYear === currentYear && selectedMonth < currentMonth)) {
+      return 0;
+    }
+
+    const monthEnd = new Date(selectedYear, selectedMonth, 0);
+    const rangeStart = (selectedYear === currentYear && selectedMonth === currentMonth)
+      ? now
+      : new Date(selectedYear, selectedMonth - 1, 1);
+
+    return countNonSundayDaysBetween(rangeStart, monthEnd);
+  }
+
   function getUserMonthlyGoalBase(user) {
     if (user?.isAdmin || user?.isDeveloper) return 8;
     return 4;
@@ -1213,6 +1246,15 @@
     const currentCount = data.goalProgressCount;
     const goal = state.monthlyGoal;
     const remaining = Math.max(goal - currentCount, 0);
+    const remainingWorkdays = getRemainingGoalWorkdays(data.period);
+    const requiredPerDay = remaining > 0 && remainingWorkdays > 0
+      ? (remaining / remainingWorkdays)
+      : 0;
+    const requiredPerDayLabel = remaining === 0
+      ? "Meta atingida; nenhuma emissao diaria adicional e necessaria."
+      : remainingWorkdays > 0
+        ? `Voce precisa emitir ${requiredPerDay.toFixed(1).replace(".", ",")} RID${requiredPerDay >= 2 ? "s" : ""} por dia para bater a meta.`
+        : "Nao ha mais dias uteis disponiveis no periodo para bater a meta.";
     const percentage = Math.min(Math.round((currentCount / goal) * 100), 999);
     const progressWidth = Math.max(6, Math.min((currentCount / goal) * 100, 100));
     const extra = state.monthlyGoalMeta
@@ -1260,7 +1302,8 @@
                 <span class="inline-flex items-center rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">Meta automatica</span>
               </div>
               <div class="text-xs text-gray-500 mt-2">${currentCount >= goal ? "Meta atingida no periodo atual." : `Faltam ${remaining} RID${remaining !== 1 ? "s" : ""} para atingir a meta.`}</div>
-              <div class="text-xs text-gray-400 mt-2">${manualGoalCopy}</div>
+              <div class="text-xs text-gray-500 mt-2">${requiredPerDayLabel}</div>
+              ${state.manualGoalValue && !data.period.sector ? `<div class="text-xs text-gray-400 mt-2">${manualGoalCopy}</div>` : ""}
             </div>
             <div class="text-right">
               <div class="text-2xl font-bold text-gray-900">${percentage}%</div>
