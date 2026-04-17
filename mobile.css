@@ -223,6 +223,7 @@ button:disabled {
 .helper-text {
   font-size: 0.78rem;
   color: var(--muted);
+  white-space: pre-line;
 }
 
 .actions,
