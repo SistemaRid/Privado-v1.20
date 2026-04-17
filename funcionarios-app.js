@@ -436,6 +436,27 @@
     return formatField(employee.function || employee.role || employee.userType || (employee.isDeveloper ? "Desenvolvedor" : employee.isAdmin ? "Administrador" : "Funcionario"));
   }
 
+  function getEmployeeType(employee) {
+    if (employee?.isAdmin && employee?.isDeveloper) {
+      return {
+        label: "DESENVOLVEDOR",
+        className: "developer"
+      };
+    }
+
+    if (employee?.isAdmin && !employee?.isDeveloper) {
+      return {
+        label: "ADMINISTRADOR",
+        className: "admin"
+      };
+    }
+
+    return {
+      label: "FUNCIONARIO",
+      className: "employee"
+    };
+  }
+
   function normalizeCpf(value) {
     return String(value || "").replace(/\D/g, "");
   }
@@ -479,6 +500,12 @@
           <div>
             <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400 md:hidden">Nome</div>
             <div class="text-sm font-semibold text-gray-900 mt-1 md:mt-0">${escapeHtml(formatField(employee.name))}</div>
+          </div>
+          <div>
+            <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400 md:hidden">Tipo</div>
+            <div class="mt-1 md:mt-0">
+              <span class="employee-type-badge ${escapeHtml(getEmployeeType(employee).className)}">${escapeHtml(getEmployeeType(employee).label)}</span>
+            </div>
           </div>
           <div>
             <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400 md:hidden">Email</div>

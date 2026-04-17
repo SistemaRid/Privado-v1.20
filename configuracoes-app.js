@@ -215,7 +215,8 @@
       employee: []
     },
     activeSchemaTab: "rid",
-    activeRidFormFieldIndex: null
+    activeRidFormFieldIndex: null,
+    announcementImageDataUrl: ""
   };
 
   const dom = {
@@ -260,6 +261,9 @@
     announcementTitle: document.getElementById("announcementTitle"),
     announcementStartDate: document.getElementById("announcementStartDate"),
     announcementMessage: document.getElementById("announcementMessage"),
+    announcementImage: document.getElementById("announcementImage"),
+    announcementImagePreview: document.getElementById("announcementImagePreview"),
+    announcementImagePreviewImg: document.getElementById("announcementImagePreviewImg"),
     announcementDays: document.getElementById("announcementDays"),
     announcementDailyLimit: document.getElementById("announcementDailyLimit"),
     announcementTarget: document.getElementById("announcementTarget"),
@@ -700,10 +704,35 @@
     dom.announcementTitle.value = "";
     dom.announcementStartDate.value = "";
     dom.announcementMessage.value = "";
+    dom.announcementImage.value = "";
     dom.announcementDays.value = "";
     dom.announcementDailyLimit.value = "";
     dom.announcementTarget.value = "all";
     dom.announcementActive.checked = false;
+    state.announcementImageDataUrl = "";
+    dom.announcementImagePreview.classList.add("hidden-state");
+    dom.announcementImagePreviewImg.removeAttribute("src");
+  }
+
+  function updateAnnouncementImagePreview(dataUrl) {
+    state.announcementImageDataUrl = String(dataUrl || "").trim();
+    if (!state.announcementImageDataUrl) {
+      dom.announcementImagePreview.classList.add("hidden-state");
+      dom.announcementImagePreviewImg.removeAttribute("src");
+      return;
+    }
+
+    dom.announcementImagePreviewImg.src = state.announcementImageDataUrl;
+    dom.announcementImagePreview.classList.remove("hidden-state");
+  }
+
+  function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("Nao foi possivel ler a imagem selecionada."));
+      reader.readAsDataURL(file);
+    });
   }
 
   function renderAnnouncementList(items) {
@@ -723,6 +752,11 @@
             ${item.isActive ? "Ativo" : "Encerrado"}
           </span>
         </div>
+        ${item.imageDataUrl ? `
+          <div class="mt-3">
+            <img src="${escapeHtml(item.imageDataUrl)}" alt="Imagem do aviso" class="w-full max-h-48 object-cover rounded-2xl border border-gray-200">
+          </div>
+        ` : ""}
         <div class="text-sm text-gray-600 mt-3 whitespace-pre-wrap">${escapeHtml(item.message || "")}</div>
         <div class="text-[11px] text-gray-400 mt-3">Atualizado em ${escapeHtml(formatDateTime(item.updatedAt))}</div>
         <div class="flex items-center justify-end gap-2 mt-3">
@@ -852,6 +886,7 @@
       await ANNOUNCEMENTS_COLLECTION.add({
         title,
         message,
+        imageDataUrl: state.announcementImageDataUrl || "",
         startDate,
         daysVisible,
         dailyLimit,
@@ -897,6 +932,8 @@
       dom.announcementTitle.value = String(data.title || "");
       dom.announcementStartDate.value = String(data.startDate || "");
       dom.announcementMessage.value = String(data.message || "");
+      dom.announcementImage.value = "";
+      updateAnnouncementImagePreview(String(data.imageDataUrl || ""));
       dom.announcementDays.value = data.daysVisible ? String(data.daysVisible) : "";
       dom.announcementDailyLimit.value = data.dailyLimit ? String(data.dailyLimit) : "";
       dom.announcementTarget.value = String(data.target || "all");
@@ -1011,6 +1048,21 @@
     dom.clearAnnouncementButton.addEventListener("click", () => {
       resetAnnouncementForm();
       dom.announcementFeedback.textContent = "Campos do aviso limpos.";
+    });
+    dom.announcementImage.addEventListener("change", async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) {
+        updateAnnouncementImagePreview("");
+        return;
+      }
+
+      try {
+        const dataUrl = await readFileAsDataUrl(file);
+        updateAnnouncementImagePreview(dataUrl);
+      } catch (error) {
+        updateAnnouncementImagePreview("");
+        dom.announcementFeedback.textContent = "Nao foi possivel carregar a imagem do aviso.";
+      }
     });
     dom.announcementForm.addEventListener("submit", saveAnnouncement);
     dom.announcementList.addEventListener("click", (event) => {
