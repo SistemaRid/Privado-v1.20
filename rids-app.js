@@ -15,7 +15,6 @@
   const auth = firebase.auth();
   auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
   const db = firebase.firestore();
-  const RID_NOTIFICATION_STORAGE_KEY = "ridNotificationOpenId";
 
   const PAGE_SIZE = 12;
 
@@ -28,14 +27,7 @@
     currentPage: 1,
     selectedRidId: null,
     actionRidId: null,
-    footerTimerId: null,
-    ridImageViewerScale: 1,
-    ridImageViewerOffsetX: 0,
-    ridImageViewerOffsetY: 0,
-    ridImageViewerDragging: false,
-    ridImageViewerDragStartX: 0,
-    ridImageViewerDragStartY: 0,
-    ridImageViewerDidDrag: false
+    footerTimerId: null
   };
 
   const dom = {
@@ -77,44 +69,24 @@
     ridRemovalRequestFeedback: document.getElementById("ridRemovalRequestFeedback"),
     ridRemovalRequestCancel: document.getElementById("ridRemovalRequestCancel"),
     ridRemovalRequestSubmit: document.getElementById("ridRemovalRequestSubmit"),
-    ridImageViewer: document.getElementById("ridImageViewer"),
-    ridImageViewerImage: document.getElementById("ridImageViewerImage"),
-    ridImageViewerStage: document.getElementById("ridImageViewerStage"),
     prevPageButton: document.getElementById("prevPageButton"),
     nextPageButton: document.getElementById("nextPageButton"),
     paginationInfo: document.getElementById("paginationInfo"),
     siteFooter: document.getElementById("siteFooter")
   };
 
-  function isAdminProfile(user = state.currentUserData) {
-    const userType = String(user?.userType || "").trim().toLowerCase();
-    return !!(
-      user?.isAdmin ||
-      userType === "administrador" ||
-      userType === "desenvolvedor"
-    );
-  }
-
-  function isDeveloperProfile(user = state.currentUserData) {
-    const userType = String(user?.userType || "").trim().toLowerCase();
-    return !!(
-      (user?.isAdmin && user?.isDeveloper) ||
-      userType === "desenvolvedor"
-    );
-  }
-
   function updateAdminNavigation() {
     document.querySelectorAll('[data-admin-only-nav="designated"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !isAdminProfile());
+      element.classList.toggle("hidden-state", !(state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper));
     });
     document.querySelectorAll('[data-developer-only-nav="control-center"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !isDeveloperProfile());
+      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
     });
     document.querySelectorAll('[data-privileged-nav="changes"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !isDeveloperProfile());
+      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
     });
     document.querySelectorAll('[data-developer-only-nav="requests"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !isDeveloperProfile());
+      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
     });
   }
 
@@ -273,115 +245,8 @@
     return `${year}-${month}-${day}`;
   }
 
-  function getRidImageSource(rid) {
-    const candidates = [
-      rid?.imageDataUrl,
-      rid?.imageUrl,
-      rid?.photoUrl,
-      rid?.fotoUrl,
-      rid?.imagemUrl
-    ];
-
-    return candidates.find((value) => typeof value === "string" && value.trim()) || "";
-  }
-
-  function clampRidImageScale(value) {
-    return Math.min(4, Math.max(1, value));
-  }
-
-  function applyRidImageViewerScale() {
-    if (!dom.ridImageViewerImage || !dom.ridImageViewerStage) return;
-    dom.ridImageViewerImage.style.transform = `translate(${state.ridImageViewerOffsetX}px, ${state.ridImageViewerOffsetY}px) scale(${state.ridImageViewerScale})`;
-    dom.ridImageViewerStage.classList.toggle("zoomed", state.ridImageViewerScale > 1);
-    dom.ridImageViewerStage.classList.toggle("dragging", state.ridImageViewerDragging);
-  }
-
-  function setRidImageViewerScale(value) {
-    state.ridImageViewerScale = clampRidImageScale(value);
-    if (state.ridImageViewerScale <= 1) {
-      state.ridImageViewerOffsetX = 0;
-      state.ridImageViewerOffsetY = 0;
-      state.ridImageViewerDragging = false;
-    }
-    applyRidImageViewerScale();
-  }
-
-  function openRidImageViewer(src) {
-    if (!src || !dom.ridImageViewer || !dom.ridImageViewerImage) return;
-    dom.ridImageViewerImage.src = src;
-    state.ridImageViewerScale = 1;
-    state.ridImageViewerOffsetX = 0;
-    state.ridImageViewerOffsetY = 0;
-    state.ridImageViewerDragging = false;
-    state.ridImageViewerDidDrag = false;
-    applyRidImageViewerScale();
-    dom.ridImageViewer.classList.add("visible");
-    document.body.style.overflow = "hidden";
-  }
-
-  function closeRidImageViewer() {
-    if (!dom.ridImageViewer || !dom.ridImageViewerImage) return;
-    dom.ridImageViewer.classList.remove("visible");
-    dom.ridImageViewerImage.removeAttribute("src");
-    state.ridImageViewerScale = 1;
-    state.ridImageViewerOffsetX = 0;
-    state.ridImageViewerOffsetY = 0;
-    state.ridImageViewerDragging = false;
-    state.ridImageViewerDidDrag = false;
-    applyRidImageViewerScale();
-    document.body.style.overflow = "";
-  }
-
-  function startRidImageViewerDrag(event) {
-    if (state.ridImageViewerScale <= 1) return;
-    state.ridImageViewerDragging = true;
-    state.ridImageViewerDidDrag = false;
-    state.ridImageViewerDragStartX = event.clientX - state.ridImageViewerOffsetX;
-    state.ridImageViewerDragStartY = event.clientY - state.ridImageViewerOffsetY;
-    applyRidImageViewerScale();
-  }
-
-  function moveRidImageViewerDrag(event) {
-    if (!state.ridImageViewerDragging) return;
-    state.ridImageViewerOffsetX = event.clientX - state.ridImageViewerDragStartX;
-    state.ridImageViewerOffsetY = event.clientY - state.ridImageViewerDragStartY;
-    state.ridImageViewerDidDrag = true;
-    applyRidImageViewerScale();
-  }
-
-  function stopRidImageViewerDrag() {
-    if (!state.ridImageViewerDragging) return;
-    state.ridImageViewerDragging = false;
-    applyRidImageViewerScale();
-  }
-
   function findRidById(ridId) {
     return state.allRids.find((rid) => rid.id === ridId) || null;
-  }
-
-  function getPendingRidNotificationTarget() {
-    const params = new URLSearchParams(window.location.search);
-    return String(sessionStorage.getItem(RID_NOTIFICATION_STORAGE_KEY) || params.get("rid") || "").trim();
-  }
-
-  function clearPendingRidNotificationTarget() {
-    sessionStorage.removeItem(RID_NOTIFICATION_STORAGE_KEY);
-    const url = new URL(window.location.href);
-    if (!url.searchParams.has("rid")) return;
-    url.searchParams.delete("rid");
-    const nextSearch = url.searchParams.toString();
-    const nextUrl = `${url.pathname}${nextSearch ? `?${nextSearch}` : ""}${url.hash || ""}`;
-    window.history.replaceState({}, "", nextUrl);
-  }
-
-  function tryOpenRidNotificationTarget() {
-    const ridId = getPendingRidNotificationTarget();
-    if (!ridId) return false;
-    const rid = findRidById(ridId);
-    if (!rid) return false;
-    openRidDetailsModal(rid.id);
-    clearPendingRidNotificationTarget();
-    return true;
   }
 
   function openRidDetailsModal(ridId) {
@@ -390,7 +255,6 @@
     state.selectedRidId = ridId;
     const status = getStatusMeta(rid.status);
     const leaders = getLeaderOptions();
-    const ridImageSource = getRidImageSource(rid);
     dom.ridDetailsTitle.textContent = `RID #${formatRidNumber(rid.ridNumber)}`;
     dom.ridDetailsFeedback.classList.add("hidden-state");
     dom.ridDetailsFeedback.textContent = "";
@@ -398,7 +262,7 @@
     dom.ridDetailsDeleteAction.textContent = "";
     dom.ridDetailsDeleteAction.className = "hidden-state px-4 py-2.5 rounded-xl border text-sm font-semibold";
 
-    if (isDeveloperProfile()) {
+    if (state.currentUserData?.isDeveloper) {
       dom.ridDetailsDeleteAction.textContent = "Excluir";
       dom.ridDetailsDeleteAction.className = "px-4 py-2.5 rounded-xl border border-red-200 bg-red-50 text-red-700 text-sm font-semibold";
       dom.ridDetailsDeleteAction.classList.remove("hidden-state");
@@ -454,23 +318,6 @@
           <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Classificacao de risco</div>
           <div class="text-sm font-semibold text-gray-900 mt-2">${escapeHtml(rid.riskClassification || "-")}</div>
         </div>
-        <div class="rounded-2xl border border-gray-100 bg-white px-4 py-4 md:col-span-2">
-          <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Foto enviada pelo emissor</div>
-          ${ridImageSource ? `
-            <button type="button" class="rid-detail-image-button" data-rid-image-src="${escapeHtml(ridImageSource)}" aria-label="Abrir foto do RID">
-              <img
-                src="${escapeHtml(ridImageSource)}"
-                alt="Foto enviada no RID"
-                class="w-full rounded-2xl border border-gray-100 bg-gray-50 object-cover"
-                style="max-height: 360px;"
-              >
-            </button>
-          ` : `
-            <div class="mt-3 rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-500">
-              Nenhuma foto foi anexada a este RID.
-            </div>
-          `}
-        </div>
         <div class="rounded-2xl border border-sky-100 bg-sky-50 px-4 py-4 md:col-span-2">
           <div class="text-[11px] uppercase tracking-wider font-semibold text-sky-700">Descricao do RID</div>
           <div class="text-sm text-slate-700 mt-2 leading-6">${escapeHtml(rid.description || "Sem descricao")}</div>
@@ -518,11 +365,6 @@
         </div>
       </div>
     `;
-    dom.ridDetailsBody.querySelectorAll("[data-rid-image-src]").forEach((button) => {
-      button.addEventListener("click", () => {
-        openRidImageViewer(button.getAttribute("data-rid-image-src") || "");
-      });
-    });
     dom.ridDetailsModal.classList.add("visible");
   }
 
@@ -850,7 +692,6 @@
     populateSectorFilter();
     resetFiltersToCurrentMonth();
     renderRidsPage();
-    tryOpenRidNotificationTarget();
     showTimedFooter();
     lucide.createIcons();
   }
@@ -864,10 +705,7 @@
     if (typeof state.unsubRids === "function") state.unsubRids();
     state.unsubRids = db.collection("rids").onSnapshot((snapshot) => {
       state.allRids = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      if (isAdminProfile()) {
-        renderRidsPage();
-        tryOpenRidNotificationTarget();
-      }
+      if (state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper) renderRidsPage();
     });
   }
 
@@ -934,7 +772,7 @@
     dom.ridDetailsDeleteAction.addEventListener("click", () => {
       const rid = findRidById(state.selectedRidId);
       if (!rid) return;
-      if (isDeveloperProfile()) {
+      if (state.currentUserData?.isDeveloper) {
         openRidDeleteConfirmModal(rid.id);
       } else if (state.currentUserData?.isAdmin) {
         openRidRemovalRequestModal(rid.id);
@@ -964,27 +802,6 @@
     dom.ridRemovalRequestModal.addEventListener("click", (event) => {
       if (event.target === dom.ridRemovalRequestModal) closeRidRemovalRequestModal();
     });
-    dom.ridImageViewer.addEventListener("click", (event) => {
-      if (event.target === dom.ridImageViewer) closeRidImageViewer();
-    });
-    dom.ridImageViewerStage.addEventListener("click", () => {
-      if (state.ridImageViewerDidDrag) {
-        state.ridImageViewerDidDrag = false;
-        return;
-      }
-      if (state.ridImageViewerDragging) return;
-      setRidImageViewerScale(state.ridImageViewerScale > 1 ? 1 : 2);
-    });
-    dom.ridImageViewerStage.addEventListener("mousedown", (event) => {
-      startRidImageViewerDrag(event);
-    });
-    window.addEventListener("mousemove", moveRidImageViewerDrag);
-    window.addEventListener("mouseup", stopRidImageViewerDrag);
-    dom.ridImageViewerStage.addEventListener("wheel", (event) => {
-      event.preventDefault();
-      const delta = event.deltaY < 0 ? 0.2 : -0.2;
-      setRidImageViewerScale(state.ridImageViewerScale + delta);
-    }, { passive: false });
     dom.ridRemovalRequestSubmit.addEventListener("click", async () => {
       const rid = findRidById(state.actionRidId);
       if (!rid) return;
@@ -1029,9 +846,6 @@
       if (event.key === "Escape" && dom.ridDetailsModal.classList.contains("visible")) {
         closeRidDetailsModal();
       }
-      if (event.key === "Escape" && dom.ridImageViewer.classList.contains("visible")) {
-        closeRidImageViewer();
-      }
       if (event.key === "Escape" && dom.ridDeleteConfirmModal.classList.contains("visible")) {
         closeRidDeleteConfirmModal();
       }
@@ -1053,11 +867,10 @@
       return;
     }
 
-    state.currentUserData = window.ridUserProfileResolver?.resolveUserProfile
-      ? await window.ridUserProfileResolver.resolveUserProfile(db, user)
-      : null;
+    const userDoc = await db.collection("users").doc(user.uid).get();
+    state.currentUserData = userDoc.exists ? { id: user.uid, ...userDoc.data() } : null;
 
-    if (!isAdminProfile()) {
+    if (!state.currentUserData || (!state.currentUserData.isAdmin && !state.currentUserData.isDeveloper)) {
       sessionStorage.setItem("ridLoginFeedback", "Sua conta nao tem permissao para este painel.");
       await auth.signOut();
       return;
@@ -1071,9 +884,4 @@
   bindEvents();
   resetFiltersToCurrentMonth();
   lucide.createIcons();
-  window.openRidNotificationTarget = function (ridId) {
-    if (!ridId) return false;
-    sessionStorage.setItem(RID_NOTIFICATION_STORAGE_KEY, ridId);
-    return tryOpenRidNotificationTarget();
-  };
 })();

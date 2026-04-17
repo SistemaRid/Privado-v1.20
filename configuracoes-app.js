@@ -16,14 +16,10 @@
   auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
   const db = firebase.firestore();
   const ANNOUNCEMENTS_COLLECTION = db.collection("globalAnnouncements");
-  const ANNOUNCEMENT_IMAGE_MAX_BYTES = 350 * 1024;
-  const ANNOUNCEMENT_IMAGE_MAX_DIMENSION = 1280;
 
   const state = {
     currentUser: null,
-    currentUserData: null,
-    announcementImage: null,
-    editingAnnouncementId: null
+    currentUserData: null
   };
 
   const dom = {
@@ -68,11 +64,6 @@
     announcementTitle: document.getElementById("announcementTitle"),
     announcementStartDate: document.getElementById("announcementStartDate"),
     announcementMessage: document.getElementById("announcementMessage"),
-    announcementImage: document.getElementById("announcementImage"),
-    announcementImagePreview: document.getElementById("announcementImagePreview"),
-    announcementImagePreviewImg: document.getElementById("announcementImagePreviewImg"),
-    announcementImagePreviewName: document.getElementById("announcementImagePreviewName"),
-    removeAnnouncementImageButton: document.getElementById("removeAnnouncementImageButton"),
     announcementDays: document.getElementById("announcementDays"),
     announcementDailyLimit: document.getElementById("announcementDailyLimit"),
     announcementTarget: document.getElementById("announcementTarget"),
@@ -83,14 +74,6 @@
     announcementFeedback: document.getElementById("announcementFeedback"),
     announcementList: document.getElementById("announcementList")
   };
-
-  function isAdminProfile(user = state.currentUserData) {
-    return !!user?.isAdmin;
-  }
-
-  function isDeveloperProfile(user = state.currentUserData) {
-    return !!(user?.isAdmin && user?.isDeveloper);
-  }
 
   function maskCpf(value) {
     return String(value || "")
@@ -126,68 +109,6 @@
       .replace(/'/g, "&#39;");
   }
 
-  function estimateBase64Bytes(dataUrl) {
-    const base64 = String(dataUrl || "").split(",")[1] || "";
-    return Math.ceil((base64.length * 3) / 4);
-  }
-
-  function readFileAsDataUrl(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || ""));
-      reader.onerror = () => reject(new Error("Nao foi possivel ler a imagem selecionada."));
-      reader.readAsDataURL(file);
-    });
-  }
-
-  function loadImageElement(dataUrl) {
-    return new Promise((resolve, reject) => {
-      const image = new Image();
-      image.onload = () => resolve(image);
-      image.onerror = () => reject(new Error("Nao foi possivel processar a imagem selecionada."));
-      image.src = dataUrl;
-    });
-  }
-
-  async function prepareAnnouncementImage(file) {
-    if (!file || !file.size) return null;
-    if (!String(file.type || "").startsWith("image/")) {
-      throw new Error("Selecione um arquivo de imagem valido.");
-    }
-
-    const sourceDataUrl = await readFileAsDataUrl(file);
-    const image = await loadImageElement(sourceDataUrl);
-    const canvas = document.createElement("canvas");
-    const ratio = Math.min(1, ANNOUNCEMENT_IMAGE_MAX_DIMENSION / Math.max(image.width || 1, image.height || 1));
-
-    canvas.width = Math.max(1, Math.round((image.width || 1) * ratio));
-    canvas.height = Math.max(1, Math.round((image.height || 1) * ratio));
-
-    const context = canvas.getContext("2d");
-    if (!context) {
-      throw new Error("Nao foi possivel preparar a imagem para envio.");
-    }
-
-    context.drawImage(image, 0, 0, canvas.width, canvas.height);
-
-    let quality = 0.82;
-    let dataUrl = canvas.toDataURL("image/jpeg", quality);
-    while (estimateBase64Bytes(dataUrl) > ANNOUNCEMENT_IMAGE_MAX_BYTES && quality > 0.4) {
-      quality -= 0.08;
-      dataUrl = canvas.toDataURL("image/jpeg", quality);
-    }
-
-    if (estimateBase64Bytes(dataUrl) > ANNOUNCEMENT_IMAGE_MAX_BYTES) {
-      throw new Error("A imagem ficou grande demais mesmo apos compressao. Use uma foto menor.");
-    }
-
-    return {
-      dataUrl,
-      contentType: "image/jpeg",
-      originalName: file.name || "aviso.jpg"
-    };
-  }
-
   function getRoleLabel(user) {
     if (user?.isDeveloper) return "Desenvolvedor";
     if (user?.isAdmin) return "Administrador";
@@ -221,34 +142,6 @@
     return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString("pt-BR");
   }
 
-  function renderAnnouncementImagePreview() {
-    if (!dom.announcementImagePreview || !dom.announcementImagePreviewImg || !dom.announcementImagePreviewName) return;
-
-    if (!state.announcementImage?.dataUrl) {
-      dom.announcementImagePreview.classList.add("hidden-state");
-      dom.announcementImagePreviewImg.src = "";
-      dom.announcementImagePreviewName.textContent = "";
-      return;
-    }
-
-    dom.announcementImagePreview.classList.remove("hidden-state");
-    dom.announcementImagePreviewImg.src = state.announcementImage.dataUrl;
-    dom.announcementImagePreviewName.textContent = state.announcementImage.originalName || "Foto do aviso";
-  }
-
-  function clearAnnouncementImageSelection() {
-    state.announcementImage = null;
-    if (dom.announcementImage) dom.announcementImage.value = "";
-    renderAnnouncementImagePreview();
-  }
-
-  function setAnnouncementEditingState(id) {
-    state.editingAnnouncementId = id || null;
-    if (dom.saveAnnouncementButton) {
-      dom.saveAnnouncementButton.textContent = state.editingAnnouncementId ? "Atualizar aviso" : "Criar aviso";
-    }
-  }
-
   function resetAnnouncementForm() {
     dom.announcementTitle.value = "";
     dom.announcementStartDate.value = "";
@@ -257,8 +150,6 @@
     dom.announcementDailyLimit.value = "";
     dom.announcementTarget.value = "all";
     dom.announcementActive.checked = false;
-    clearAnnouncementImageSelection();
-    setAnnouncementEditingState(null);
   }
 
   function renderAnnouncementList(items) {
@@ -279,10 +170,8 @@
           </span>
         </div>
         <div class="text-sm text-gray-600 mt-3 whitespace-pre-wrap">${escapeHtml(item.message || "")}</div>
-        ${item.imageDataUrl ? `<img src="${escapeHtml(item.imageDataUrl)}" alt="Foto do aviso" class="w-full mt-3 rounded-2xl border border-gray-200 object-cover max-h-56">` : ""}
         <div class="text-[11px] text-gray-400 mt-3">Atualizado em ${escapeHtml(formatDateTime(item.updatedAt))}</div>
         <div class="flex items-center justify-end gap-2 mt-3">
-          <button type="button" data-edit-announcement="${escapeHtml(item.id)}" class="px-3 py-2 rounded-xl border border-sky-200 bg-sky-50 text-xs font-semibold text-sky-700 hover:bg-sky-100">Editar</button>
           <button type="button" data-duplicate-announcement="${escapeHtml(item.id)}" class="px-3 py-2 rounded-xl border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50">Usar como base</button>
           <button type="button" data-toggle-announcement="${escapeHtml(item.id)}" data-next-active="${item.isActive ? "false" : "true"}" class="px-3 py-2 rounded-xl ${item.isActive ? "bg-red-50 text-red-600 border border-red-100" : "bg-emerald-50 text-emerald-700 border border-emerald-100"} text-xs font-semibold">
             ${item.isActive ? "Encerrar" : "Reativar"}
@@ -294,16 +183,16 @@
 
   function updateRoleNavigation() {
     document.querySelectorAll('[data-admin-only-nav="designated"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !isAdminProfile());
+      element.classList.toggle("hidden-state", !(state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper));
     });
     document.querySelectorAll('[data-developer-only-nav="control-center"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !isDeveloperProfile());
+      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
     });
     document.querySelectorAll('[data-privileged-nav="changes"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !isDeveloperProfile());
+      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
     });
     document.querySelectorAll('[data-developer-only-nav="requests"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !isDeveloperProfile());
+      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
     });
   }
 
@@ -333,7 +222,7 @@
 
   async function saveGoal(event) {
     event.preventDefault();
-    if (!isDeveloperProfile()) {
+    if (!state.currentUserData?.isDeveloper) {
       dom.goalFeedback.textContent = "Apenas desenvolvedor pode salvar meta manual.";
       return;
     }
@@ -385,7 +274,7 @@
 
   async function saveAnnouncement(event) {
     event.preventDefault();
-    if (!isDeveloperProfile()) {
+    if (!state.currentUserData?.isDeveloper) {
       dom.announcementFeedback.textContent = "Apenas desenvolvedor pode salvar aviso global.";
       return;
     }
@@ -406,8 +295,7 @@
     dom.saveAnnouncementButton.disabled = true;
     dom.announcementFeedback.textContent = "Salvando aviso...";
     try {
-      const preparedImage = state.announcementImage;
-      const payload = {
+      await ANNOUNCEMENTS_COLLECTION.add({
         title,
         message,
         startDate,
@@ -415,24 +303,15 @@
         dailyLimit,
         target,
         isActive,
-        imageDataUrl: preparedImage?.dataUrl || "",
-        imageContentType: preparedImage?.contentType || "",
-        imageOriginalName: preparedImage?.originalName || "",
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
         updatedBy: state.currentUser.uid,
         updatedByName: state.currentUserData.name || ""
-      };
-      const wasEditing = Boolean(state.editingAnnouncementId);
-      if (state.editingAnnouncementId) {
-        await ANNOUNCEMENTS_COLLECTION.doc(state.editingAnnouncementId).set(payload, { merge: true });
-      } else {
-        await ANNOUNCEMENTS_COLLECTION.add(payload);
-      }
+      });
       resetAnnouncementForm();
       dom.announcementNotice.textContent = isActive
         ? `Aviso ativo para ${formatAnnouncementWindow({ startDate, daysVisible })} em ${getAnnouncementTargetLabel(target)}.`
         : "Aviso salvo, porém desativado.";
-      dom.announcementFeedback.textContent = wasEditing ? "Aviso atualizado com sucesso." : "Aviso salvo com sucesso.";
+      dom.announcementFeedback.textContent = "Aviso salvo com sucesso.";
       await loadAnnouncement();
     } catch (error) {
       dom.announcementFeedback.textContent = "Não foi possível salvar o aviso.";
@@ -468,43 +347,9 @@
       dom.announcementDailyLimit.value = data.dailyLimit ? String(data.dailyLimit) : "";
       dom.announcementTarget.value = String(data.target || "all");
       dom.announcementActive.checked = Boolean(data.isActive);
-      state.announcementImage = data.imageDataUrl ? {
-        dataUrl: String(data.imageDataUrl || ""),
-        contentType: String(data.imageContentType || "image/jpeg"),
-        originalName: String(data.imageOriginalName || "Foto do aviso")
-      } : null;
-      if (dom.announcementImage) dom.announcementImage.value = "";
-      renderAnnouncementImagePreview();
       dom.announcementFeedback.textContent = "Campos preenchidos com base no aviso selecionado.";
     } catch (error) {
       dom.announcementFeedback.textContent = "Não foi possível carregar esse aviso para edição.";
-    }
-  }
-
-  async function editAnnouncement(id) {
-    try {
-      const snap = await ANNOUNCEMENTS_COLLECTION.doc(id).get();
-      if (!snap.exists) return;
-      const data = snap.data() || {};
-      dom.announcementTitle.value = String(data.title || "");
-      dom.announcementStartDate.value = String(data.startDate || "");
-      dom.announcementMessage.value = String(data.message || "");
-      dom.announcementDays.value = data.daysVisible ? String(data.daysVisible) : "";
-      dom.announcementDailyLimit.value = data.dailyLimit ? String(data.dailyLimit) : "";
-      dom.announcementTarget.value = String(data.target || "all");
-      dom.announcementActive.checked = Boolean(data.isActive);
-      state.announcementImage = data.imageDataUrl ? {
-        dataUrl: String(data.imageDataUrl || ""),
-        contentType: String(data.imageContentType || "image/jpeg"),
-        originalName: String(data.imageOriginalName || "Foto do aviso")
-      } : null;
-      if (dom.announcementImage) dom.announcementImage.value = "";
-      renderAnnouncementImagePreview();
-      setAnnouncementEditingState(id);
-      dom.announcementFeedback.textContent = "Aviso carregado para edicao.";
-      dom.saveAnnouncementButton.scrollIntoView({ behavior: "smooth", block: "center" });
-    } catch (error) {
-      dom.announcementFeedback.textContent = "Nao foi possivel abrir esse aviso para edicao.";
     }
   }
 
@@ -611,31 +456,8 @@
       resetAnnouncementForm();
       dom.announcementFeedback.textContent = "Campos do aviso limpos.";
     });
-    dom.announcementImage?.addEventListener("change", async (event) => {
-      try {
-        const file = event.target.files?.[0];
-        state.announcementImage = file ? await prepareAnnouncementImage(file) : null;
-        renderAnnouncementImagePreview();
-        if (file) {
-          dom.announcementFeedback.textContent = "Foto do aviso pronta para salvar.";
-        }
-      } catch (error) {
-        clearAnnouncementImageSelection();
-        dom.announcementFeedback.textContent = error?.message || "Nao foi possivel preparar a foto do aviso.";
-      }
-    });
-    dom.removeAnnouncementImageButton?.addEventListener("click", () => {
-      clearAnnouncementImageSelection();
-      dom.announcementFeedback.textContent = "Foto removida do aviso.";
-    });
     dom.announcementForm.addEventListener("submit", saveAnnouncement);
     dom.announcementList.addEventListener("click", (event) => {
-      const editButton = event.target.closest("[data-edit-announcement]");
-      if (editButton) {
-        editAnnouncement(editButton.dataset.editAnnouncement);
-        return;
-      }
-
       const toggleButton = event.target.closest("[data-toggle-announcement]");
       if (toggleButton) {
         toggleAnnouncementStatus(toggleButton.dataset.toggleAnnouncement, toggleButton.dataset.nextActive === "true");
@@ -651,9 +473,8 @@
 
   async function handleAuthenticatedUser(user) {
     state.currentUser = user;
-    state.currentUserData = window.ridUserProfileResolver?.resolveUserProfile
-      ? await window.ridUserProfileResolver.resolveUserProfile(db, user)
-      : null;
+    const userDoc = await db.collection("users").doc(user.uid).get();
+    state.currentUserData = userDoc.exists ? { id: userDoc.id, ...userDoc.data() } : null;
     updateRoleNavigation();
     renderProfile();
     dom.authOverlay.classList.remove("visible");
@@ -663,7 +484,7 @@
       window.lucide.createIcons();
     }
     await loadGoal();
-    if (isDeveloperProfile()) {
+    if (state.currentUserData?.isDeveloper) {
       await loadAnnouncement();
     }
   }

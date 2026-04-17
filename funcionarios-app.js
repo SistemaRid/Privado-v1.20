@@ -83,26 +83,18 @@
     employeeRemovalRequestSubmit: document.getElementById("employeeRemovalRequestSubmit")
   };
 
-  function isAdminProfile(user = state.currentUserData) {
-    return !!user?.isAdmin;
-  }
-
-  function isDeveloperProfile(user = state.currentUserData) {
-    return !!(user?.isAdmin && user?.isDeveloper);
-  }
-
   function updateAdminNavigation() {
     document.querySelectorAll('[data-admin-only-nav="designated"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !isAdminProfile());
+      element.classList.toggle("hidden-state", !(state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper));
     });
     document.querySelectorAll('[data-developer-only-nav="control-center"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !isDeveloperProfile());
+      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
     });
     document.querySelectorAll('[data-privileged-nav="changes"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !isDeveloperProfile());
+      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
     });
     document.querySelectorAll('[data-developer-only-nav="requests"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !isDeveloperProfile());
+      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
     });
   }
 
@@ -209,20 +201,6 @@
     return String(value || "").replace(/\D/g, "");
   }
 
-  function normalizeUppercaseText(value) {
-    return String(value || "").toLocaleUpperCase("pt-BR");
-  }
-
-  function keepCaretAtEnd(input, nextValue) {
-    const normalizedValue = normalizeUppercaseText(nextValue);
-    if (input.value === normalizedValue) return;
-    input.value = normalizedValue;
-    if (document.activeElement === input && typeof input.setSelectionRange === "function") {
-      const caretPosition = input.value.length;
-      input.setSelectionRange(caretPosition, caretPosition);
-    }
-  }
-
   function getFilteredEmployees() {
     const search = String(state.filters.search || "").trim().toLowerCase();
     return state.allUsers
@@ -286,7 +264,7 @@
           </div>
           <div class="flex items-center gap-2 flex-wrap justify-start md:justify-end">
             <button type="button" data-edit-employee="${escapeHtml(employee.id)}" class="px-3 py-2 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50">Editar</button>
-            ${isDeveloperProfile()
+            ${state.currentUserData?.isDeveloper
               ? `<button type="button" data-delete-employee="${escapeHtml(employee.id)}" class="px-3 py-2 rounded-xl border border-red-200 bg-red-50 text-sm font-semibold text-red-700">Excluir</button>`
               : state.currentUserData?.isAdmin
                 ? `<button type="button" data-request-employee="${escapeHtml(employee.id)}" class="px-3 py-2 rounded-xl border border-amber-200 bg-amber-50 text-sm font-semibold text-amber-700">Solicitar remocao</button>`
@@ -395,7 +373,7 @@
     dom.employeeModalTitle.textContent = "Adicionar funcionario";
     dom.employeeVacationField.classList.add("hidden-state");
     dom.employeePasswordField.classList.remove("hidden-state");
-    if (isDeveloperProfile()) {
+    if (state.currentUserData?.isDeveloper) {
       dom.employeeAdminField.classList.remove("hidden-state");
     } else {
       dom.employeeAdminField.classList.add("hidden-state");
@@ -461,15 +439,15 @@
   }
 
   async function createEmployee() {
-    const name = normalizeUppercaseText(dom.employeeName.value).trim();
-    const email = normalizeUppercaseText(dom.employeeEmail.value).trim();
+    const name = String(dom.employeeName.value || "").trim();
+    const email = String(dom.employeeEmail.value || "").trim().toLowerCase();
     const cpfRaw = String(dom.employeeCpf.value || "").trim();
     const cpfClean = normalizeCpf(cpfRaw);
-    const unit = normalizeUppercaseText(dom.employeeUnit.value).trim();
-    const sector = normalizeUppercaseText(dom.employeeSector.value).trim();
-    const role = normalizeUppercaseText(dom.employeeRole.value).trim();
+    const unit = String(dom.employeeUnit.value || "").trim();
+    const sector = String(dom.employeeSector.value || "").trim();
+    const role = String(dom.employeeRole.value || "").trim();
     const password = String(dom.employeePassword.value || "").trim();
-    const makeAdmin = !!dom.employeeIsAdmin.checked && isDeveloperProfile();
+    const makeAdmin = !!dom.employeeIsAdmin.checked && !!state.currentUserData?.isDeveloper;
     const { vacationPeriod, error: vacationError } = readVacationPeriodFromForm();
 
     if (!name || !cpfClean || !password) {
@@ -527,12 +505,12 @@
     const employee = findEmployeeById(state.selectedEmployeeId);
     if (!employee) return;
 
-    const name = normalizeUppercaseText(dom.employeeName.value).trim();
-    const email = normalizeUppercaseText(dom.employeeEmail.value).trim();
+    const name = String(dom.employeeName.value || "").trim();
+    const email = String(dom.employeeEmail.value || "").trim();
     const cpf = String(dom.employeeCpf.value || "").trim();
-    const unit = normalizeUppercaseText(dom.employeeUnit.value).trim();
-    const sector = normalizeUppercaseText(dom.employeeSector.value).trim();
-    const role = normalizeUppercaseText(dom.employeeRole.value).trim();
+    const unit = String(dom.employeeUnit.value || "").trim();
+    const sector = String(dom.employeeSector.value || "").trim();
+    const role = String(dom.employeeRole.value || "").trim();
     const { vacationPeriod, error: vacationError } = readVacationPeriodFromForm();
 
     if (!name || !cpf) {
@@ -609,18 +587,6 @@
 
     dom.employeeCpf.addEventListener("input", () => {
       dom.employeeCpf.value = maskCpf(dom.employeeCpf.value);
-    });
-
-    dom.employeeName.addEventListener("input", () => {
-      keepCaretAtEnd(dom.employeeName, dom.employeeName.value);
-    });
-
-    dom.employeeEmail.addEventListener("input", () => {
-      keepCaretAtEnd(dom.employeeEmail, dom.employeeEmail.value);
-    });
-
-    dom.employeeRole.addEventListener("input", () => {
-      keepCaretAtEnd(dom.employeeRole, dom.employeeRole.value);
     });
 
     dom.employeeVacationClear.addEventListener("click", clearVacationFields);
@@ -772,7 +738,7 @@
     const userDoc = await db.collection("users").doc(user.uid).get();
     state.currentUserData = userDoc.exists ? { id: user.uid, ...userDoc.data() } : null;
 
-    if (!isAdminProfile()) {
+    if (!state.currentUserData?.isAdmin && !state.currentUserData?.isDeveloper) {
       sessionStorage.setItem("ridLoginFeedback", "Sua conta nao tem permissao para este painel.");
       await auth.signOut();
       return;

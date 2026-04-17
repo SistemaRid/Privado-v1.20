@@ -1,11 +1,11 @@
 const CACHE_NAME = "rid-mobile-offline-v3";
 const firebaseConfig = {
-    apiKey: "AIzaSyDAcuwo5FZBs5013klfSMfWkQZbFjqYpbw",
-    authDomain: "novo-rid-dezembro.firebaseapp.com",
-    projectId: "novo-rid-dezembro",
-    storageBucket: "novo-rid-dezembro.firebasestorage.app",
-    messagingSenderId: "629184938088",
-    appId: "1:629184938088:web:3821e7ea07897ae655fbdd"
+  apiKey: "AIzaSyDAcuwo5FZBs5013klfSMfWkQZbFjqYpbw",
+  authDomain: "novo-rid-dezembro.firebaseapp.com",
+  projectId: "novo-rid-dezembro",
+  storageBucket: "novo-rid-dezembro.firebasestorage.app",
+  messagingSenderId: "629184938088",
+  appId: "1:629184938088:web:3821e7ea07897ae655fbdd"
 };
 const APP_SHELL = [
   "./",

@@ -55,26 +55,8 @@
     sectorRanking: document.getElementById("sectorRanking"),
     recurrenceList: document.getElementById("recurrenceList"),
     deletedListCount: document.getElementById("deletedListCount"),
-    deletedList: document.getElementById("deletedList"),
-    managementLoginList: document.getElementById("managementLoginList")
+    deletedList: document.getElementById("deletedList")
   };
-
-  function isAdminProfile(user = state.currentUserData) {
-    const userType = String(user?.userType || "").trim().toLowerCase();
-    return !!(
-      user?.isAdmin ||
-      userType === "administrador" ||
-      userType === "desenvolvedor"
-    );
-  }
-
-  function isDeveloperProfile(user = state.currentUserData) {
-    const userType = String(user?.userType || "").trim().toLowerCase();
-    return !!(
-      (user?.isAdmin && user?.isDeveloper) ||
-      userType === "desenvolvedor"
-    );
-  }
 
   function maskCpf(value) {
     return String(value || "")
@@ -129,11 +111,6 @@
     return date ? date.toLocaleDateString("pt-BR") : "-";
   }
 
-  function formatDateTime(value) {
-    const date = toDateSafe(value);
-    return date ? date.toLocaleString("pt-BR") : "-";
-  }
-
   function formatRidNumber(value) {
     const digits = String(value ?? "").replace(/\D/g, "");
     return digits ? digits.padStart(5, "0") : "-";
@@ -175,16 +152,16 @@
 
   function updateRoleNavigation() {
     document.querySelectorAll('[data-admin-only-nav="designated"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !isAdminProfile());
+      element.classList.toggle("hidden-state", !(state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper));
     });
     document.querySelectorAll('[data-developer-only-nav="control-center"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !isDeveloperProfile());
+      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
     });
     document.querySelectorAll('[data-privileged-nav="changes"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !isDeveloperProfile());
+      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
     });
     document.querySelectorAll('[data-developer-only-nav="requests"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !isDeveloperProfile());
+      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
     });
   }
 
@@ -432,54 +409,6 @@
     `).join("");
   }
 
-  function renderManagementLogins() {
-    const privilegedUsers = state.allUsers
-      .filter((user) => user?.isAdmin || user?.isDeveloper)
-      .map((user) => {
-        const roleLabel = user?.isDeveloper ? "Desenvolvedor" : "Administrador";
-        const lastLogin = toDateSafe(user?.lastManagementLoginAt);
-        return {
-          id: user.id,
-          name: formatField(user.name, "Sem nome"),
-          roleLabel,
-          sector: formatField(user.sector, "Sem setor"),
-          lastLogin,
-          lastLoginLabel: formatDateTime(user?.lastManagementLoginAt),
-          lastPage: formatField(user?.lastManagementLoginPage, "-")
-        };
-      })
-      .sort((a, b) => (b.lastLogin?.getTime() || 0) - (a.lastLogin?.getTime() || 0) || a.name.localeCompare(b.name, "pt-BR"));
-
-    if (!privilegedUsers.length) {
-      dom.managementLoginList.innerHTML = `<div class="empty-state">Nenhum administrador ou desenvolvedor cadastrado.</div>`;
-      return;
-    }
-
-    dom.managementLoginList.innerHTML = privilegedUsers.map((user) => `
-      <div class="rounded-2xl border border-gray-100 bg-white px-4 py-4">
-        <div class="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <div class="text-sm font-semibold text-gray-900">${escapeHtml(user.name)}</div>
-            <div class="text-xs text-gray-400 mt-1">${escapeHtml(user.roleLabel)} · ${escapeHtml(user.sector)}</div>
-          </div>
-          <span class="inline-flex items-center rounded-full ${user.lastLogin ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"} px-3 py-1 text-[11px] font-semibold">
-            ${user.lastLogin ? "Login registrado" : "Sem registro"}
-          </span>
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
-          <div class="rounded-2xl border border-gray-100 bg-gray-50 px-3 py-3">
-            <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Ultimo login</div>
-            <div class="text-sm font-semibold text-gray-900 mt-1">${escapeHtml(user.lastLoginLabel)}</div>
-          </div>
-          <div class="rounded-2xl border border-gray-100 bg-gray-50 px-3 py-3">
-            <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Tela registrada</div>
-            <div class="text-sm font-semibold text-gray-900 mt-1">${escapeHtml(user.lastPage)}</div>
-          </div>
-        </div>
-      </div>
-    `).join("");
-  }
-
   function renderPage() {
     updateRoleNavigation();
     const filteredRids = getFilteredRids();
@@ -488,7 +417,6 @@
     renderSectorRanking(filteredRids);
     renderRecurrence(filteredRids);
     renderDeletedList(filteredRids);
-    renderManagementLogins();
     dom.welcomeText.textContent = `Bem-vindo, ${formatField(state.currentUserData?.name, "Desenvolvedor")}. Aqui voce acompanha riscos, liderancas e remocoes do periodo.`;
     if (window.lucide && typeof window.lucide.createIcons === "function") {
       window.lucide.createIcons();
@@ -584,7 +512,7 @@
     const userDoc = await db.collection("users").doc(user.uid).get();
     state.currentUserData = userDoc.exists ? { id: userDoc.id, ...userDoc.data() } : null;
 
-    if (!isDeveloperProfile()) {
+    if (!state.currentUserData?.isDeveloper) {
       sessionStorage.setItem("ridLoginFeedback", "Esta area e exclusiva para desenvolvedores.");
       await auth.signOut();
       return;

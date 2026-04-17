@@ -32,6 +32,9 @@
     manualGoalValue: null,
     manualGoalMonthKey: null,
     shouldAnimateGoalIntro: false,
+    hasLoadedRidsOnce: false,
+    notificationAudio: null,
+    notificationAudioUnlocked: false,
     pushPromptDismissed: false,
     pushMessagingBound: false,
     pushToken: null,
@@ -88,35 +91,18 @@
     weekRidCount: document.getElementById("weekRidCount")
   };
 
-  function isAdminProfile(user = state.currentUserData) {
-    const userType = String(user?.userType || "").trim().toLowerCase();
-    return !!(
-      user?.isAdmin ||
-      userType === "administrador" ||
-      userType === "desenvolvedor"
-    );
-  }
-
-  function isDeveloperProfile(user = state.currentUserData) {
-    const userType = String(user?.userType || "").trim().toLowerCase();
-    return !!(
-      (user?.isAdmin && user?.isDeveloper) ||
-      userType === "desenvolvedor"
-    );
-  }
-
   function updateAdminNavigation() {
     document.querySelectorAll('[data-admin-only-nav="designated"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !isAdminProfile());
+      element.classList.toggle("hidden-state", !(state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper));
     });
     document.querySelectorAll('[data-developer-only-nav="control-center"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !isDeveloperProfile());
+      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
     });
     document.querySelectorAll('[data-privileged-nav="changes"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !isDeveloperProfile());
+      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
     });
     document.querySelectorAll('[data-developer-only-nav="requests"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !isDeveloperProfile());
+      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
     });
   }
 
@@ -189,11 +175,8 @@
     overlay.style.padding = "24px";
     overlay.style.backdropFilter = "blur(10px)";
     overlay.style.webkitBackdropFilter = "blur(10px)";
-    const announcementImageHtml = data.imageDataUrl
-      ? `<div style="margin-bottom:16px;"><img src="${escapeHtml(data.imageDataUrl)}" alt="Imagem do aviso" style="display:block;width:100%;max-height:280px;object-fit:cover;border-radius:20px;border:1px solid #e5e7eb;"></div>`
-      : "";
     overlay.innerHTML = `
-      <div style="width:min(100%,560px);max-height:calc(100dvh - 48px);display:flex;flex-direction:column;background:#fff;border-radius:28px;padding:24px;border:1px solid #e5e7eb;box-shadow:0 24px 60px rgba(15,23,42,.22);overflow:hidden;">
+      <div style="width:min(100%,560px);max-height:calc(100dvh - 48px);display:flex;flex-direction:column;background:#fff;border-radius:28px;padding:24px;border:1px solid #e5e7eb;box-shadow:0 24px 60px rgba(15,23,42,.22);">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;">
           <div>
             <div style="font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#94a3b8;">Aviso do sistema</div>
@@ -201,10 +184,7 @@
           </div>
           <button type="button" id="closeGlobalAnnouncementModal" style="width:40px;height:40px;border:none;border-radius:999px;background:#f8fafc;color:#475569;font-size:24px;cursor:pointer;">×</button>
         </div>
-        <div style="flex:1;min-height:0;overflow-y:auto;padding-right:6px;">
-          ${announcementImageHtml}
-          <div style="font-size:15px;line-height:1.7;color:#334155;white-space:pre-wrap;">${escapeHtml(data.message || "")}</div>
-        </div>
+        <div style="flex:1;min-height:0;overflow-y:auto;padding-right:6px;font-size:15px;line-height:1.7;color:#334155;white-space:pre-wrap;">${escapeHtml(data.message || "")}</div>
         <div style="margin-top:18px;display:flex;justify-content:flex-end;">
           <button type="button" id="ackGlobalAnnouncementModal" style="padding:12px 18px;border:none;border-radius:16px;background:#111827;color:#fff;font-weight:700;cursor:pointer;">Entendi</button>
         </div>
@@ -346,6 +326,134 @@
     return digits.padStart(5, "0");
   }
 
+  function ensureLiveRidNotificationRoot() {
+    let root = document.getElementById("liveRidNotificationRoot");
+    if (root) return root;
+
+    root = document.createElement("div");
+    root.id = "liveRidNotificationRoot";
+    root.style.position = "fixed";
+    root.style.top = "20px";
+    root.style.right = "20px";
+    root.style.zIndex = "1200";
+    root.style.display = "flex";
+    root.style.flexDirection = "column";
+    root.style.gap = "12px";
+    root.style.maxWidth = "360px";
+    root.style.width = "calc(100vw - 32px)";
+    document.body.appendChild(root);
+    return root;
+  }
+
+  function playRidNotificationSound() {
+    if (!state.notificationAudio) {
+      state.notificationAudio = new Audio("notify.ogg");
+      state.notificationAudio.preload = "auto";
+      state.notificationAudio.volume = 0.8;
+    }
+
+    try {
+      state.notificationAudio.currentTime = 0;
+    } catch (error) {}
+
+    state.notificationAudio.play().catch(() => {});
+  }
+
+  function unlockRidNotificationSound() {
+    if (state.notificationAudioUnlocked) return;
+    if (!state.notificationAudio) {
+      state.notificationAudio = new Audio("notify.ogg");
+      state.notificationAudio.preload = "auto";
+      state.notificationAudio.volume = 0.8;
+    }
+
+    const audio = state.notificationAudio;
+    const playAttempt = audio.play();
+    if (!playAttempt || typeof playAttempt.then !== "function") {
+      state.notificationAudioUnlocked = true;
+      return;
+    }
+
+    playAttempt
+      .then(() => {
+        audio.pause();
+        audio.currentTime = 0;
+        state.notificationAudioUnlocked = true;
+      })
+      .catch(() => {});
+  }
+
+  function bindNotificationAudioUnlock() {
+    const unlockOnce = () => {
+      unlockRidNotificationSound();
+      if (state.notificationAudioUnlocked) {
+        window.removeEventListener("pointerdown", unlockOnce);
+        window.removeEventListener("keydown", unlockOnce);
+      }
+    };
+
+    window.addEventListener("pointerdown", unlockOnce, { passive: true });
+    window.addEventListener("keydown", unlockOnce);
+  }
+
+  function showLiveRidNotification(rid) {
+    if (!(state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper)) return;
+
+    const root = ensureLiveRidNotificationRoot();
+    const item = document.createElement("button");
+    item.type = "button";
+    item.style.width = "100%";
+    item.style.textAlign = "left";
+    item.style.border = "1px solid #bfdbfe";
+    item.style.background = "linear-gradient(135deg, #eff6ff 0%, #ffffff 100%)";
+    item.style.borderRadius = "18px";
+    item.style.padding = "14px 16px";
+    item.style.boxShadow = "0 18px 38px rgba(15, 23, 42, 0.14)";
+    item.style.color = "#0f172a";
+    item.style.cursor = "pointer";
+    item.style.animation = "none";
+
+    const ridNumber = formatRidNumber(rid?.ridNumber);
+    const emitterName = escapeHtml(rid?.emitterName || "Emissor nao identificado");
+    const location = escapeHtml(rid?.location || rid?.sector || "Local nao informado");
+
+    item.innerHTML = `
+      <div style="display:flex;align-items:flex-start;gap:12px;">
+        <div style="width:42px;height:42px;border-radius:14px;background:#2563eb;color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">!</div>
+        <div style="min-width:0;flex:1;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#2563eb;">Novo RID recebido</div>
+          <div style="font-size:15px;font-weight:700;margin-top:4px;">#${escapeHtml(ridNumber)}</div>
+          <div style="font-size:13px;color:#334155;margin-top:6px;">${emitterName}</div>
+          <div style="font-size:12px;color:#64748b;margin-top:4px;">${location}</div>
+        </div>
+      </div>
+    `;
+
+    item.addEventListener("click", () => item.remove());
+    root.prepend(item);
+    while (root.children.length > 3) {
+      root.lastElementChild?.remove();
+    }
+
+    window.setTimeout(() => {
+      item.remove();
+    }, 6000);
+
+    playRidNotificationSound();
+  }
+
+  function processLiveRidNotifications(snapshot) {
+    if (!state.hasLoadedRidsOnce) {
+      state.hasLoadedRidsOnce = true;
+      return;
+    }
+
+    snapshot.docChanges().forEach((change) => {
+      if (change.type !== "added") return;
+      showLiveRidNotification(change.doc.data());
+    });
+  }
+
   function prepareGoalIntroAnimation() {
     state.shouldAnimateGoalIntro = true;
   }
@@ -383,7 +491,7 @@
   }
 
   function isPrivilegedUser() {
-    return isAdminProfile();
+    return !!(state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper);
   }
 
   async function ensurePushServiceWorkerRegistration() {
@@ -399,25 +507,6 @@
 
   function removePushPermissionPrompt() {
     document.getElementById("pushPermissionPrompt")?.remove();
-  }
-
-  function ensureLiveRidNotificationRoot() {
-    let root = document.getElementById("liveRidNotificationRoot");
-    if (root) return root;
-
-    root = document.createElement("div");
-    root.id = "liveRidNotificationRoot";
-    root.style.position = "fixed";
-    root.style.top = "20px";
-    root.style.right = "20px";
-    root.style.zIndex = "1200";
-    root.style.display = "flex";
-    root.style.flexDirection = "column";
-    root.style.gap = "12px";
-    root.style.maxWidth = "360px";
-    root.style.width = "calc(100vw - 32px)";
-    document.body.appendChild(root);
-    return root;
   }
 
   function showPushStatusCard(message, tone = "info") {
@@ -674,71 +763,6 @@
       discount,
       empEff,
       leaderEff
-    };
-  }
-
-  function countNonSundayDaysLocal(start, end) {
-    if (!(start instanceof Date) || !(end instanceof Date)) return 0;
-    const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-    const limit = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-    let total = 0;
-
-    while (cursor <= limit) {
-      if (cursor.getDay() !== 0) total += 1;
-      cursor.setDate(cursor.getDate() + 1);
-    }
-
-    return total;
-  }
-
-  function countSundaysInMonthLocal(year, month1to12) {
-    const totalDays = daysInMonthLocal(year, month1to12);
-    let sundays = 0;
-
-    for (let day = 1; day <= totalDays; day += 1) {
-      const date = new Date(year, month1to12 - 1, day);
-      if (date.getDay() === 0) sundays += 1;
-    }
-
-    return sundays;
-  }
-
-  function getRemainingGoalDailyPace(period, currentCount, goal) {
-    if (!goal || goal <= 0 || period.showAllMonths) return null;
-
-    const monthStart = new Date(period.year, period.month - 1, 1, 0, 0, 0, 0);
-    const monthEnd = new Date(period.year, period.month, 0, 23, 59, 59, 999);
-    const today = new Date();
-    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
-    const remaining = Math.max(goal - currentCount, 0);
-    const totalMonthDays = daysInMonthLocal(period.year, period.month);
-    const totalMonthSundays = countSundaysInMonthLocal(period.year, period.month);
-    const totalWorkingDays = Math.max(totalMonthDays - totalMonthSundays, 0);
-
-    if (todayStart > monthEnd) {
-      return {
-        remaining,
-        daysLeft: 0,
-        perDay: remaining > 0 ? remaining : 0,
-        totalMonthSundays,
-        totalWorkingDays,
-        isPastPeriod: true,
-        isCurrentPeriod: false
-      };
-    }
-
-    const isCurrentPeriod = todayStart >= monthStart && todayStart <= monthEnd;
-    const countingStart = isCurrentPeriod ? todayStart : monthStart;
-    const daysLeft = countNonSundayDaysLocal(countingStart, monthEnd);
-
-    return {
-      remaining,
-      daysLeft,
-      perDay: remaining > 0 && daysLeft > 0 ? Math.ceil(remaining / daysLeft) : 0,
-      totalMonthSundays,
-      totalWorkingDays,
-      isPastPeriod: false,
-      isCurrentPeriod
     };
   }
 
@@ -1187,7 +1211,7 @@
   }
 
   function openManualGoalModal() {
-    if (!isDeveloperProfile()) return;
+    if (!state.currentUserData?.isDeveloper) return;
     const period = getSelectedPeriod();
     if (period.showAllMonths || period.sector) return;
     dom.manualGoalFeedback.classList.add("hidden-state");
@@ -1312,22 +1336,16 @@
     const remaining = Math.max(goal - currentCount, 0);
     const percentage = Math.min(Math.round((currentCount / goal) * 100), 999);
     const progressWidth = Math.max(6, Math.min((currentCount / goal) * 100, 100));
-    const dailyPace = getRemainingGoalDailyPace(data.period, currentCount, goal);
     const extra = state.monthlyGoalMeta
       ? `Desconto: ${Math.ceil(state.monthlyGoalMeta.discount || 0)}`
       : "Calculo automatico do mes";
-    let dailyPaceCopy = "";
-    if (dailyPace) {
-      if (remaining === 0) {
-        dailyPaceCopy = "Meta batida. Nenhum RID por dia necessario.";
-      } else if (dailyPace.isPastPeriod) {
-        dailyPaceCopy = "Periodo encerrado. Nao ha mais dias uteis sem domingo neste mes.";
-      } else if (dailyPace.daysLeft <= 0) {
-        dailyPaceCopy = `Restam ${remaining} RID${remaining !== 1 ? "s" : ""} e nao ha mais dias disponiveis sem domingo.`;
-      } else {
-        dailyPaceCopy = `Necessarios ${dailyPace.perDay} RID${dailyPace.perDay !== 1 ? "s" : ""} por dia para bater a meta.`;
-      }
-    }
+    const manualGoalCopy = state.manualGoalValue && !data.period.sector
+      ? `Meta manual registrada: ${state.manualGoalValue}`
+      : "Nenhuma meta manual registrada";
+    const canManageManualGoal = !!state.currentUserData?.isDeveloper && !data.period.showAllMonths && !data.period.sector;
+    const manualButton = canManageManualGoal
+      ? `<button type="button" id="openManualGoalButton" class="goal-manual-trigger inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-gray-700 hover:bg-gray-50">Definir meta manual</button>`
+      : "";
     const hitGoal = currentCount >= goal;
     const introClass = state.shouldAnimateGoalIntro ? " goal-panel-intro" : "";
     const progressClass = state.shouldAnimateGoalIntro ? " goal-progress-fill-intro" : "";
@@ -1363,11 +1381,12 @@
                 <span class="inline-flex items-center rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">Meta automatica</span>
               </div>
               <div class="text-xs text-gray-500 mt-2">${currentCount >= goal ? "Meta atingida no periodo atual." : `Faltam ${remaining} RID${remaining !== 1 ? "s" : ""} para atingir a meta.`}</div>
-              <div class="text-xs text-slate-500 mt-2">${dailyPaceCopy}</div>
+              <div class="text-xs text-gray-400 mt-2">${manualGoalCopy}</div>
             </div>
             <div class="text-right">
               <div class="text-2xl font-bold text-gray-900">${percentage}%</div>
               <div class="text-[11px] text-gray-400 mt-1">${extra}</div>
+              <div class="mt-3">${manualButton}</div>
             </div>
           </div>
           <div class="mt-4">
@@ -1379,6 +1398,10 @@
       </div>
     `;
 
+    const openManualGoalButton = document.getElementById("openManualGoalButton");
+    if (openManualGoalButton) {
+      openManualGoalButton.addEventListener("click", openManualGoalModal);
+    }
     if (state.shouldAnimateGoalIntro && !hitGoal) {
       const goalPanelCard = document.getElementById("goalPanelCard");
       if (goalPanelCard) {
@@ -1782,9 +1805,11 @@
 
   function listenRids() {
     if (typeof state.unsubRids === "function") state.unsubRids();
+    state.hasLoadedRidsOnce = false;
     state.unsubRids = db.collection("rids").onSnapshot((snapshot) => {
+      processLiveRidNotifications(snapshot);
       state.allRids = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      if (isAdminProfile()) void renderDashboard();
+      if (state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper) void renderDashboard();
     });
   }
 
@@ -1796,14 +1821,16 @@
       .where("requesterId", "==", state.currentUser.uid)
       .onSnapshot((snapshot) => {
         state.allDeleteRequests = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-        if (isAdminProfile()) void renderDashboard();
+        if (state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper) void renderDashboard();
       }, () => {
         state.allDeleteRequests = [];
-        if (isAdminProfile()) void renderDashboard();
+        if (state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper) void renderDashboard();
       });
   }
 
   function bindEvents() {
+    bindNotificationAudioUnlock();
+
     dom.loginCpf.addEventListener("input", () => {
       dom.loginCpf.value = maskCpf(dom.loginCpf.value);
     });
@@ -1846,7 +1873,7 @@
 
     dom.manualGoalForm.addEventListener("submit", async (event) => {
       event.preventDefault();
-      if (!isDeveloperProfile()) return;
+      if (!state.currentUserData?.isDeveloper) return;
 
       const period = getSelectedPeriod();
       if (period.showAllMonths || period.sector) {
@@ -1926,11 +1953,10 @@
       return;
     }
 
-    state.currentUserData = window.ridUserProfileResolver?.resolveUserProfile
-      ? await window.ridUserProfileResolver.resolveUserProfile(db, user)
-      : null;
+    const userDoc = await db.collection("users").doc(user.uid).get();
+    state.currentUserData = userDoc.exists ? { id: user.uid, ...userDoc.data() } : null;
 
-    if (!isAdminProfile()) {
+    if (!state.currentUserData || (!state.currentUserData.isAdmin && !state.currentUserData.isDeveloper)) {
       sessionStorage.setItem("ridLoginFeedback", "Sua conta nao tem permissao para este painel.");
       await auth.signOut();
       return;
