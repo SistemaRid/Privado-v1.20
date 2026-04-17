@@ -1,4 +1,4 @@
-(function () {
+ÿþ(function () {
   const firebaseConfig = {
     apiKey: "AIzaSyBVnWDyQXWNf9JFE3S5W_eDqmrp7B4_nTE",
     authDomain: "natical-rids.firebaseapp.com",
@@ -2910,3 +2910,5 @@
 
 
 
+ 
+ 
