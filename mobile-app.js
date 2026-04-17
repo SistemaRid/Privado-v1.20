@@ -14,7 +14,7 @@
   const db = firebase.firestore();
   const ANNOUNCEMENTS_COLLECTION = db.collection("globalAnnouncements");
   const messaging = typeof firebase.messaging === "function" ? firebase.messaging() : null;
-  const WEB_PUSH_VAPID_KEY = "BI1bjhLMKixbDQsSZ98G40pFeaYqQnxDShyqYrViqepuybo0U8VtCQcGumv7R6WzaPRoLvkLY_pIK8Q4UGg8mLg";
+  const WEB_PUSH_VAPID_KEY = "BC2FvVfx_PdEvXYqKdMAwZaNetYp_5Ni94FYINhTBxaXZnrhlCFfczJ-ivYtwsErGGcYAIAqUVzRz2HteJSaNuQ";
 
   const STORAGE_KEYS = {
     auth: "ridMobileOfflineAuth",
@@ -767,8 +767,14 @@
     if (Notification.permission === "denied" || details.includes("permission-blocked")) {
       return "As notificacoes do navegador estao bloqueadas neste celular.";
     }
+    if (details.includes("unsupported") || details.includes("messaging/unsupported-browser")) {
+      return "Este navegador do celular nao oferece suporte completo para notificacoes push.";
+    }
     if (details.includes("service worker") || details.includes("sw.js")) {
       return "Nao foi possivel iniciar o service worker de notificacoes.";
+    }
+    if (details.includes("vapid") || details.includes("token-subscribe-failed")) {
+      return "O navegador nao conseguiu criar o registro push deste celular.";
     }
     if (details.includes("insufficient permissions")) {
       return "O token foi gerado, mas o Firestore nao deixou salvar.";
@@ -791,6 +797,9 @@
     if (!canUsePushNotifications()) return null;
     const registration = await ensurePushServiceWorkerRegistration();
     if (!registration) return null;
+    if (!WEB_PUSH_VAPID_KEY) {
+      throw new Error("WEB_PUSH_VAPID_KEY ausente");
+    }
 
     const token = await messaging.getToken({
       vapidKey: WEB_PUSH_VAPID_KEY,
