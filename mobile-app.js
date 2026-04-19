@@ -299,6 +299,19 @@
       : [];
   }
 
+  function getStatusFieldKey() {
+    const field = (state.ridFormSchema || []).find((item) => item?.key === "status");
+    return field?.key || "status";
+  }
+
+  function getResponsibleLeaderFieldKey() {
+    const field = (state.ridFormSchema || []).find((item) =>
+      item?.key === "responsibleLeader" ||
+      (Array.isArray(item?.options) && item.options.some((option) => option?.value === "__LEADERS__"))
+    );
+    return field?.key || "responsibleLeader";
+  }
+
   function getRidFieldValue(item, fieldKey) {
     const customValue = item?.customFields?.[fieldKey]?.value;
     if (customValue !== undefined && customValue !== null && String(customValue).trim()) return String(customValue);
@@ -1562,9 +1575,11 @@
   }
 
   function buildRidPayload(formData) {
-    const leaderId = formData.get("responsibleLeader") || "";
+    const statusFieldKey = getStatusFieldKey();
+    const responsibleLeaderFieldKey = getResponsibleLeaderFieldKey();
+    const leaderId = String(formData.get(responsibleLeaderFieldKey) || "").trim();
     const leader = state.leaders.find((item) => item.id === leaderId);
-    const status = String(formData.get("status") || "").toUpperCase();
+    const status = String(formData.get(statusFieldKey) || "").toUpperCase();
     const payload = {
       emitterId: state.currentUser.uid,
       emitterName: state.currentUserData.name,
@@ -1604,10 +1619,10 @@
         case "immediateAction":
           payload[field.key] = value;
           break;
-        case "status":
+        case statusFieldKey:
           payload.status = value.toUpperCase();
           break;
-        case "responsibleLeader":
+        case responsibleLeaderFieldKey:
           payload.responsibleLeader = value;
           payload.responsibleLeaderName = state.leaders.find((item) => item.id === value)?.name || "";
           break;
@@ -1796,8 +1811,10 @@
 
       const formData = new FormData(form);
       const imageField = (state.ridFormSchema || []).find((field) => field.type === "file");
-      const status = String(formData.get("status") || "").toUpperCase();
-      const leaderId = formData.get("responsibleLeader") || "";
+      const statusFieldKey = getStatusFieldKey();
+      const responsibleLeaderFieldKey = getResponsibleLeaderFieldKey();
+      const status = String(formData.get(statusFieldKey) || "").toUpperCase();
+      const leaderId = String(formData.get(responsibleLeaderFieldKey) || "").trim();
 
       if (status === "VENCIDO" && !leaderId) {
         showToast("Para RID vencido, selecione um líder.", "error");
