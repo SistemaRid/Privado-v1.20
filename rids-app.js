@@ -75,18 +75,35 @@
     siteFooter: document.getElementById("siteFooter")
   };
 
+  function hasLegacyAdminFlag(user) {
+    const legacyValue = user?.customFields?.isadmin?.value ?? user?.customFields?.isAdmin?.value;
+    return legacyValue === true || String(legacyValue || "").toLowerCase() === "true";
+  }
+
+  function isAdminUser(user) {
+    return !!(user?.isAdmin || hasLegacyAdminFlag(user));
+  }
+
+  function isDeveloperUser(user) {
+    return !!user?.isDeveloper;
+  }
+
+  function isPrivilegedUser(user = state.currentUserData) {
+    return isAdminUser(user) || isDeveloperUser(user);
+  }
+
   function updateAdminNavigation() {
     document.querySelectorAll('[data-admin-only-nav="designated"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !(state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper));
+      element.classList.toggle("hidden-state", !isPrivilegedUser());
     });
     document.querySelectorAll('[data-developer-only-nav="control-center"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
+      element.classList.toggle("hidden-state", !isDeveloperUser(state.currentUserData));
     });
     document.querySelectorAll('[data-privileged-nav="changes"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
+      element.classList.toggle("hidden-state", !isDeveloperUser(state.currentUserData));
     });
     document.querySelectorAll('[data-developer-only-nav="requests"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
+      element.classList.toggle("hidden-state", !isDeveloperUser(state.currentUserData));
     });
   }
 
@@ -232,7 +249,7 @@
 
   function getLeaderOptions() {
     return state.allUsers
-      .filter((user) => user && (user.isAdmin || user.isDeveloper))
+      .filter((user) => user && isPrivilegedUser(user))
       .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "pt-BR"));
   }
 
@@ -266,7 +283,7 @@
       dom.ridDetailsDeleteAction.textContent = "Excluir";
       dom.ridDetailsDeleteAction.className = "px-4 py-2.5 rounded-xl border border-red-200 bg-red-50 text-red-700 text-sm font-semibold";
       dom.ridDetailsDeleteAction.classList.remove("hidden-state");
-    } else if (state.currentUserData?.isAdmin) {
+    } else if (isAdminUser(state.currentUserData)) {
       dom.ridDetailsDeleteAction.textContent = "Solicitar remocao";
       dom.ridDetailsDeleteAction.className = "px-4 py-2.5 rounded-xl border border-amber-200 bg-amber-50 text-amber-700 text-sm font-semibold";
       dom.ridDetailsDeleteAction.classList.remove("hidden-state");
@@ -454,7 +471,7 @@
       observations: previousObs ? `${previousObs}\n\n${deleteNote}` : deleteNote
     });
 
-    const adminUsers = state.allUsers.filter((user) => user?.isAdmin && user.id !== state.currentUser.uid);
+    const adminUsers = state.allUsers.filter((user) => isAdminUser(user) && user.id !== state.currentUser.uid);
     for (const admin of adminUsers) {
       try {
         await createNotification(admin.id, {
@@ -705,7 +722,7 @@
     if (typeof state.unsubRids === "function") state.unsubRids();
     state.unsubRids = db.collection("rids").onSnapshot((snapshot) => {
       state.allRids = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      if (state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper) renderRidsPage();
+      if (isPrivilegedUser()) renderRidsPage();
     });
   }
 
@@ -772,9 +789,9 @@
     dom.ridDetailsDeleteAction.addEventListener("click", () => {
       const rid = findRidById(state.selectedRidId);
       if (!rid) return;
-      if (state.currentUserData?.isDeveloper) {
+      if (isDeveloperUser(state.currentUserData)) {
         openRidDeleteConfirmModal(rid.id);
-      } else if (state.currentUserData?.isAdmin) {
+      } else if (isAdminUser(state.currentUserData)) {
         openRidRemovalRequestModal(rid.id);
       }
     });
@@ -870,7 +887,7 @@
     const userDoc = await db.collection("users").doc(user.uid).get();
     state.currentUserData = userDoc.exists ? { id: user.uid, ...userDoc.data() } : null;
 
-    if (!state.currentUserData || (!state.currentUserData.isAdmin && !state.currentUserData.isDeveloper)) {
+    if (!state.currentUserData || !isPrivilegedUser()) {
       sessionStorage.setItem("ridLoginFeedback", "Sua conta nao tem permissao para este painel.");
       await auth.signOut();
       return;

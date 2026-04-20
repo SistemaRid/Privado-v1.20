@@ -91,18 +91,35 @@
     weekRidCount: document.getElementById("weekRidCount")
   };
 
+  function hasLegacyAdminFlag(user) {
+    const legacyValue = user?.customFields?.isadmin?.value ?? user?.customFields?.isAdmin?.value;
+    return legacyValue === true || String(legacyValue || "").toLowerCase() === "true";
+  }
+
+  function isAdminUser(user) {
+    return !!(user?.isAdmin || hasLegacyAdminFlag(user));
+  }
+
+  function isDeveloperUser(user) {
+    return !!user?.isDeveloper;
+  }
+
+  function isPrivilegedUser(user = state.currentUserData) {
+    return isAdminUser(user) || isDeveloperUser(user);
+  }
+
   function updateAdminNavigation() {
     document.querySelectorAll('[data-admin-only-nav="designated"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !(state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper));
+      element.classList.toggle("hidden-state", !isPrivilegedUser());
     });
     document.querySelectorAll('[data-developer-only-nav="control-center"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
+      element.classList.toggle("hidden-state", !isDeveloperUser(state.currentUserData));
     });
     document.querySelectorAll('[data-privileged-nav="changes"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
+      element.classList.toggle("hidden-state", !isDeveloperUser(state.currentUserData));
     });
     document.querySelectorAll('[data-developer-only-nav="requests"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
+      element.classList.toggle("hidden-state", !isDeveloperUser(state.currentUserData));
     });
   }
 
@@ -392,10 +409,6 @@
     return "Nao foi possivel ativar as notificacoes push.";
   }
 
-  function isPrivilegedUser() {
-    return !!(state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper);
-  }
-
   async function ensurePushServiceWorkerRegistration() {
     if (!canUsePushNotifications()) return null;
     if (state.pushServiceWorkerRegistration) return state.pushServiceWorkerRegistration;
@@ -473,8 +486,8 @@
       token,
       uid: state.currentUser?.uid || null,
       userName: state.currentUserData?.name || "",
-      isAdmin: !!state.currentUserData?.isAdmin,
-      isDeveloper: !!state.currentUserData?.isDeveloper,
+      isAdmin: isAdminUser(state.currentUserData),
+      isDeveloper: isDeveloperUser(state.currentUserData),
       platform: "web",
       page: "dashboard",
       serviceWorkerScope: registration.scope || "",
@@ -614,7 +627,7 @@
   }
 
   function getUserMonthlyGoalBase(user) {
-    if (user?.isAdmin || user?.isDeveloper) return 8;
+    if (isPrivilegedUser(user)) return 8;
     return 4;
   }
 
@@ -653,7 +666,7 @@
     let discount = 0;
 
     (users || []).forEach((user) => {
-      const isLeader = !!user.isAdmin || !!user.isDeveloper;
+      const isLeader = isPrivilegedUser(user);
       const base = getUserMonthlyGoalBase(user);
       const vacation = user.vacationPeriod || null;
       const start = toDateSafe(vacation?.start);
@@ -1731,7 +1744,7 @@
     state.unsubRids = db.collection("rids").onSnapshot((snapshot) => {
       processLiveRidNotifications(snapshot);
       state.allRids = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      if (state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper) void renderDashboard();
+      if (isPrivilegedUser()) void renderDashboard();
     });
   }
 
@@ -1743,10 +1756,10 @@
       .where("requesterId", "==", state.currentUser.uid)
       .onSnapshot((snapshot) => {
         state.allDeleteRequests = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-        if (state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper) void renderDashboard();
+        if (isPrivilegedUser()) void renderDashboard();
       }, () => {
         state.allDeleteRequests = [];
-        if (state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper) void renderDashboard();
+        if (isPrivilegedUser()) void renderDashboard();
       });
   }
 
@@ -1878,7 +1891,7 @@
     const userDoc = await db.collection("users").doc(user.uid).get();
     state.currentUserData = userDoc.exists ? { id: user.uid, ...userDoc.data() } : null;
 
-    if (!state.currentUserData || (!state.currentUserData.isAdmin && !state.currentUserData.isDeveloper)) {
+    if (!state.currentUserData || !isPrivilegedUser()) {
       sessionStorage.setItem("ridLoginFeedback", "Sua conta nao tem permissao para este painel.");
       await auth.signOut();
       return;
