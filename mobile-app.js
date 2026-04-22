@@ -249,9 +249,46 @@
     };
   }
 
+  function normalizeSchemaToken(value) {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9]+/g, "")
+      .toLowerCase();
+  }
+
+  function getCanonicalRidFieldKey(field) {
+    const keyToken = normalizeSchemaToken(field?.key);
+    const labelToken = normalizeSchemaToken(field?.label);
+    const options = Array.isArray(field?.options) ? field.options : [];
+    const hasLeaderOptions = options.some((option) => normalizeSchemaToken(option?.value) === "leaders");
+    const tokens = new Set([keyToken, labelToken].filter(Boolean));
+
+    if (hasLeaderOptions) return "responsibleLeader";
+
+    const aliases = [
+      { canonical: "contractType", values: ["contracttype", "tipodecontrato", "tipocontrato"] },
+      { canonical: "unit", values: ["unit", "unidade"] },
+      { canonical: "emissionDate", values: ["emissiondate", "data", "datadeemissao", "dataemissao"] },
+      { canonical: "incidentType", values: ["incidenttype", "incidenteoudesvio", "tipodeincidente", "incidente", "desvio"] },
+      { canonical: "detectionOrigin", values: ["detectionorigin", "origemdadeteccao", "origemdadetecao", "origemdedeteccao", "origemdedetecao"] },
+      { canonical: "location", values: ["location", "local"] },
+      { canonical: "description", values: ["description", "descricao", "descricao"] },
+      { canonical: "riskClassification", values: ["riskclassification", "classificacaoderisco", "classificacaorisco"] },
+      { canonical: "immediateAction", values: ["immediateaction", "acaoimediata", "acaoimediata"] },
+      { canonical: "imageFile", values: ["imagefile", "imagemdaocorrencia", "imagemdocorrencia", "imagem", "foto", "anexo"] },
+      { canonical: "status", values: ["status", "statusinicial"] },
+      { canonical: "responsibleLeader", values: ["responsibleleader", "liderresponsavel", "lider", "responsavel"] }
+    ];
+
+    const match = aliases.find((entry) => entry.values.some((alias) => tokens.has(alias)));
+    return match?.canonical || String(field?.key || "").trim() || "";
+  }
+
   function normalizeRidFormField(field, index) {
     const label = String(field?.label || "").trim() || `Campo ${index + 1}`;
-    const key = String(field?.key || `campo_${index + 1}`).trim() || `campo_${index + 1}`;
+    const fallbackKey = String(field?.key || `campo_${index + 1}`).trim() || `campo_${index + 1}`;
+    const key = getCanonicalRidFieldKey(field) || fallbackKey;
     const type = ["text", "textarea", "select", "date", "file"].includes(field?.type) ? field.type : "text";
     const options = Array.isArray(field?.options) ? field.options.map(normalizeRidFormOption) : [];
     return {
