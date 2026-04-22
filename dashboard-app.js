@@ -25,7 +25,9 @@
     allUsers: [],
     allRids: [],
     allDeleteRequests: [],
+    ridCounterLastNumber: 0,
     unsubRids: null,
+    unsubRidCounter: null,
     unsubDeleteRequests: null,
     monthlyGoal: null,
     monthlyGoalMeta: null,
@@ -67,6 +69,7 @@
     statLateRids: document.getElementById("statLateRids"),
     statClosedRids: document.getElementById("statClosedRids"),
     statRemovedRids: document.getElementById("statRemovedRids"),
+    ridMilestoneBanner: document.getElementById("ridMilestoneBanner"),
     statusGoalPanel: document.getElementById("statusGoalPanel"),
     statusBoard: document.getElementById("statusBoard"),
     sectorBoard: document.getElementById("sectorBoard"),
@@ -200,9 +203,9 @@
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;">
           <div>
             <div style="font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#94a3b8;">Aviso do sistema</div>
-            <h2 style="margin:6px 0 0;font-size:24px;line-height:1.1;color:#111827;">${escapeHtml(data.title || "Atualização")}</h2>
+            <h2 style="margin:6px 0 0;font-size:24px;line-height:1.1;color:#111827;">${escapeHtml(data.title || "Atualiza\u00e7\u00e3o")}</h2>
           </div>
-          <button type="button" id="closeGlobalAnnouncementModal" style="width:40px;height:40px;border:none;border-radius:999px;background:#f8fafc;color:#475569;font-size:24px;cursor:pointer;">×</button>
+          <button type="button" id="closeGlobalAnnouncementModal" style="width:40px;height:40px;border:none;border-radius:999px;background:#f8fafc;color:#475569;font-size:24px;cursor:pointer;">\u00d7</button>
         </div>
         <div style="flex:1;min-height:0;overflow-y:auto;padding-right:6px;">
           ${announcementImageHtml}
@@ -298,30 +301,33 @@
     return normalizeContractType(rid?.contractType) === "VISITANTE";
   }
 
-  function getSectorNameForBoard(rid) {
-    const allowedSectors = new Set(["ADM", "M. MOVEL", "M. FIXA", "M. ELÉTRICA", "PRODUÇÃO", "MINA"]);
-    const rawSector = String(rid?.sector || "").trim();
-    const normalizedSector = rawSector
+  function normalizeSectorKey(value) {
+    return String(value || "")
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
       .trim()
       .toUpperCase();
+  }
+
+  function getSectorNameForBoard(rid) {
+    const rawSector = String(rid?.sector || "").trim();
+    const normalizedSector = normalizeSectorKey(rawSector);
 
     const sectorMap = {
       "ADM": "ADM",
       "M. MOVEL": "M. MOVEL",
       "M. FIXA": "M. FIXA",
-      "M. ELETRICA": "M. ELÉTRICA",
-      "PRODUCAO": "PRODUÇÃO",
+      "M. ELETRICA": "M. ELETRICA",
+      "PRODUCAO": "PRODUCAO",
       "MINA": "MINA"
     };
 
     const mappedSector = sectorMap[normalizedSector] || "";
-    if (mappedSector && allowedSectors.has(mappedSector)) return mappedSector;
+    if (mappedSector) return mappedSector;
+    if (rawSector) return rawSector;
     if (isVisitorRid(rid)) return "ADM";
     return "ADM";
   }
-
   function toDateSafe(value) {
     if (!value) return null;
     if (value instanceof Date) return value;
@@ -347,6 +353,83 @@
     const digits = String(value ?? "").replace(/\D/g, "");
     if (!digits) return "-";
     return digits.padStart(5, "0");
+  }
+
+  function getRidNumericValue(value) {
+    const digits = String(value ?? "").replace(/\D/g, "");
+    return digits ? Number(digits) : 0;
+  }
+
+  function getCurrentRidMilestone(highestRidNumber) {
+    if (highestRidNumber < 1000) return null;
+    const milestoneOffset = Math.floor((highestRidNumber - 1000) / 500) * 500;
+    return 1000 + milestoneOffset;
+  }
+
+  function getNextRidMilestone(highestRidNumber) {
+    const currentMilestone = getCurrentRidMilestone(highestRidNumber);
+    return currentMilestone == null ? 1000 : currentMilestone + 500;
+  }
+
+  function getRidMilestonePreviewThreshold(milestoneNumber) {
+    return milestoneNumber <= 1500 ? 10 : 5;
+  }
+
+  function getRidMilestoneInfo() {
+    const fallbackHighestRidNumber = state.allRids.reduce((max, rid) => {
+      return Math.max(max, getRidNumericValue(rid?.ridNumber));
+    }, 0);
+    const highestRidNumber = Math.max(Number(state.ridCounterLastNumber || 0), fallbackHighestRidNumber);
+    const nextRidNumber = highestRidNumber + 1;
+    const currentMilestone = getCurrentRidMilestone(highestRidNumber);
+    const nextMilestone = getNextRidMilestone(highestRidNumber);
+    const currentMilestoneRid = currentMilestone == null
+      ? null
+      : state.allRids.find((rid) => getRidNumericValue(rid?.ridNumber) === currentMilestone) || null;
+    const currentMilestoneDate = currentMilestoneRid
+      ? toDateSafe(currentMilestoneRid.emissionDate || currentMilestoneRid.createdAt)
+      : null;
+
+    if (currentMilestone && currentMilestoneDate) {
+      const milestoneVisibleUntil = new Date(currentMilestoneDate.getTime());
+      milestoneVisibleUntil.setDate(milestoneVisibleUntil.getDate() + 2);
+      if (Date.now() <= milestoneVisibleUntil.getTime()) {
+        return {
+          visible: true,
+          mode: "achieved",
+          highestRidNumber,
+          nextRidNumber,
+          targetMilestone: currentMilestone,
+          remainingRids: 0,
+          milestoneDate: currentMilestoneDate
+        };
+      }
+    }
+
+    const remainingRids = Math.max(nextMilestone - highestRidNumber, 0);
+    const previewThreshold = getRidMilestonePreviewThreshold(nextMilestone);
+
+    if (remainingRids <= previewThreshold) {
+      return {
+        visible: true,
+        mode: "upcoming",
+        highestRidNumber,
+        nextRidNumber,
+        targetMilestone: nextMilestone,
+        remainingRids,
+        milestoneDate: null
+      };
+    }
+
+    return {
+      visible: false,
+      mode: "hidden",
+      highestRidNumber,
+      nextRidNumber,
+      targetMilestone: nextMilestone,
+      remainingRids,
+      milestoneDate: null
+    };
   }
 
   function ensureLiveRidNotificationRoot() {
@@ -652,6 +735,13 @@
     return getEmploymentType(user) === "TERCEIRO";
   }
 
+  function getDashboardEmployeeLabel(user) {
+    const baseName = String(user?.name || "").trim() || "Funcionario";
+    return isThirdPartyUser(user)
+      ? `( TERCEIROS CONTRATADOS ) ${baseName}`
+      : baseName;
+  }
+
   function clampDate(date, min, max) {
     if (date < min) return min;
     if (date > max) return max;
@@ -808,7 +898,6 @@
     };
 
     return state.allUsers
-      .filter((user) => !isThirdPartyUser(user))
       .filter((user) => !monthPeriod.sector || user.sector === monthPeriod.sector)
       .map((user) => {
         const userRidList = state.allRids
@@ -837,7 +926,7 @@
           .sort((a, b) => (toDateSafe(b.emissionDate || b.createdAt)?.getTime() || 0) - (toDateSafe(a.emissionDate || a.createdAt)?.getTime() || 0))[0];
 
         return {
-          name: user.name || "Funcionario",
+          name: getDashboardEmployeeLabel(user),
           sector: user.sector || "",
           count: userRidList.length,
           lastDate: lastRid ? toDateSafe(lastRid.emissionDate || lastRid.createdAt) : null
@@ -899,6 +988,7 @@
 
   function computeDashboard() {
     const period = getSelectedPeriod();
+    const ridMilestone = getRidMilestoneInfo();
     const filteredRids = getFilteredRids(period);
     const goalProgressRids = state.allRids
       .filter((rid) => !rid.deleted)
@@ -1010,6 +1100,7 @@
         streak: topEmitterStreaks.get(item.name) || 0
       })),
       sectors,
+      ridMilestone,
       deleteRequests: getFilteredDeleteRequests(period),
       employeesWithoutRids: getEmployeesWithoutRids(period, filteredRids),
       employeeRidCountsCurrentMonth: getEmployeeRidCountsCurrentMonth(period),
@@ -1057,6 +1148,53 @@
         <div class="text-xs mt-3 opacity-80 leading-5">${escapeHtml(card.copy)}</div>
       </div>
     `).join("");
+  }
+
+  function renderRidMilestoneBanner(data) {
+    if (!dom.ridMilestoneBanner) return;
+
+    if (!data.visible) {
+      dom.ridMilestoneBanner.classList.add("hidden-state");
+      dom.ridMilestoneBanner.innerHTML = "";
+      return;
+    }
+
+    const isUpcoming = data.mode === "upcoming";
+    const title = isUpcoming
+      ? `RID ${data.targetMilestone} esta chegando`
+      : `RID ${data.targetMilestone} acabou de marcar epoca`;
+    const copy = isUpcoming
+      ? `Faltam ${data.remainingRids} RID${data.remainingRids === 1 ? "" : "s"} para chegar ao marco #${formatRidNumber(data.targetMilestone)}. O proximo numero atual e #${formatRidNumber(data.nextRidNumber)}.`
+      : `O marco #${formatRidNumber(data.targetMilestone)} foi registrado em ${formatDate(data.milestoneDate)}. Esse destaque fica visivel no dashboard por 2 dias.`;
+    const badge = isUpcoming ? "Proximo marco" : "Marco atingido";
+    const rightLabel = isUpcoming ? "Proximo RID" : "Marco";
+    const rightValue = isUpcoming ? `#${formatRidNumber(data.nextRidNumber)}` : `#${formatRidNumber(data.targetMilestone)}`;
+
+    dom.ridMilestoneBanner.innerHTML = `
+      <div class="rid-milestone-card rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 via-white to-orange-50 px-5 py-5 shadow-sm animate-in animate-in-d3">
+        <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div class="min-w-0">
+            <div class="inline-flex items-center gap-2 rounded-full bg-amber-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-amber-800">
+              <i data-lucide="sparkles" style="width:14px;height:14px;"></i>
+              ${badge}
+            </div>
+            <h2 class="text-lg font-bold text-gray-900 mt-3">${title}</h2>
+            <p class="text-sm text-gray-600 mt-2">${copy}</p>
+          </div>
+          <div class="flex items-center gap-3 rounded-2xl border border-amber-100 bg-white/90 px-4 py-3">
+            <div class="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center">
+              <i data-lucide="trophy" style="width:20px;height:20px;"></i>
+            </div>
+            <div>
+              <div class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">${rightLabel}</div>
+              <div class="text-2xl font-bold text-gray-900">${rightValue}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    dom.ridMilestoneBanner.classList.remove("hidden-state");
   }
 
   function getFilteredDeleteRequests(period) {
@@ -1447,10 +1585,10 @@
 
     const sectorPalette = {
       "ADM": "#22d3ee",
-      "PRODUÇÃO": "#1d4ed8",
+      "PRODUCAO": "#1d4ed8",
       "M. FIXA": "#a855f7",
       "MINA": "#94a3b8",
-      "M. ELÉTRICA": "#f59e0b",
+      "M. ELETRICA": "#f59e0b",
       "M. MOVEL": "#14b8a6"
     };
     const fallbackPalette = ["#22d3ee", "#1d4ed8", "#4f46e5", "#94a3b8", "#f59e0b", "#14b8a6", "#ec4899"];
@@ -1465,7 +1603,7 @@
       const segment = {
         ...item,
         percent,
-        color: sectorPalette[item.sector] || fallbackPalette[index % fallbackPalette.length],
+        color: sectorPalette[normalizeSectorKey(item.sector)] || fallbackPalette[index % fallbackPalette.length],
         dasharray: `${length} ${circumference - length}`,
         dashoffset: -offset
       };
@@ -1597,9 +1735,9 @@
 
     const topThree = items.slice(0, 3);
     const medals = [
-      { icon: "🥇", bg: "#fef3c7", color: "#b45309", label: "Ouro" },
-      { icon: "🥈", bg: "#e5e7eb", color: "#4b5563", label: "Prata" },
-      { icon: "🥉", bg: "#fde2d0", color: "#9a3412", label: "Bronze" }
+      { icon: "\ud83e\udd47", bg: "#fef3c7", color: "#b45309", label: "Ouro" },
+      { icon: "\ud83e\udd48", bg: "#e5e7eb", color: "#4b5563", label: "Prata" },
+      { icon: "\ud83e\udd49", bg: "#fde2d0", color: "#9a3412", label: "Bronze" }
     ];
 
     const totalTop = topThree.reduce((sum, item) => sum + item.count, 0);
@@ -1620,7 +1758,7 @@
         <div class="rounded-xl border border-gray-100 bg-gray-50 px-3 py-3">
           <div class="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Vantagem</div>
           <div class="text-lg font-bold text-gray-900 mt-1">${leaderGap}</div>
-          <div class="text-[11px] text-gray-500 mt-1">RIDs acima do 2º lugar</div>
+          <div class="text-[11px] text-gray-500 mt-1">RIDs acima do 2\u00ba lugar</div>
         </div>
       </div>
     `;
@@ -1636,9 +1774,9 @@
             </div>
             <p class="text-[11px] text-gray-500 mt-1">${
               item.streak >= 3
-                ? `${item.streak}º mes consecutivo no Top 3`
+                ? `${item.streak}\u00ba mes consecutivo no Top 3`
                 : item.streak === 2
-                  ? "2º mes consecutivo no Top 3"
+                  ? "2\u00ba mes consecutivo no Top 3"
                   : item.streak === 1
                     ? "Entrou no Top 3 neste mes"
                     : "Destaque no periodo"
@@ -1725,6 +1863,7 @@
     dom.statCorrectedDetail.textContent = data.correctedFromPreviousMonths > 0
       ? `${data.correctedFromPreviousMonths} eram atrasadas e foram resolvidas agora`
       : "Correcao no periodo selecionado";
+    renderRidMilestoneBanner(data.ridMilestone);
     renderGoalPanel(data);
     renderStatusBoard(data.statusItems);
     renderSectorBoard(data.sectors);
@@ -1768,6 +1907,17 @@
     state.unsubRids = db.collection("rids").onSnapshot((snapshot) => {
       processLiveRidNotifications(snapshot);
       state.allRids = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      if (isPrivilegedUser()) void renderDashboard();
+    });
+  }
+
+  function listenRidCounter() {
+    if (typeof state.unsubRidCounter === "function") state.unsubRidCounter();
+    state.unsubRidCounter = db.collection("counters").doc("rids").onSnapshot((doc) => {
+      state.ridCounterLastNumber = Number(doc.data()?.lastNumber || 0);
+      if (isPrivilegedUser()) void renderDashboard();
+    }, () => {
+      state.ridCounterLastNumber = 0;
       if (isPrivilegedUser()) void renderDashboard();
     });
   }
@@ -1906,7 +2056,9 @@
       state.allUsers = [];
       state.allRids = [];
       state.allDeleteRequests = [];
+      state.ridCounterLastNumber = 0;
       if (typeof state.unsubRids === "function") state.unsubRids();
+      if (typeof state.unsubRidCounter === "function") state.unsubRidCounter();
       if (typeof state.unsubDeleteRequests === "function") state.unsubDeleteRequests();
       redirectToLogin();
       return;
@@ -1923,6 +2075,7 @@
 
     await loadUsers();
     listenRids();
+    listenRidCounter();
     listenDeleteRequests();
     showDashboard();
   });
@@ -1932,3 +2085,4 @@
   resetFiltersToCurrentMonth();
   lucide.createIcons();
 })();
+
