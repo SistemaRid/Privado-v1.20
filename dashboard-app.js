@@ -99,6 +99,11 @@
     return legacyValue === true || String(legacyValue || "").toLowerCase() === "true";
   }
 
+  function hasLegacyObserverFlag(user) {
+    const legacyValue = user?.customFields?.isobserver?.value ?? user?.customFields?.isObserver?.value;
+    return legacyValue === true || String(legacyValue || "").toLowerCase() === "true";
+  }
+
   function isAdminUser(user) {
     return !!(user?.isAdmin || hasLegacyAdminFlag(user));
   }
@@ -107,13 +112,21 @@
     return !!user?.isDeveloper;
   }
 
-  function isPrivilegedUser(user = state.currentUserData) {
-    return isAdminUser(user) || isDeveloperUser(user);
+  function isObserverUser(user) {
+    return !!(user?.isObserver || hasLegacyObserverFlag(user) || String(user?.userType || "").trim().toLowerCase() === "observador");
+  }
+
+  function hasManagementAccess(user = state.currentUserData) {
+    return isAdminUser(user) || isDeveloperUser(user) || isObserverUser(user);
+  }
+
+  function canManageDashboard(user = state.currentUserData) {
+    return !isObserverUser(user) && (isAdminUser(user) || isDeveloperUser(user));
   }
 
   function updateAdminNavigation() {
     document.querySelectorAll('[data-admin-only-nav="designated"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !isPrivilegedUser());
+      element.classList.toggle("hidden-state", !canManageDashboard());
     });
     document.querySelectorAll('[data-developer-only-nav="control-center"]').forEach((element) => {
       element.classList.toggle("hidden-state", !isDeveloperUser(state.currentUserData));
@@ -512,7 +525,7 @@
   }
 
   function showPushPermissionPrompt() {
-    if (!canUsePushNotifications() || !isPrivilegedUser()) return;
+    if (!canUsePushNotifications() || !hasManagementAccess()) return;
     if (Notification.permission !== "default") return;
     if (state.pushPromptDismissed) return;
     if (document.getElementById("pushPermissionPrompt")) return;
@@ -550,7 +563,7 @@
   }
 
   async function syncPushToken() {
-    if (!canUsePushNotifications() || !isPrivilegedUser()) return null;
+    if (!canUsePushNotifications() || !hasManagementAccess()) return null;
     const registration = await ensurePushServiceWorkerRegistration();
     if (!registration) return null;
     if (!WEB_PUSH_VAPID_KEY) {
@@ -584,7 +597,7 @@
   }
 
   async function requestAndStorePushPermission() {
-    if (!canUsePushNotifications() || !isPrivilegedUser()) return;
+    if (!canUsePushNotifications() || !hasManagementAccess()) return;
     try {
       const permission = await Notification.requestPermission();
       if (permission !== "granted") {
@@ -609,7 +622,7 @@
   }
 
   async function initializePushNotifications() {
-    if (!canUsePushNotifications() || !isPrivilegedUser()) return;
+    if (!canUsePushNotifications() || !hasManagementAccess()) return;
     subscribeForegroundPushMessages();
 
     try {
@@ -710,7 +723,7 @@
   }
 
   function getUserMonthlyGoalBase(user) {
-    if (isPrivilegedUser(user)) return 8;
+    if (hasManagementAccess(user)) return 8;
     return 4;
   }
 
@@ -778,7 +791,7 @@
     let discount = 0;
 
     (users || []).forEach((user) => {
-      const isLeader = isPrivilegedUser(user);
+      const isLeader = canManageDashboard(user);
       const base = getUserMonthlyGoalBase(user);
       const vacation = user.vacationPeriod || null;
       const start = toDateSafe(vacation?.start);
@@ -1907,7 +1920,7 @@
     state.unsubRids = db.collection("rids").onSnapshot((snapshot) => {
       processLiveRidNotifications(snapshot);
       state.allRids = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      if (isPrivilegedUser()) void renderDashboard();
+      if (hasManagementAccess()) void renderDashboard();
     });
   }
 
@@ -1915,10 +1928,10 @@
     if (typeof state.unsubRidCounter === "function") state.unsubRidCounter();
     state.unsubRidCounter = db.collection("counters").doc("rids").onSnapshot((doc) => {
       state.ridCounterLastNumber = Number(doc.data()?.lastNumber || 0);
-      if (isPrivilegedUser()) void renderDashboard();
+      if (hasManagementAccess()) void renderDashboard();
     }, () => {
       state.ridCounterLastNumber = 0;
-      if (isPrivilegedUser()) void renderDashboard();
+      if (hasManagementAccess()) void renderDashboard();
     });
   }
 
@@ -1930,10 +1943,10 @@
       .where("requesterId", "==", state.currentUser.uid)
       .onSnapshot((snapshot) => {
         state.allDeleteRequests = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-        if (isPrivilegedUser()) void renderDashboard();
+        if (hasManagementAccess()) void renderDashboard();
       }, () => {
         state.allDeleteRequests = [];
-        if (isPrivilegedUser()) void renderDashboard();
+        if (hasManagementAccess()) void renderDashboard();
       });
   }
 
@@ -2067,7 +2080,7 @@
     const userDoc = await db.collection("users").doc(user.uid).get();
     state.currentUserData = userDoc.exists ? { id: user.uid, ...userDoc.data() } : null;
 
-    if (!state.currentUserData || !isPrivilegedUser()) {
+    if (!state.currentUserData || !hasManagementAccess()) {
       sessionStorage.setItem("ridLoginFeedback", "Sua conta nao tem permissao para este painel.");
       await auth.signOut();
       return;
@@ -2085,4 +2098,3 @@
   resetFiltersToCurrentMonth();
   lucide.createIcons();
 })();
-
