@@ -84,7 +84,7 @@
   function isDeveloperProfile(profile) {
     const userType = String(profile?.userType || "").trim().toLowerCase();
     return !!(
-      (profile?.isAdmin === true && profile?.isDeveloper === true) ||
+      profile?.isDeveloper === true ||
       userType === "desenvolvedor"
     );
   }
