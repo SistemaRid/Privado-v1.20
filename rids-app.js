@@ -60,6 +60,7 @@
     ridDetailsSave: document.getElementById("ridDetailsSave"),
     ridDetailsFeedback: document.getElementById("ridDetailsFeedback"),
     ridDetailsDeleteAction: document.getElementById("ridDetailsDeleteAction"),
+    ridConvertToMaintenanceAction: document.getElementById("ridConvertToMaintenanceAction"),
     ridDeleteConfirmModal: document.getElementById("ridDeleteConfirmModal"),
     ridDeleteConfirmFeedback: document.getElementById("ridDeleteConfirmFeedback"),
     ridDeleteConfirmCancel: document.getElementById("ridDeleteConfirmCancel"),
@@ -264,6 +265,102 @@
     });
   }
 
+  function normalizeMaintenancePriority(riskClassification) {
+    const normalized = normalizeStatus(riskClassification);
+    if (normalized.includes("CRIT")) return "CRITICA";
+    if (normalized.includes("ALTA")) return "ALTA";
+    if (normalized.includes("MED")) return "MEDIA";
+    return "NORMAL";
+  }
+
+  async function getNextMaintenanceNumberSafe() {
+    const counterRef = db.collection("counters").doc("maintenances");
+    return db.runTransaction(async (transaction) => {
+      const doc = await transaction.get(counterRef);
+      if (!doc.exists) throw new Error("Documento counters/maintenances nao existe.");
+      const next = Number(doc.data().lastNumber || 0) + 1;
+      transaction.update(counterRef, { lastNumber: next });
+      return `MAN-${String(next).padStart(5, "0")}`;
+    });
+  }
+
+  function buildMaintenanceDescriptionFromRid(rid) {
+    return [
+      `Convertida da RID #${formatRidNumber(rid.ridNumber)}.`,
+      `Emitente: ${rid.emitterName || "-"}.`,
+      `Setor: ${rid.sector || "-"}.`,
+      `Local: ${rid.location || "-"}.`,
+      `Tipo: ${rid.incidentType || "-"}.`,
+      `Descricao: ${rid.description || "Sem descricao."}`,
+      rid.immediateAction ? `Acao imediata: ${rid.immediateAction}` : "",
+      rid.correctiveActions ? `Acoes corretivas da RID: ${rid.correctiveActions}` : ""
+    ].filter(Boolean).join("\n");
+  }
+
+  async function convertRidToMaintenance(rid) {
+    if (!rid?.id) throw new Error("RID invalida para conversao.");
+    if (rid.convertedToMaintenanceId) {
+      return {
+        maintenanceId: rid.convertedToMaintenanceId,
+        maintenanceNumber: rid.convertedToMaintenanceNumber || ""
+      };
+    }
+
+    const assignedTo = rid.responsibleLeader || state.currentUser?.uid || "";
+    const assignedUser = state.allUsers.find((user) => user.id === assignedTo);
+    if (!assignedTo || !assignedUser) {
+      throw new Error("Defina um responsavel valido na RID antes de converter em melhoria.");
+    }
+
+    const maintenanceNumber = await getNextMaintenanceNumberSafe();
+    const maintenanceRef = await db.collection("maintenances").add({
+      maintenanceNumber,
+      equipment: String(rid.incidentType || rid.location || `RID #${formatRidNumber(rid.ridNumber)}`).trim(),
+      sector: String(rid.sector || "Sem setor").trim(),
+      location: String(rid.location || "").trim(),
+      priority: normalizeMaintenancePriority(rid.riskClassification),
+      description: buildMaintenanceDescriptionFromRid(rid),
+      status: "ABERTA",
+      requesterId: state.currentUser.uid,
+      requesterName: state.currentUserData?.name || "",
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      concludedAt: null,
+      resolution: "",
+      assignedTo,
+      assignedToName: assignedUser.name || "",
+      sourceRidId: rid.id,
+      sourceRidNumber: rid.ridNumber || null
+    });
+
+    const ridUpdates = {
+      convertedToMaintenanceId: maintenanceRef.id,
+      convertedToMaintenanceNumber: maintenanceNumber,
+      convertedToMaintenanceAt: firebase.firestore.FieldValue.serverTimestamp(),
+      convertedToMaintenanceBy: {
+        uid: state.currentUser.uid,
+        name: state.currentUserData?.name || state.currentUser.email || "Usuario"
+      }
+    };
+
+    await db.collection("rids").doc(rid.id).update(ridUpdates);
+    await recordRidHistory({
+      rid,
+      before: rid,
+      after: { ...rid, ...ridUpdates },
+      action: "RID_CONVERTED_TO_MAINTENANCE",
+      meta: {
+        maintenanceId: maintenanceRef.id,
+        maintenanceNumber
+      }
+    });
+
+    return {
+      maintenanceId: maintenanceRef.id,
+      maintenanceNumber
+    };
+  }
+
   function getActorRoleLabel() {
     if (isDeveloperUser(state.currentUserData)) return "DEVELOPER";
     if (isAdminUser(state.currentUserData)) return "ADMIN";
@@ -410,6 +507,13 @@
       dom.ridDetailsDeleteAction.classList.remove("hidden-state");
     }
 
+    const canConvertToMaintenance = !isReadOnly && canEditRids();
+    dom.ridConvertToMaintenanceAction.classList.toggle("hidden-state", !canConvertToMaintenance);
+    dom.ridConvertToMaintenanceAction.disabled = !!rid.convertedToMaintenanceId;
+    dom.ridConvertToMaintenanceAction.textContent = rid.convertedToMaintenanceId
+      ? `Melhoria criada (${rid.convertedToMaintenanceNumber || "vinculada"})`
+      : "Converter em melhoria";
+
     dom.ridDetailsBody.innerHTML = `
       ${isReadOnly ? `
         <div class="mb-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
@@ -479,6 +583,12 @@
           <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Conclusao</div>
           <div class="text-sm font-semibold text-gray-900 mt-2">${escapeHtml(formatDate(rid.conclusionDate))}</div>
         </div>
+        ${rid.convertedToMaintenanceId ? `
+          <div class="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-4">
+            <div class="text-[11px] uppercase tracking-wider font-semibold text-emerald-700">Melhoria vinculada</div>
+            <div class="text-sm font-semibold text-emerald-900 mt-2">${escapeHtml(rid.convertedToMaintenanceNumber || "Ja convertida")}</div>
+          </div>
+        ` : ""}
         <div class="rounded-2xl border border-gray-100 bg-white px-4 py-4">
           <label class="text-[11px] uppercase tracking-wider font-semibold text-gray-400 block">Lider designado</label>
           <select id="ridLeaderSelect" class="w-full mt-2 px-4 py-3 rounded-xl border text-sm ${readOnlyFieldClass}" ${isReadOnly ? "disabled" : ""}>
@@ -963,6 +1073,22 @@
         openRidDeleteConfirmModal(rid.id);
       } else if (canEditRids() && isAdminUser(state.currentUserData)) {
         openRidRemovalRequestModal(rid.id);
+      }
+    });
+    dom.ridConvertToMaintenanceAction?.addEventListener("click", async () => {
+      const rid = findRidById(state.selectedRidId);
+      if (!rid || rid.convertedToMaintenanceId) return;
+      dom.ridDetailsFeedback.classList.add("hidden-state");
+      dom.ridConvertToMaintenanceAction.disabled = true;
+      dom.ridConvertToMaintenanceAction.textContent = "Convertendo...";
+      try {
+        const result = await convertRidToMaintenance(rid);
+        dom.ridConvertToMaintenanceAction.textContent = `Melhoria criada (${result.maintenanceNumber})`;
+      } catch (error) {
+        dom.ridDetailsFeedback.textContent = error.message || "Nao foi possivel converter a RID em melhoria.";
+        dom.ridDetailsFeedback.classList.remove("hidden-state");
+        dom.ridConvertToMaintenanceAction.disabled = false;
+        dom.ridConvertToMaintenanceAction.textContent = "Converter em melhoria";
       }
     });
     dom.ridDeleteConfirmCancel.addEventListener("click", closeRidDeleteConfirmModal);
