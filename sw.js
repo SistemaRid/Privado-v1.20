@@ -1,4 +1,4 @@
-const CACHE_NAME = "rid-mobile-offline-v4";
+const CACHE_NAME = "rid-mobile-offline-v5";
 const firebaseConfig = {
   apiKey: "AIzaSyDAcuwo5FZBs5013klfSMfWkQZbFjqYpbw",
   authDomain: "novo-rid-dezembro.firebaseapp.com",
