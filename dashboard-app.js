@@ -76,6 +76,7 @@
     topEmittersList: document.getElementById("topEmittersList"),
     topEmittersSummary: document.getElementById("topEmittersSummary"),
     employeesWithoutRidsList: document.getElementById("employeesWithoutRidsList"),
+    downloadEmployeeRidReportButton: document.getElementById("downloadEmployeeRidReportButton"),
     deleteRequestsCount: document.getElementById("deleteRequestsCount"),
     deleteRequestsSummary: document.getElementById("deleteRequestsSummary"),
     deleteRequestsList: document.getElementById("deleteRequestsList"),
@@ -366,6 +367,145 @@
     const digits = String(value ?? "").replace(/\D/g, "");
     if (!digits) return "-";
     return digits.padStart(5, "0");
+  }
+
+  function getRidEventDate(rid) {
+    return toDateSafe(rid?.emissionDate) || toDateSafe(rid?.createdAt);
+  }
+
+  function ridMatchesUser(rid, user) {
+    if (!rid || !user) return false;
+    const sameId = rid.emitterId && user.id && rid.emitterId === user.id;
+    const sameCpf = rid.emitterCpf && user.cpf && String(rid.emitterCpf) === String(user.cpf);
+    const sameName = rid.emitterName && user.name && String(rid.emitterName).trim() === String(user.name).trim();
+    return sameId || sameCpf || sameName;
+  }
+
+  function getMonthPeriod(month, year, sector) {
+    return {
+      showAllMonths: false,
+      month,
+      year,
+      sector: sector || ""
+    };
+  }
+
+  function formatMonthReference(month, year) {
+    return `${String(month).padStart(2, "0")}/${year}`;
+  }
+
+  function calculateMonthlyDropPercent(currentCount, previousCount) {
+    if (previousCount <= 0 || currentCount >= previousCount) return 0;
+    return ((previousCount - currentCount) / previousCount) * 100;
+  }
+
+  function loadImageAsDataUrl(src) {
+    return new Promise((resolve) => {
+      const image = new Image();
+      image.onload = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = image.naturalWidth || image.width;
+          canvas.height = image.naturalHeight || image.height;
+          const context = canvas.getContext("2d");
+          if (!context) {
+            resolve(null);
+            return;
+          }
+          context.drawImage(image, 0, 0);
+          resolve({
+            dataUrl: canvas.toDataURL("image/png"),
+            width: image.naturalWidth || image.width || 0,
+            height: image.naturalHeight || image.height || 0
+          });
+        } catch (error) {
+          resolve(null);
+        }
+      };
+      image.onerror = () => resolve(null);
+      image.src = src;
+    });
+  }
+
+  function drawEmployeeRidReportHeader(doc, context) {
+    const {
+      pageWidth,
+      pageHeight,
+      monthLabel,
+      sectorLabel,
+      reportItems,
+      regularCount,
+      previousMonthLabel,
+      generatedAtLabel,
+      logoData,
+      isFirstPage
+    } = context;
+
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(10, 10, pageWidth - 20, 28, 4, 4, "FD");
+
+    doc.setFillColor(239, 246, 255);
+    doc.roundedRect(10, 10, 34, 28, 4, 4, "F");
+
+    if (logoData?.dataUrl && logoData.width > 0 && logoData.height > 0) {
+      const maxWidth = 20;
+      const maxHeight = 20;
+      const scale = Math.min(maxWidth / logoData.width, maxHeight / logoData.height);
+      const drawWidth = logoData.width * scale;
+      const drawHeight = logoData.height * scale;
+      const drawX = 17 + ((maxWidth - drawWidth) / 2);
+      const drawY = 14 + ((maxHeight - drawHeight) / 2);
+      doc.addImage(logoData.dataUrl, "PNG", drawX, drawY, drawWidth, drawHeight);
+    }
+
+    doc.setTextColor(15, 23, 42);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(17);
+    doc.text("Relatorio detalhado de emissores de RID", 48, 20);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text(`CLUSTER SUL | FORMACAL | GERADO EM ${generatedAtLabel}`, 48, 27);
+    doc.text(`Periodo ${monthLabel} | Setor ${sectorLabel}`, 48, 32);
+
+    if (isFirstPage) {
+      const summaryTop = 43;
+      const boxWidth = (pageWidth - 28) / 4;
+      const summaryBoxes = [
+        { label: "Usuarios listados", value: String(reportItems.length), fill: [255, 255, 255], text: [15, 23, 42], border: [226, 232, 240] },
+        { label: "Regulares", value: String(regularCount), fill: [240, 253, 244], text: [21, 128, 61], border: [187, 247, 208] },
+        { label: "Mes atual", value: monthLabel, fill: [239, 246, 255], text: [29, 78, 216], border: [191, 219, 254] },
+        { label: "Comparativo", value: previousMonthLabel, fill: [255, 247, 237], text: [194, 65, 12], border: [254, 215, 170] }
+      ];
+
+      summaryBoxes.forEach((box, index) => {
+        const x = 10 + index * (boxWidth + 2.5);
+        doc.setFillColor(...box.fill);
+        doc.setDrawColor(...box.border);
+        doc.roundedRect(x, summaryTop, boxWidth, 16, 3, 3, "FD");
+        doc.setTextColor(100, 116, 139);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8);
+        doc.text(box.label.toUpperCase(), x + 3, summaryTop + 5.5);
+        doc.setTextColor(...box.text);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11);
+        doc.text(box.value, x + 3, summaryTop + 11.8);
+      });
+
+      doc.setTextColor(71, 85, 105);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8.5);
+      doc.text("Regra de emissor regular: media historica acima de 4 RIDs por mes.", 10, 63.5);
+    }
+
+    doc.setDrawColor(226, 232, 240);
+    doc.line(10, pageHeight - 10, pageWidth - 10, pageHeight - 10);
+    doc.setTextColor(148, 163, 184);
+    doc.setFontSize(8);
+    doc.text(`Pagina ${doc.getNumberOfPages()}`, pageWidth - 25, pageHeight - 6.5);
   }
 
   function getRidNumericValue(value) {
@@ -903,12 +1043,7 @@
     const now = new Date();
     const currentMonth = now.getMonth() + 1;
     const currentYear = now.getFullYear();
-    const monthPeriod = {
-      showAllMonths: false,
-      month: currentMonth,
-      year: currentYear,
-      sector: period.sector || ""
-    };
+    const monthPeriod = getMonthPeriod(currentMonth, currentYear, period.sector);
 
     return state.allUsers
       .filter((user) => !monthPeriod.sector || user.sector === monthPeriod.sector)
@@ -918,37 +1053,263 @@
           .filter((rid) => !isVisitorRid(rid))
           .filter((rid) => {
             if (monthPeriod.sector && rid.sector !== monthPeriod.sector) return false;
-            const ridDate = toDateSafe(rid.emissionDate) || toDateSafe(rid.createdAt);
+            const ridDate = getRidEventDate(rid);
             if (!matchesSelectedPeriod(ridDate, monthPeriod)) return false;
-
-            const sameId = rid.emitterId && user.id && rid.emitterId === user.id;
-            const sameCpf = rid.emitterCpf && user.cpf && String(rid.emitterCpf) === String(user.cpf);
-            const sameName = rid.emitterName && user.name && String(rid.emitterName).trim() === String(user.name).trim();
-            return sameId || sameCpf || sameName;
+            return ridMatchesUser(rid, user);
           });
 
         const lastRid = state.allRids
           .filter((rid) => !rid.deleted)
           .filter((rid) => !isVisitorRid(rid))
-          .filter((rid) => {
-            const sameId = rid.emitterId && user.id && rid.emitterId === user.id;
-            const sameCpf = rid.emitterCpf && user.cpf && String(rid.emitterCpf) === String(user.cpf);
-            const sameName = rid.emitterName && user.name && String(rid.emitterName).trim() === String(user.name).trim();
-            return sameId || sameCpf || sameName;
-          })
-          .sort((a, b) => (toDateSafe(b.emissionDate || b.createdAt)?.getTime() || 0) - (toDateSafe(a.emissionDate || a.createdAt)?.getTime() || 0))[0];
+          .filter((rid) => ridMatchesUser(rid, user))
+          .sort((a, b) => (getRidEventDate(b)?.getTime() || 0) - (getRidEventDate(a)?.getTime() || 0))[0];
 
         return {
           name: getDashboardEmployeeLabel(user),
           sector: user.sector || "",
           count: userRidList.length,
-          lastDate: lastRid ? toDateSafe(lastRid.emissionDate || lastRid.createdAt) : null
+          lastDate: lastRid ? getRidEventDate(lastRid) : null
         };
       })
       .sort((a, b) => {
         if (b.count !== a.count) return b.count - a.count;
         return String(a.name || "").localeCompare(String(b.name || ""), "pt-BR");
       });
+  }
+
+  function getEmployeeRidReportCurrentMonth(period) {
+    const now = new Date();
+    const currentMonth = now.getMonth() + 1;
+    const currentYear = now.getFullYear();
+    const previousDate = new Date(currentYear, currentMonth - 2, 1);
+    const currentMonthPeriod = getMonthPeriod(currentMonth, currentYear, period.sector);
+    const previousMonthPeriod = getMonthPeriod(previousDate.getMonth() + 1, previousDate.getFullYear(), period.sector);
+
+    return state.allUsers
+      .filter((user) => !currentMonthPeriod.sector || user.sector === currentMonthPeriod.sector)
+      .map((user) => {
+        const allUserRids = state.allRids
+          .filter((rid) => !rid.deleted)
+          .filter((rid) => !isVisitorRid(rid))
+          .filter((rid) => !currentMonthPeriod.sector || rid.sector === currentMonthPeriod.sector)
+          .filter((rid) => ridMatchesUser(rid, user))
+          .sort((a, b) => (getRidEventDate(b)?.getTime() || 0) - (getRidEventDate(a)?.getTime() || 0));
+
+        const currentMonthRids = allUserRids.filter((rid) => matchesSelectedPeriod(getRidEventDate(rid), currentMonthPeriod));
+        const previousMonthRids = allUserRids.filter((rid) => matchesSelectedPeriod(getRidEventDate(rid), previousMonthPeriod));
+        const monthlyCountMap = new Map();
+
+        allUserRids.forEach((rid) => {
+          const ridDate = getRidEventDate(rid);
+          if (!ridDate) return;
+          const monthKey = `${ridDate.getFullYear()}-${String(ridDate.getMonth() + 1).padStart(2, "0")}`;
+          monthlyCountMap.set(monthKey, (monthlyCountMap.get(monthKey) || 0) + 1);
+        });
+
+        const activeMonths = monthlyCountMap.size;
+        const totalRids = allUserRids.length;
+        const averageMonthlyRids = activeMonths > 0 ? totalRids / activeMonths : 0;
+        const lastRid = allUserRids[0] || null;
+        const lastRidStatus = normalizeStatus(lastRid?.status || "")
+          .toLowerCase()
+          .replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+        return {
+          name: getDashboardEmployeeLabel(user),
+          cpf: String(user.cpf || "").trim(),
+          email: String(user.email || "").trim(),
+          sector: String(user.sector || "").trim(),
+          role: String(user.role || user.function || user.jobTitle || user.position || "").trim(),
+          totalRids,
+          currentMonthCount: currentMonthRids.length,
+          previousMonthCount: previousMonthRids.length,
+          monthlyDropPercent: calculateMonthlyDropPercent(currentMonthRids.length, previousMonthRids.length),
+          isRegularEmitter: averageMonthlyRids > 4,
+          averageMonthlyRids,
+          lastDate: lastRid ? getRidEventDate(lastRid) : null,
+          lastRidNumber: lastRid ? formatRidNumber(lastRid.ridNumber) : "-",
+          lastRidStatus: lastRidStatus || "Sem status"
+        };
+      })
+      .sort((a, b) => {
+        if (b.currentMonthCount !== a.currentMonthCount) return b.currentMonthCount - a.currentMonthCount;
+        if (b.totalRids !== a.totalRids) return b.totalRids - a.totalRids;
+        return String(a.name || "").localeCompare(String(b.name || ""), "pt-BR");
+      });
+  }
+
+  async function downloadEmployeeRidReportPdf() {
+    const jsPdfApi = window.jspdf?.jsPDF;
+    if (!jsPdfApi) {
+      window.alert("A biblioteca de PDF nao foi carregada.");
+      return;
+    }
+
+    const period = getSelectedPeriod();
+    const reportItems = getEmployeeRidReportCurrentMonth(period);
+    const now = new Date();
+    const currentMonth = now.getMonth() + 1;
+    const currentYear = now.getFullYear();
+    const previousDate = new Date(currentYear, currentMonth - 2, 1);
+    const sectorLabel = period.sector || "Todos os setores";
+    const monthLabel = formatMonthReference(currentMonth, currentYear);
+    const previousMonthLabel = formatMonthReference(previousDate.getMonth() + 1, previousDate.getFullYear());
+    const regularCount = reportItems.filter((item) => item.isRegularEmitter).length;
+    const generatedAtLabel = `${now.toLocaleDateString("pt-BR")} ${now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+    const logoData = await loadImageAsDataUrl("logo.png");
+
+    const doc = new jsPdfApi({ orientation: "landscape", unit: "mm", format: "a4" });
+    const headerContext = {
+      pageWidth: doc.internal.pageSize.getWidth(),
+      pageHeight: doc.internal.pageSize.getHeight(),
+      monthLabel,
+      sectorLabel,
+      reportItems,
+      regularCount,
+      previousMonthLabel,
+      generatedAtLabel,
+      logoData
+    };
+
+    doc.autoTable({
+      startY: 68,
+      head: [[
+        "Colaborador",
+        "Setor",
+        "Funcao",
+        "Total",
+        `Mes ${monthLabel}`,
+        `Mes ${previousMonthLabel}`,
+        "Queda %",
+        "Ultimo RID",
+        "Ultima emissao",
+        "Regular"
+      ]],
+      body: reportItems.map((item) => ([
+        `${item.name || "-"}\nCPF: ${item.cpf || "-"}\nEmail: ${item.email || "-"}`,
+        item.sector || "-",
+        item.role || "-",
+        String(item.totalRids),
+        String(item.currentMonthCount),
+        String(item.previousMonthCount),
+        `${item.monthlyDropPercent.toFixed(1).replace(".", ",")}%`,
+        `${item.lastRidNumber} (${item.lastRidStatus})`,
+        item.lastDate ? formatDate(item.lastDate) : "Nenhum RID",
+        item.isRegularEmitter ? `Sim (${item.averageMonthlyRids.toFixed(1).replace(".", ",")}/mes)` : `Nao (${item.averageMonthlyRids.toFixed(1).replace(".", ",")}/mes)`
+      ])),
+      styles: {
+        font: "helvetica",
+        fontSize: 7.7,
+        cellPadding: 2.4,
+        lineColor: [229, 231, 235],
+        textColor: [51, 65, 85],
+        overflow: "linebreak"
+      },
+      headStyles: {
+        fillColor: [226, 232, 240],
+        textColor: [15, 23, 42],
+        fontStyle: "bold",
+        halign: "center",
+        valign: "middle",
+        lineColor: [203, 213, 225]
+      },
+      columnStyles: {
+        0: { cellWidth: 96 },
+        1: { cellWidth: 21 },
+        2: { cellWidth: 42 },
+        3: { cellWidth: 12, halign: "center" },
+        4: { cellWidth: 14, halign: "center" },
+        5: { cellWidth: 14, halign: "center" },
+        6: { cellWidth: 14, halign: "center" },
+        7: { cellWidth: 24, halign: "center" },
+        8: { cellWidth: 20, halign: "center" },
+        9: { cellWidth: 22, halign: "center" }
+      },
+      alternateRowStyles: {
+        fillColor: [248, 250, 252]
+      },
+      bodyStyles: {
+        fillColor: [255, 255, 255]
+      },
+      margin: { top: 42, left: 6, right: 6, bottom: 16 },
+      didParseCell: (hookData) => {
+        if (hookData.section === "body" && hookData.column.index === 9) {
+          const isPositive = String(hookData.cell.raw || "").trim().toLowerCase().startsWith("sim");
+          hookData.cell.styles.fillColor = isPositive ? [240, 253, 244] : [255, 247, 237];
+          hookData.cell.styles.textColor = isPositive ? [21, 128, 61] : [194, 65, 12];
+          hookData.cell.styles.fontStyle = "bold";
+        }
+        if (hookData.section === "body" && hookData.column.index === 6) {
+          const dropValue = parseFloat(String(hookData.cell.raw || "").replace("%", "").replace(",", "."));
+          if (Number.isFinite(dropValue) && dropValue > 0) {
+            hookData.cell.styles.textColor = [185, 28, 28];
+            hookData.cell.styles.fontStyle = "bold";
+          } else {
+            hookData.cell.styles.textColor = [22, 101, 52];
+          }
+        }
+      },
+      didDrawPage: (hookData) => {
+        drawEmployeeRidReportHeader(doc, {
+          ...headerContext,
+          isFirstPage: hookData.pageNumber === 1
+        });
+      }
+    });
+
+    const fileDate = `${currentYear}-${String(currentMonth).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    doc.save(`relatorio-emissores-rid-${fileDate}.pdf`);
+    void registerDashboardReportHistory({
+      exportType: "PDF",
+      reportName: "Relatorio detalhado de emissores de RID",
+      periodLabel: monthLabel,
+      sectorLabel,
+      totalCurrent: reportItems.length,
+      totalLate: 0,
+      metadata: {
+        usersListed: reportItems.length,
+        regularEmitters: regularCount,
+        currentMonthLabel: monthLabel,
+        previousMonthLabel
+      }
+    });
+  }
+
+  async function registerDashboardReportHistory({
+    exportType,
+    reportName,
+    periodLabel,
+    sectorLabel,
+    totalCurrent,
+    totalLate,
+    metadata
+  }) {
+    if (!canManageDashboard()) return;
+    if (!state.currentUser || !state.currentUserData) return;
+
+    const exportedAt = new Date();
+
+    try {
+      await db.collection("reportsHistory").add({
+        generatedById: state.currentUser.uid,
+        generatedByName: state.currentUserData.name || state.currentUser.email || "Usuario",
+        generatedByEmail: state.currentUser.email || state.currentUserData.email || "",
+        exportType: exportType || "PDF",
+        reportName: reportName || "Relatorio do dashboard",
+        reportSource: "dashboard",
+        periodLabel: periodLabel || "Mes atual",
+        sectorLabel: sectorLabel || "Todos os setores",
+        totalCurrent: Number(totalCurrent || 0),
+        totalLate: Number(totalLate || 0),
+        metadata: metadata || {},
+        exportedDate: exportedAt.toLocaleDateString("pt-BR"),
+        exportedTime: exportedAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+        exportedAtMs: exportedAt.getTime(),
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    } catch (error) {
+      console.warn("Nao foi possivel registrar o historico de relatorios do dashboard.", error);
+    }
   }
 
   function getTopEmitterStreaks(topEmitters, period) {
@@ -1987,6 +2348,10 @@
       resetFiltersToCurrentMonth();
       closeFiltersPanel();
       void renderDashboard();
+    });
+
+    dom.downloadEmployeeRidReportButton?.addEventListener("click", () => {
+      downloadEmployeeRidReportPdf();
     });
 
     dom.logoutButton.addEventListener("click", async () => {

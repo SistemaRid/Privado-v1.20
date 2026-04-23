@@ -361,12 +361,19 @@
       const createdAt = item.exportedDate || formatDate(item.createdAt);
       const createdHour = item.exportedTime || toDateSafe(item.createdAt)?.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) || "--:--";
       const sectorLabel = formatField(item.sectorLabel, "Todos os setores");
+      const reportName = formatField(item.reportName, item.exportType === "CSV" ? "Relatorio de RIDs" : "Relatorio");
+      const primaryMetricLabel = item.exportType === "PDF" ? "Usuarios" : "Periodo";
+      const secondaryMetricLabel = item.exportType === "PDF" ? "Regulares" : "Atrasados";
+      const secondaryMetricValue = item.exportType === "PDF"
+        ? Number(item.metadata?.regularEmitters || 0)
+        : Number(item.totalLate || 0);
       return `
         <article class="rounded-2xl border border-gray-100 bg-white px-5 py-4">
           <div class="flex items-start justify-between gap-4 flex-wrap">
             <div class="space-y-1">
               <div class="text-sm font-semibold text-gray-900">${escapeHtml(formatField(item.generatedByName, "Usuario nao identificado"))}</div>
               <div class="text-xs text-gray-500">Gerou um relatorio em ${escapeHtml(createdAt)} as ${escapeHtml(createdHour)}</div>
+              <div class="text-xs text-gray-500">${escapeHtml(reportName)}</div>
               <div class="flex items-center gap-2 flex-wrap pt-1">
                 <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-semibold text-gray-600">${escapeHtml(formatField(item.exportType, "CSV"))}</span>
                 <span class="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">${escapeHtml(formatField(item.periodLabel, getPeriodLabel()))}</span>
@@ -375,12 +382,12 @@
             </div>
             <div class="grid grid-cols-2 gap-3 min-w-[220px]">
               <div class="rounded-2xl bg-gray-50 px-3 py-2">
-                <div class="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Periodo</div>
+                <div class="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">${escapeHtml(primaryMetricLabel)}</div>
                 <div class="text-lg font-bold text-gray-900 mt-1">${escapeHtml(String(item.totalCurrent || 0))}</div>
               </div>
               <div class="rounded-2xl bg-red-50 px-3 py-2">
-                <div class="text-[11px] uppercase tracking-wider text-red-400 font-semibold">Atrasados</div>
-                <div class="text-lg font-bold text-red-700 mt-1">${escapeHtml(String(item.totalLate || 0))}</div>
+                <div class="text-[11px] uppercase tracking-wider text-red-400 font-semibold">${escapeHtml(secondaryMetricLabel)}</div>
+                <div class="text-lg font-bold text-red-700 mt-1">${escapeHtml(String(secondaryMetricValue))}</div>
               </div>
             </div>
           </div>
@@ -400,6 +407,8 @@
         generatedByName: state.currentUserData.name || state.currentUser.email || "Usuario",
         generatedByEmail: state.currentUser.email || state.currentUserData.email || "",
         exportType: "CSV",
+        reportName: "Relatorio de RIDs",
+        reportSource: "relatorios",
         periodLabel: getPeriodLabel(),
         sectorLabel,
         totalCurrent: currentCount,
