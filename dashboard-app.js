@@ -77,11 +77,8 @@
     topEmittersList: document.getElementById("topEmittersList"),
     topEmittersSummary: document.getElementById("topEmittersSummary"),
     employeesWithoutRidsList: document.getElementById("employeesWithoutRidsList"),
-<<<<<<< HEAD
     downloadEmployeeRidReportButton: document.getElementById("downloadEmployeeRidReportButton"),
-=======
     exportEmployeesPdfButton: document.getElementById("exportEmployeesPdfButton"),
->>>>>>> ed15a27 (correção final funcional)
     deleteRequestsCount: document.getElementById("deleteRequestsCount"),
     deleteRequestsSummary: document.getElementById("deleteRequestsSummary"),
     deleteRequestsList: document.getElementById("deleteRequestsList"),
@@ -374,7 +371,6 @@
     return digits.padStart(5, "0");
   }
 
-<<<<<<< HEAD
   function getRidEventDate(rid) {
     return toDateSafe(rid?.emissionDate) || toDateSafe(rid?.createdAt);
   }
@@ -514,8 +510,6 @@
     doc.text(`Pagina ${doc.getNumberOfPages()}`, pageWidth - 25, pageHeight - 6.5);
   }
 
-=======
->>>>>>> ed15a27 (correção final funcional)
   function getRidNumericValue(value) {
     const digits = String(value ?? "").replace(/\D/g, "");
     return digits ? Number(digits) : 0;
@@ -1079,12 +1073,8 @@
           name: getDashboardEmployeeLabel(user),
           sector: user.sector || "",
           count: userRidList.length,
-<<<<<<< HEAD
-          lastDate: lastRid ? getRidEventDate(lastRid) : null
-=======
           lastDate,
           daysWithout
->>>>>>> ed15a27 (correção final funcional)
         };
       })
       .sort((a, b) => {
@@ -1092,7 +1082,6 @@
         return String(a.name || "").localeCompare(String(b.name || ""), "pt-BR");
       });
   }
-
   function getEmployeeRidReportCurrentMonth(period) {
     const now = new Date();
     const currentMonth = now.getMonth() + 1;

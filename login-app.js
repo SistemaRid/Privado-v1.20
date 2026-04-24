@@ -84,11 +84,8 @@
   function isDeveloperProfile(profile) {
     const userType = String(profile?.userType || "").trim().toLowerCase();
     return !!(
-<<<<<<< HEAD
       profile?.isDeveloper === true ||
-=======
       (profile?.isAdmin === true && profile?.isDeveloper === true) ||
->>>>>>> ed15a27 (correção final funcional)
       userType === "desenvolvedor"
     );
   }

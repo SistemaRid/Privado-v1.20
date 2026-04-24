@@ -274,7 +274,6 @@
     });
   }
 
-<<<<<<< HEAD
   function normalizeMaintenancePriority(riskClassification) {
     const normalized = normalizeStatus(riskClassification);
     if (normalized.includes("CRIT")) return "CRITICA";
@@ -371,8 +370,6 @@
     };
   }
 
-=======
->>>>>>> ed15a27 (correção final funcional)
   function getActorRoleLabel() {
     if (isDeveloperUser(state.currentUserData)) return "DEVELOPER";
     if (isAdminUser(state.currentUserData)) return "ADMIN";
