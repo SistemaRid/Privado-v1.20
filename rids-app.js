@@ -141,6 +141,15 @@
     window.location.replace(`login.html?next=${encodeURIComponent(next)}`);
   }
 
+  async function getCurrentUserProfile(user) {
+    if (!user?.uid) return null;
+    if (window.ridUserProfileResolver?.resolveUserProfile) {
+      return window.ridUserProfileResolver.resolveUserProfile(db, user);
+    }
+    const userDoc = await db.collection("users").doc(user.uid).get();
+    return userDoc.exists ? { id: user.uid, ...userDoc.data() } : null;
+  }
+
   function escapeHtml(value) {
     return String(value ?? "")
       .replace(/&/g, "&amp;")
@@ -265,6 +274,7 @@
     });
   }
 
+<<<<<<< HEAD
   function normalizeMaintenancePriority(riskClassification) {
     const normalized = normalizeStatus(riskClassification);
     if (normalized.includes("CRIT")) return "CRITICA";
@@ -361,6 +371,8 @@
     };
   }
 
+=======
+>>>>>>> ed15a27 (correção final funcional)
   function getActorRoleLabel() {
     if (isDeveloperUser(state.currentUserData)) return "DEVELOPER";
     if (isAdminUser(state.currentUserData)) return "ADMIN";
@@ -1180,8 +1192,7 @@
       return;
     }
 
-    const userDoc = await db.collection("users").doc(user.uid).get();
-    state.currentUserData = userDoc.exists ? { id: user.uid, ...userDoc.data() } : null;
+    state.currentUserData = await getCurrentUserProfile(user);
 
     if (!state.currentUserData || !hasManagementAccess()) {
       sessionStorage.setItem("ridLoginFeedback", "Sua conta nao tem permissao para este painel.");

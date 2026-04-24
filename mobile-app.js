@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
   const firebaseConfig = {
     apiKey: "AIzaSyDAcuwo5FZBs5013klfSMfWkQZbFjqYpbw",
     authDomain: "novo-rid-dezembro.firebaseapp.com",
@@ -15,7 +15,7 @@
   const ANNOUNCEMENTS_COLLECTION = db.collection("globalAnnouncements");
   const RID_FORM_SETTINGS_DOC = db.collection("appSettings").doc("ridFormSchema");
   const messaging = typeof firebase.messaging === "function" ? firebase.messaging() : null;
-  const WEB_PUSH_VAPID_KEY = "BC2FvVfx_PdEvXYqKdMAwZaNetYp_5Ni94FYINhTBxaXZnrhlCFfczJ-ivYtwsErGGcYAIAqUVzRz2HteJSaNuQ";
+  const WEB_PUSH_VAPID_KEY = "BI1bjhLMKixbDQsSZ98G40pFeaYqQnxDShyqYrViqepuybo0U8VtCQcGumv7R6WzaPRoLvkLY_pIK8Q4UGg8mLg";
 
   const STORAGE_KEYS = {
     auth: "ridMobileOfflineAuth",
@@ -781,6 +781,33 @@
 
   function cpfToEmail(cpf) {
     return `${normalizeCpf(cpf)}@jdemito.com`;
+  }
+
+  async function getCurrentUserProfile(user) {
+    if (!user?.uid) return null;
+    if (window.ridUserProfileResolver?.resolveUserProfile) {
+      return window.ridUserProfileResolver.resolveUserProfile(db, user);
+    }
+    const userDoc = await db.collection("users").doc(user.uid).get();
+    return userDoc.exists ? { id: user.uid, ...userDoc.data() } : null;
+  }
+
+  function getEmitterIdentity() {
+    if (window.ridUserProfileResolver?.getEmitterIdentity) {
+      return window.ridUserProfileResolver.getEmitterIdentity(state.currentUserData, state.currentUser);
+    }
+    return {
+      emitterId: state.currentUserData?.id || state.currentUser?.uid || "",
+      emitterUid: state.currentUser?.uid || state.currentUserData?.id || "",
+      emitterCpf: state.currentUserData?.cpf || "",
+      emitterCpfDigits: "",
+      emitterCpfMasked: state.currentUserData?.cpf || "",
+      emitterEmail: state.currentUser?.email || state.currentUserData?.email || "",
+      emitterName: state.currentUserData?.name || state.currentUser?.displayName || "Usuario",
+      sector: state.currentUserData?.sector || "",
+      unit: state.currentUserData?.unit || "",
+      contractType: state.currentUserData?.contractType || ""
+    };
   }
 
   async function sha256(text) {
@@ -1695,13 +1722,18 @@
     const leaderId = String(formData.get(responsibleLeaderFieldKey) || "").trim();
     const leader = state.leaders.find((item) => item.id === leaderId);
     const status = String(formData.get(statusFieldKey) || "").toUpperCase();
+    const emitter = getEmitterIdentity();
     const payload = {
-      emitterId: state.currentUser.uid,
-      emitterName: state.currentUserData.name,
-      emitterCpf: state.currentUserData.cpf,
-      contractType: "",
-      unit: "",
-      sector: state.currentUserData.sector || "",
+      emitterId: emitter.emitterId,
+      emitterUid: emitter.emitterUid,
+      emitterName: emitter.emitterName,
+      emitterCpf: emitter.emitterCpf,
+      emitterCpfDigits: emitter.emitterCpfDigits,
+      emitterCpfMasked: emitter.emitterCpfMasked,
+      emitterEmail: emitter.emitterEmail,
+      contractType: emitter.contractType || "",
+      unit: emitter.unit || "",
+      sector: emitter.sector || "",
       emissionDate: new Date().toISOString().slice(0, 10),
       incidentType: "",
       detectionOrigin: "",
@@ -1763,8 +1795,12 @@
     await db.collection("rids").add({
       ridNumber,
       emitterId: payload.emitterId,
+      emitterUid: payload.emitterUid || payload.emitterId || "",
       emitterName: payload.emitterName,
       emitterCpf: payload.emitterCpf,
+      emitterCpfDigits: payload.emitterCpfDigits || "",
+      emitterCpfMasked: payload.emitterCpfMasked || "",
+      emitterEmail: payload.emitterEmail || "",
       contractType: payload.contractType,
       unit: payload.unit,
       sector: payload.sector,
@@ -2180,13 +2216,13 @@
       if (state.online) {
         const email = cpfToEmail(cpf);
         const credential = await auth.signInWithEmailAndPassword(email, password);
-        const userDoc = await db.collection("users").doc(credential.user.uid).get();
-        if (!userDoc.exists) {
+        const profile = await getCurrentUserProfile(credential.user);
+        if (!profile) {
           throw new Error("Usuário não encontrado na base.");
         }
 
         state.currentUser = { uid: credential.user.uid };
-        state.currentUserData = { id: credential.user.uid, ...userDoc.data() };
+        state.currentUserData = profile;
         loadUserCache(credential.user.uid);
 
         setOfflineAuth({
@@ -3535,11 +3571,11 @@
     const sessionUser = auth.currentUser;
     if (!sessionUser || !state.online) return false;
 
-    const userDoc = await db.collection("users").doc(sessionUser.uid).get();
-    if (!userDoc.exists) return false;
+    const profile = await getCurrentUserProfile(sessionUser);
+    if (!profile) return false;
 
     state.currentUser = { uid: sessionUser.uid };
-    state.currentUserData = { id: sessionUser.uid, ...userDoc.data() };
+    state.currentUserData = profile;
     loadUserCache(sessionUser.uid);
     await loadRidFormSchema();
     const announcementPromise = maybeShowGlobalAnnouncement();
@@ -3706,6 +3742,3 @@
 
   init();
 })();
-
-
-

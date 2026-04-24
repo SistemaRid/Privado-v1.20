@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#6b7a8f">
-  <title>RID Mobile Formacal</title>
-  <link rel="icon" href="icon-new.png">
-  <link rel="apple-touch-icon" href="icon-new.png">
+  <title>RID Mobile Offline</title>
+  <link rel="icon" href="pwa.png">
+  <link rel="apple-touch-icon" href="pwa.png">
   <link rel="manifest" href="mobile-manifest.json">
   <link rel="stylesheet" href="mobile.css">
   <style>
@@ -59,12 +59,16 @@
   <a id="siteFooter" class="site-footer" href="https://wa.me/5563992076136" target="_blank" rel="noopener noreferrer" aria-label="Falar com Juan Carlos no WhatsApp">&copy; | Todos os direitos reservados. Dev. por Juan Carlos</a>
   <script>
     (function () {
+      if (window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone) {
+        document.body.classList.add("pwa-mode");
+      }
       const footer = document.getElementById("siteFooter");
       if (!footer) return;
       footer.classList.add("visible");
       window.setTimeout(() => footer.classList.remove("visible"), 10000);
     })();
   </script>
+  <script src="user-profile-resolver.js"></script>
   <script src="mobile-app.js"></script>
 </body>
 </html>

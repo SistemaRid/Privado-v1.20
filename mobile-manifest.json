@@ -1,6 +1,6 @@
 {
-  "name": "Sistema RID's",
-  "short_name": "Sistema RID's",
+  "name": "Natical RID's",
+  "short_name": "Natical RID's",
   "start_url": "./mobile.html",
   "scope": "./",
   "display": "standalone",
@@ -8,13 +8,13 @@
   "theme_color": "#6b7a8f",
   "icons": [
     {
-      "src": "icon-new.png",
-      "sizes": "192x192",
+      "src": "pwa.png",
+      "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "icon-new.png",
+      "src": "pwa.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"

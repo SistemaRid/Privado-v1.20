@@ -65,6 +65,14 @@
     rejectSubmitButton: document.getElementById("rejectSubmitButton")
   };
 
+  function isAdminProfile(user = state.currentUserData) {
+    return !!user?.isAdmin;
+  }
+
+  function isDeveloperProfile(user = state.currentUserData) {
+    return !!(user?.isAdmin && user?.isDeveloper);
+  }
+
   function maskCpf(value) {
     return String(value || "")
       .replace(/\D/g, "")
@@ -83,6 +91,15 @@
     const currentPage = window.location.pathname.split(/[\\/]/).pop() || "dashboard.html";
     const next = currentPage === "login.html" ? "dashboard.html" : currentPage;
     window.location.replace(`login.html?next=${encodeURIComponent(next)}`);
+  }
+
+  async function getCurrentUserProfile(user) {
+    if (!user?.uid) return null;
+    if (window.ridUserProfileResolver?.resolveUserProfile) {
+      return window.ridUserProfileResolver.resolveUserProfile(db, user);
+    }
+    const userDoc = await db.collection("users").doc(user.uid).get();
+    return userDoc.exists ? { id: user.uid, ...userDoc.data() } : null;
   }
 
   function escapeHtml(value) {
@@ -147,16 +164,16 @@
 
   function updateRoleNavigation() {
     document.querySelectorAll('[data-admin-only-nav="designated"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !(state.currentUserData?.isAdmin || state.currentUserData?.isDeveloper));
+      element.classList.toggle("hidden-state", !isAdminProfile());
     });
     document.querySelectorAll('[data-developer-only-nav="control-center"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
+      element.classList.toggle("hidden-state", !isDeveloperProfile());
     });
     document.querySelectorAll('[data-privileged-nav="changes"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
+      element.classList.toggle("hidden-state", !isDeveloperProfile());
     });
     document.querySelectorAll('[data-developer-only-nav="requests"]').forEach((element) => {
-      element.classList.toggle("hidden-state", !state.currentUserData?.isDeveloper);
+      element.classList.toggle("hidden-state", !isDeveloperProfile());
     });
   }
 
@@ -358,7 +375,7 @@
     const reviewedBy = {
       id: state.currentUser.uid,
       name: state.currentUserData?.name || state.currentUser.email || "Desenvolvedor",
-      role: state.currentUserData?.isDeveloper ? "Desenvolvedor" : "Usuario"
+      role: isDeveloperProfile() ? "Desenvolvedor" : "Usuario"
     };
 
     await db.collection("rids").doc(rid.id).update({
@@ -400,7 +417,7 @@
     const reviewedBy = {
       id: state.currentUser.uid,
       name: state.currentUserData?.name || state.currentUser.email || "Desenvolvedor",
-      role: state.currentUserData?.isDeveloper ? "Desenvolvedor" : "Usuario"
+      role: isDeveloperProfile() ? "Desenvolvedor" : "Usuario"
     };
 
     await db.collection("deleteRequests").doc(requestId).update({
@@ -443,7 +460,7 @@
     if (typeof state.unsubRequests === "function") state.unsubRequests();
     state.unsubRequests = db.collection("deleteRequests").onSnapshot((snapshot) => {
       state.allRequests = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      if (state.currentUserData?.isDeveloper) renderList();
+      if (isDeveloperProfile()) renderList();
     });
   }
 
@@ -451,7 +468,7 @@
     if (typeof state.unsubRids === "function") state.unsubRids();
     state.unsubRids = db.collection("rids").onSnapshot((snapshot) => {
       state.allRids = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      if (state.currentUserData?.isDeveloper) renderList();
+      if (isDeveloperProfile()) renderList();
     });
   }
 
@@ -459,7 +476,7 @@
     if (typeof state.unsubUsers === "function") state.unsubUsers();
     state.unsubUsers = db.collection("users").onSnapshot((snapshot) => {
       state.allUsers = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      if (state.currentUserData?.isDeveloper) renderList();
+      if (isDeveloperProfile()) renderList();
     });
   }
 
@@ -554,10 +571,9 @@
       return;
     }
 
-    const userDoc = await db.collection("users").doc(user.uid).get();
-    state.currentUserData = userDoc.exists ? { id: user.uid, ...userDoc.data() } : null;
+    state.currentUserData = await getCurrentUserProfile(user);
 
-    if (!state.currentUserData?.isDeveloper) {
+    if (!isDeveloperProfile()) {
       sessionStorage.setItem("ridLoginFeedback", "Somente desenvolvedores podem acessar esta tela.");
       await auth.signOut();
       return;

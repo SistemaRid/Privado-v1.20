@@ -407,8 +407,11 @@
         generatedByName: state.currentUserData.name || state.currentUser.email || "Usuario",
         generatedByEmail: state.currentUser.email || state.currentUserData.email || "",
         exportType: "CSV",
+<<<<<<< HEAD
         reportName: "Relatorio de RIDs",
         reportSource: "relatorios",
+=======
+>>>>>>> ed15a27 (correção final funcional)
         periodLabel: getPeriodLabel(),
         sectorLabel,
         totalCurrent: currentCount,

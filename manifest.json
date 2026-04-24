@@ -1,19 +1,19 @@
 {
-  "name": "Sistema de Gerenciamento de RIDs",
-  "short_name": "Sistema RIDs",
-  "start_url": "/Privado-v1.20/",
-  "scope": "/Privado-v1.20/",
+  "name": "Natical RID's",
+  "short_name": "Natical RID's",
+  "start_url": "/NATICAL-RID-s/",
+  "scope": "/NATICAL-RID-s/",
   "display": "standalone",
   "background_color": "#dfdfdf",
   "theme_color": "#808080",
   "icons": [
     {
-      "src": "icon-new.png",
+      "src": "icon-192.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "icon-new.png",
+      "src": "icon.png",
       "sizes": "512x512",
       "type": "image/png"
     }

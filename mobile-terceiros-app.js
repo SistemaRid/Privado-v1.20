@@ -744,6 +744,33 @@
     return `${normalizeCpf(cpf)}@jdemito.com`;
   }
 
+  async function getCurrentUserProfile(user) {
+    if (!user?.uid) return null;
+    if (window.ridUserProfileResolver?.resolveUserProfile) {
+      return window.ridUserProfileResolver.resolveUserProfile(db, user);
+    }
+    const userDoc = await db.collection("users").doc(user.uid).get();
+    return userDoc.exists ? { id: user.uid, ...userDoc.data() } : null;
+  }
+
+  function getEmitterIdentity() {
+    if (window.ridUserProfileResolver?.getEmitterIdentity) {
+      return window.ridUserProfileResolver.getEmitterIdentity(state.currentUserData, state.currentUser);
+    }
+    return {
+      emitterId: state.currentUserData?.id || state.currentUser?.uid || "",
+      emitterUid: state.currentUser?.uid || state.currentUserData?.id || "",
+      emitterCpf: state.currentUserData?.cpf || "",
+      emitterCpfDigits: "",
+      emitterCpfMasked: state.currentUserData?.cpf || "",
+      emitterEmail: state.currentUser?.email || state.currentUserData?.email || "",
+      emitterName: state.currentUserData?.name || state.currentUser?.displayName || "Usuario",
+      sector: state.currentUserData?.sector || "",
+      unit: state.currentUserData?.unit || "",
+      contractType: state.currentUserData?.contractType || ""
+    };
+  }
+
   function getUserTypeLabel(userData) {
     if (userData?.isDeveloper) return "Desenvolvedor";
     if (userData?.isAdmin) return "Administrador";
@@ -1717,13 +1744,18 @@
     const leaderId = String(formData.get(responsibleLeaderFieldKey) || "").trim();
     const leader = state.leaders.find((item) => item.id === leaderId);
     const status = String(formData.get(statusFieldKey) || "").toUpperCase();
+    const emitter = getEmitterIdentity();
     const payload = {
-      emitterId: state.currentUser.uid,
-      emitterName: state.currentUserData.name,
-      emitterCpf: state.currentUserData.cpf,
-      contractType: "",
-      unit: "",
-      sector: state.currentUserData.sector || "",
+      emitterId: emitter.emitterId,
+      emitterUid: emitter.emitterUid,
+      emitterName: emitter.emitterName,
+      emitterCpf: emitter.emitterCpf,
+      emitterCpfDigits: emitter.emitterCpfDigits,
+      emitterCpfMasked: emitter.emitterCpfMasked,
+      emitterEmail: emitter.emitterEmail,
+      contractType: emitter.contractType || "",
+      unit: emitter.unit || "",
+      sector: emitter.sector || "",
       emissionDate: new Date().toISOString().slice(0, 10),
       incidentType: "",
       detectionOrigin: "",
@@ -1785,8 +1817,12 @@
     await db.collection("rids").add({
       ridNumber,
       emitterId: payload.emitterId,
+      emitterUid: payload.emitterUid || payload.emitterId || "",
       emitterName: payload.emitterName,
       emitterCpf: payload.emitterCpf,
+      emitterCpfDigits: payload.emitterCpfDigits || "",
+      emitterCpfMasked: payload.emitterCpfMasked || "",
+      emitterEmail: payload.emitterEmail || "",
       contractType: payload.contractType,
       unit: payload.unit,
       sector: payload.sector,
@@ -2079,12 +2115,12 @@
       if (state.online) {
         const email = cpfToEmail(cpf);
         const credential = await auth.signInWithEmailAndPassword(email, password);
-        const userDoc = await db.collection("users").doc(credential.user.uid).get();
-        if (!userDoc.exists) {
+        const profile = await getCurrentUserProfile(credential.user);
+        if (!profile) {
           throw new Error("Usuário não encontrado na base.");
         }
 
-        const userData = { id: credential.user.uid, ...userDoc.data() };
+        const userData = profile;
         ensureThirdPartyMobileUser(userData);
 
         state.currentUser = { uid: credential.user.uid };
@@ -3328,10 +3364,10 @@
     const sessionUser = auth.currentUser;
     if (!sessionUser || !state.online) return false;
 
-    const userDoc = await db.collection("users").doc(sessionUser.uid).get();
-    if (!userDoc.exists) return false;
+    const profile = await getCurrentUserProfile(sessionUser);
+    if (!profile) return false;
 
-    const userData = { id: sessionUser.uid, ...userDoc.data() };
+    const userData = profile;
     ensureThirdPartyMobileUser(userData);
 
     state.currentUser = { uid: sessionUser.uid };
