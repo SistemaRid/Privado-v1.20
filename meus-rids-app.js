@@ -63,15 +63,12 @@
     newRidFeedback: document.getElementById("newRidFeedback")
   };
 
-<<<<<<< HEAD
-=======
   function debugLog(step, payload) {
     try {
       console.log(`[RID DEBUG] ${step}`, payload ?? "");
     } catch (error) {}
   }
 
->>>>>>> ed15a27 (correção final funcional)
   function isAdminProfile(user = state.currentUserData) {
     return !!user?.isAdmin;
   }
