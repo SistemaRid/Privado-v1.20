@@ -515,6 +515,10 @@
     return digits ? Number(digits) : 0;
   }
 
+  function isActiveRid(rid) {
+    return !!(rid && !rid.deleted && !rid.convertedToMaintenanceId);
+  }
+
   function getCurrentRidMilestone(highestRidNumber) {
     if (highestRidNumber < 1000) return null;
     const milestoneOffset = Math.floor((highestRidNumber - 1000) / 500) * 500;
@@ -985,7 +989,7 @@
 
   function getFilteredRids(period) {
     return state.allRids
-      .filter((rid) => !rid.deleted)
+      .filter((rid) => isActiveRid(rid))
       .filter((rid) => !isVisitorRid(rid))
       .filter((rid) => {
         if (period.sector && rid.sector !== period.sector) return false;
@@ -1006,7 +1010,7 @@
     weekEnd.setHours(23, 59, 59, 999);
 
     return state.allRids
-      .filter((rid) => !rid.deleted)
+      .filter((rid) => isActiveRid(rid))
       .filter((rid) => !isVisitorRid(rid))
       .filter((rid) => !period.sector || rid.sector === period.sector)
       .filter((rid) => {
@@ -1027,7 +1031,7 @@
       .filter((user) => !emitters.has(user.id))
       .map((user) => {
         const lastRid = state.allRids
-          .filter((rid) => !rid.deleted && !isVisitorRid(rid) && rid.emitterId === user.id)
+          .filter((rid) => isActiveRid(rid) && !isVisitorRid(rid) && rid.emitterId === user.id)
           .sort((a, b) => (toDateSafe(b.emissionDate || b.createdAt)?.getTime() || 0) - (toDateSafe(a.emissionDate || a.createdAt)?.getTime() || 0))[0];
         const lastDate = lastRid ? toDateSafe(lastRid.emissionDate || lastRid.createdAt) : null;
         const daysWithout = lastDate ? Math.floor((now - lastDate) / (1000 * 60 * 60 * 24)) : null;
@@ -1051,7 +1055,7 @@
       .filter((user) => !monthPeriod.sector || user.sector === monthPeriod.sector)
       .map((user) => {
         const userRidList = state.allRids
-          .filter((rid) => !rid.deleted)
+          .filter((rid) => isActiveRid(rid))
           .filter((rid) => !isVisitorRid(rid))
           .filter((rid) => {
             if (monthPeriod.sector && rid.sector !== monthPeriod.sector) return false;
@@ -1061,7 +1065,7 @@
           });
 
         const lastRid = state.allRids
-          .filter((rid) => !rid.deleted)
+          .filter((rid) => isActiveRid(rid))
           .filter((rid) => !isVisitorRid(rid))
           .filter((rid) => ridMatchesUser(rid, user))
           .sort((a, b) => (getRidEventDate(b)?.getTime() || 0) - (getRidEventDate(a)?.getTime() || 0))[0];
@@ -1094,7 +1098,7 @@
       .filter((user) => !currentMonthPeriod.sector || user.sector === currentMonthPeriod.sector)
       .map((user) => {
         const allUserRids = state.allRids
-          .filter((rid) => !rid.deleted)
+          .filter((rid) => isActiveRid(rid))
           .filter((rid) => !isVisitorRid(rid))
           .filter((rid) => !currentMonthPeriod.sector || rid.sector === currentMonthPeriod.sector)
           .filter((rid) => ridMatchesUser(rid, user))
@@ -1335,7 +1339,7 @@
         const year = date.getFullYear();
 
         const monthRids = state.allRids
-          .filter((rid) => !rid.deleted)
+          .filter((rid) => isActiveRid(rid))
           .filter((rid) => !isVisitorRid(rid))
           .filter((rid) => !period.sector || rid.sector === period.sector)
           .filter((rid) => {
@@ -1370,7 +1374,7 @@
     const ridMilestone = getRidMilestoneInfo();
     const filteredRids = getFilteredRids(period);
     const goalProgressRids = state.allRids
-      .filter((rid) => !rid.deleted)
+      .filter((rid) => isActiveRid(rid))
       .filter((rid) => {
         if (period.sector && rid.sector !== period.sector) return false;
         const date = toDateSafe(rid.emissionDate) || toDateSafe(rid.createdAt);
@@ -1378,7 +1382,7 @@
       });
 
     const openRids = state.allRids
-      .filter((rid) => !rid.deleted)
+      .filter((rid) => isActiveRid(rid))
       .filter((rid) => {
         const status = normalizeStatus(rid.status);
         return status === "EM ANDAMENTO" || status === "PENDENTE";
@@ -1387,7 +1391,7 @@
     const overdueRids = filteredRids.filter((rid) => normalizeStatus(rid.status) === "VENCIDO").length;
 
     const correctedInMonthList = state.allRids
-      .filter((rid) => !rid.deleted)
+      .filter((rid) => isActiveRid(rid))
       .filter((rid) => !isVisitorRid(rid))
       .filter((rid) => {
         if (period.sector && rid.sector !== period.sector) return false;
@@ -1401,7 +1405,7 @@
     }).length;
 
     const lateRids = state.allRids
-      .filter((rid) => !rid.deleted)
+      .filter((rid) => isActiveRid(rid))
       .filter((rid) => !isVisitorRid(rid))
       .filter((rid) => {
         if (period.sector && rid.sector !== period.sector) return false;
@@ -1412,7 +1416,7 @@
       }).length;
 
     const closedRids = state.allRids
-      .filter((rid) => !rid.deleted)
+      .filter((rid) => isActiveRid(rid))
       .filter((rid) => !isVisitorRid(rid))
       .filter((rid) => {
         if (period.sector && rid.sector !== period.sector) return false;
@@ -1429,7 +1433,7 @@
       .filter((rid) => matchesSelectedPeriod(toDateSafe(rid.deletedAt), period)).length;
 
     const statusBase = state.allRids
-      .filter((rid) => !rid.deleted)
+      .filter((rid) => isActiveRid(rid))
       .filter((rid) => !isVisitorRid(rid))
       .filter((rid) => {
         if (period.sector && rid.sector !== period.sector) return false;

@@ -196,6 +196,10 @@
     return digits ? Number(digits) : 0;
   }
 
+  function isActiveRid(rid) {
+    return !!(rid && !rid.deleted && !rid.convertedToMaintenanceId);
+  }
+
   function formatField(value, fallback = "-") {
     const text = String(value ?? "").trim();
     return text || fallback;
@@ -513,6 +517,7 @@
 
   function getMine() {
     return state.allRids
+      .filter((rid) => isActiveRid(rid))
       .filter((rid) => rid.emitterId === state.currentUser?.uid)
       .sort((a, b) => {
         const ridDiff = getRidSortValue(b) - getRidSortValue(a);

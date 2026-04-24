@@ -199,6 +199,10 @@
     return digits ? Number(digits) : 0;
   }
 
+  function isActiveRid(rid) {
+    return !!(rid && !rid.deleted && !rid.convertedToMaintenanceId);
+  }
+
   function resetFiltersToCurrentMonth() {
     const now = new Date();
     dom.filterMonth.value = String(now.getMonth() + 1);
@@ -837,7 +841,7 @@
 
   function getFilteredRids(filters) {
     return state.allRids
-      .filter((rid) => !rid.deleted)
+      .filter((rid) => isActiveRid(rid))
       .filter((rid) => {
         if (filters.sector && rid.sector !== filters.sector) return false;
         const status = normalizeStatus(rid.status);
@@ -863,7 +867,7 @@
 
   function getLatePreviousRids(filters) {
     return state.allRids
-      .filter((rid) => !rid.deleted)
+      .filter((rid) => isActiveRid(rid))
       .filter((rid) => {
         if (filters.sector && rid.sector !== filters.sector) return false;
         const date = toDateSafe(rid.emissionDate || rid.createdAt);
@@ -1093,6 +1097,8 @@
       try {
         const result = await convertRidToMaintenance(rid);
         dom.ridConvertToMaintenanceAction.textContent = `Melhoria criada (${result.maintenanceNumber})`;
+        closeRidDetailsModal();
+        renderRidsPage();
       } catch (error) {
         dom.ridDetailsFeedback.textContent = error.message || "Nao foi possivel converter a RID em melhoria.";
         dom.ridDetailsFeedback.classList.remove("hidden-state");

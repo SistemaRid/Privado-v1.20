@@ -90,6 +90,10 @@
     return !!(user?.isAdmin && user?.isDeveloper);
   }
 
+  function canBeMaintenanceResponsible(user) {
+    return !!(user && !user.deleted && (isAdminProfile(user) || isDeveloperProfile(user)));
+  }
+
   function updateAdminNavigation() {
     document.querySelectorAll('[data-admin-only-nav="designated"]').forEach((element) => {
       element.classList.toggle("hidden-state", !isAdminProfile());
@@ -206,7 +210,7 @@
 
   function populateResponsibleSelects() {
     const users = state.allUsers
-      .filter((user) => !user.deleted)
+      .filter((user) => canBeMaintenanceResponsible(user))
       .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "pt-BR"));
 
     const options = [`<option value="">Todos os responsaveis</option>`]

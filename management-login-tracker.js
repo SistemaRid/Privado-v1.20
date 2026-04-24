@@ -1,4 +1,4 @@
-(function () {
+ (function () {
   const firebaseConfig = {
     apiKey: "AIzaSyDAcuwo5FZBs5013klfSMfWkQZbFjqYpbw",
     authDomain: "novo-rid-dezembro.firebaseapp.com",

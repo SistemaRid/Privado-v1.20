@@ -146,6 +146,10 @@
     return digits.padStart(5, "0");
   }
 
+  function isActiveRid(rid) {
+    return !!(rid && !rid.deleted && !rid.convertedToMaintenanceId);
+  }
+
   function formatField(value, fallback = "-") {
     const text = String(value ?? "").trim();
     return text || fallback;
@@ -270,7 +274,7 @@
     const search = String(state.filters.search || "").trim().toLowerCase();
 
     return state.allRids
-      .filter((rid) => !rid.deleted)
+      .filter((rid) => isActiveRid(rid))
       .filter((rid) => rid.responsibleLeader === state.currentUser?.uid)
       .filter((rid) => normalizeStatus(rid.status) === "VENCIDO")
       .filter((rid) => {
@@ -618,6 +622,8 @@
       try {
         const result = await convertRidToMaintenance(rid);
         dom.designatedConvertToMaintenanceAction.textContent = `Melhoria criada (${result.maintenanceNumber})`;
+        closeModal();
+        renderList();
       } catch (error) {
         dom.designatedModalFeedback.textContent = error.message || "Nao foi possivel converter a RID em melhoria.";
         dom.designatedModalFeedback.classList.remove("hidden-state");
