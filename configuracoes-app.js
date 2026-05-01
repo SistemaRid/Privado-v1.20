@@ -485,13 +485,14 @@
 
     const announcementPanel = document.createElement("div");
     announcementPanel.id = "announcementPanel";
+    announcementPanel.className = "notification-panel";
     while (announcementBody.firstChild) {
       announcementPanel.appendChild(announcementBody.firstChild);
     }
 
     const pushPanel = document.createElement("div");
     pushPanel.id = "pushNotificationPanel";
-    pushPanel.className = "hidden-state";
+    pushPanel.className = "notification-panel web-push-scroll hidden-state";
     while (pushBody.firstChild) {
       pushPanel.appendChild(pushBody.firstChild);
     }
