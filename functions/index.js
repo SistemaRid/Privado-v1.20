@@ -7,6 +7,9 @@ admin.initializeApp();
 
 const REMINDER_TIMEZONE = "America/Araguaina";
 const MONTHLY_REMINDER_DEDUP_COLLECTION = "scheduledNotifications";
+const WEB_PUSH_CAMPAIGNS_COLLECTION = "webPushCampaigns";
+const FIRESTORE_IN_LIMIT = 10;
+const FCM_MULTICAST_LIMIT = 500;
 
 function formatRidNumber(value) {
   const digits = String(value ?? "").replace(/\D/g, "");
@@ -145,6 +148,14 @@ async function collectTokens(query) {
     .filter(Boolean);
 }
 
+function chunkArray(items, size) {
+  const chunks = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
 async function deleteInvalidTokens(db, tokens, response) {
   const invalidTokens = [];
   response.responses.forEach((result, index) => {
@@ -157,6 +168,43 @@ async function deleteInvalidTokens(db, tokens, response) {
 
   if (!invalidTokens.length) return;
   await Promise.all(invalidTokens.map((token) => db.collection("notificationTokens").doc(token).delete().catch(() => null)));
+}
+
+async function sendDataPushToTokens(db, tokens, data, logContext = {}) {
+  if (!tokens.length) {
+    return {
+      successCount: 0,
+      failureCount: 0,
+      tokenCount: 0
+    };
+  }
+
+  const tokenChunks = chunkArray(tokens, FCM_MULTICAST_LIMIT);
+  let successCount = 0;
+  let failureCount = 0;
+
+  for (const tokenChunk of tokenChunks) {
+    const response = await admin.messaging().sendEachForMulticast({
+      data,
+      tokens: tokenChunk
+    });
+    successCount += response.successCount;
+    failureCount += response.failureCount;
+    await deleteInvalidTokens(db, tokenChunk, response);
+  }
+
+  logger.info("Push processado para lote de tokens.", {
+    ...logContext,
+    tokenCount: tokens.length,
+    successCount,
+    failureCount
+  });
+
+  return {
+    successCount,
+    failureCount,
+    tokenCount: tokens.length
+  };
 }
 
 async function sendMulticastToPage(db, page, url, notification) {
@@ -184,15 +232,35 @@ async function sendMulticastToPage(db, page, url, notification) {
     tokens
   };
 
-  const response = await admin.messaging().sendEachForMulticast(message);
-  await deleteInvalidTokens(db, tokens, response);
-
-  logger.info("Push processado para aviso global.", {
+  await sendDataPushToTokens(db, message.tokens, message.data, {
+    reason: "global-announcement",
     page,
-    totalTokens: tokens.length,
-    successCount: response.successCount,
-    failureCount: response.failureCount
   });
+}
+
+async function collectTokensForUsersAndPage(db, page, userIds) {
+  const uniqueUserIds = [...new Set((userIds || []).map((item) => String(item || "").trim()).filter(Boolean))];
+  if (!uniqueUserIds.length) return [];
+
+  const queries = chunkArray(uniqueUserIds, FIRESTORE_IN_LIMIT).map((uidChunk) =>
+    db.collection("notificationTokens")
+      .where("enabled", "==", true)
+      .where("page", "==", page)
+      .where("uid", "in", uidChunk)
+      .get()
+  );
+
+  const snapshots = await Promise.all(queries);
+  const tokens = new Set();
+  snapshots.forEach((snapshot) => {
+    snapshot.docs.forEach((doc) => {
+      const data = doc.data() || {};
+      const token = String(data.token || doc.id || "").trim();
+      if (token) tokens.add(token);
+    });
+  });
+
+  return [...tokens];
 }
 
 async function acquireReminderDispatchLock(db, reminderKey) {
@@ -217,6 +285,19 @@ async function acquireReminderDispatchLock(db, reminderKey) {
 }
 
 function getAnnouncementTargets(target) {
+  if (target === "dashboard") {
+    return [{ page: "dashboard", url: "./dashboard.html" }];
+  }
+  if (target === "mobile") {
+    return [{ page: "mobile", url: "./mobile.html" }];
+  }
+  return [
+    { page: "dashboard", url: "./dashboard.html" },
+    { page: "mobile", url: "./mobile.html" }
+  ];
+}
+
+function buildTargetedPushUrls(target) {
   if (target === "dashboard") {
     return [{ page: "dashboard", url: "./dashboard.html" }];
   }
@@ -375,6 +456,77 @@ exports.sendGlobalAnnouncementUpdatedPushNotification = onDocumentUpdated("globa
       sendMulticastToPage(db, target.page, target.url, notification)
     )
   );
+});
+
+exports.sendTargetedWebPushNotification = onDocumentCreated(`${WEB_PUSH_CAMPAIGNS_COLLECTION}/{campaignId}`, async (event) => {
+  const snapshot = event.data;
+  if (!snapshot) return;
+
+  const data = snapshot.data() || {};
+  const db = admin.firestore();
+  const title = String(data.title || "").trim();
+  const body = String(data.message || "").trim();
+  const target = String(data.target || "all").trim().toLowerCase();
+  const recipientUserIds = [...new Set((data.recipientUserIds || []).map((item) => String(item || "").trim()).filter(Boolean))];
+
+  if (!title || !body) {
+    await snapshot.ref.set({
+      status: "failed",
+      errorMessage: "Titulo ou mensagem ausente.",
+      processedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    return;
+  }
+
+  if (!recipientUserIds.length) {
+    await snapshot.ref.set({
+      status: "failed",
+      errorMessage: "Nenhum destinatario informado.",
+      processedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    return;
+  }
+
+  let deliveredTokenCount = 0;
+  let successCount = 0;
+  let failureCount = 0;
+
+  for (const pageTarget of buildTargetedPushUrls(target)) {
+    const tokens = await collectTokensForUsersAndPage(db, pageTarget.page, recipientUserIds);
+    if (!tokens.length) {
+      logger.info("Nenhum token encontrado para push direcionada.", {
+        campaignId: snapshot.id,
+        page: pageTarget.page
+      });
+      continue;
+    }
+
+    const result = await sendDataPushToTokens(db, tokens, {
+      title,
+      body,
+      url: pageTarget.url,
+      click_action: pageTarget.url,
+      icon: "./icon-192.png",
+      tag: `targeted-web-push-${snapshot.id}`,
+      type: "targeted-web-push"
+    }, {
+      reason: "targeted-web-push",
+      campaignId: snapshot.id,
+      page: pageTarget.page
+    });
+
+    deliveredTokenCount += result.tokenCount;
+    successCount += result.successCount;
+    failureCount += result.failureCount;
+  }
+
+  await snapshot.ref.set({
+    status: "sent",
+    deliveredTokenCount,
+    successCount,
+    failureCount,
+    processedAt: admin.firestore.FieldValue.serverTimestamp()
+  }, { merge: true });
 });
 
 exports.sendMobileMonthlyReminderPushNotification = onSchedule(

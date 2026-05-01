@@ -100,6 +100,15 @@
     .schema-option-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 10px; margin-top: 10px; padding: 12px; border: 1px solid #e8eef5; border-radius: 16px; background: #f8fafc; }
     .schema-option-index { font-size: 11px; font-weight: 700; color: #475569; margin-bottom: 8px; }
     .schema-empty { border: 1px dashed #d1d5db; border-radius: 16px; padding: 18px; background: #f9fafb; color: #6b7280; font-size: 14px; }
+    .recipient-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .recipient-counts { font-size: 12px; color: #64748b; }
+    .recipient-list { display: grid; gap: 10px; max-height: 360px; overflow-y: auto; padding-right: 4px; }
+    .recipient-card { border: 1px solid #e5e7eb; border-radius: 16px; background: #fff; padding: 12px 14px; display: flex; align-items: flex-start; gap: 12px; }
+    .recipient-card input[type="checkbox"] { margin-top: 2px; }
+    .recipient-card-title { font-size: 14px; font-weight: 700; color: #111827; }
+    .recipient-card-meta { font-size: 12px; color: #6b7280; margin-top: 4px; line-height: 1.45; }
+    .recipient-card-badges { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    .recipient-card-badge { display: inline-flex; align-items: center; padding: 4px 8px; border-radius: 999px; background: #f8fafc; border: 1px solid #e5e7eb; font-size: 11px; font-weight: 700; color: #475569; }
     .settings-modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); display: none; align-items: center; justify-content: center; padding: 20px; z-index: 80; }
     .settings-modal-overlay.visible { display: flex; }
     .settings-modal-card { width: min(96vw, 1500px); height: min(92dvh, 1260px); display: flex; flex-direction: column; border-radius: 24px; background: #fff; box-shadow: 0 28px 80px rgba(15, 23, 42, 0.22); border: 1px solid #e5e7eb; overflow: hidden; }
@@ -129,6 +138,7 @@
       .schema-grid,
       .schema-grid-compact,
       .schema-option-row { grid-template-columns: 1fr; }
+      .recipient-toolbar { align-items: stretch; }
       .settings-modal-card { width: min(100%, 900px); height: min(82dvh, 760px); }
     }
     @media (max-width: 640px) {
@@ -265,92 +275,6 @@
         </article>
       </section>
 
-      <section class="grid grid-cols-1 xl:grid-cols-[0.9fr_1.1fr] gap-4">
-        <article class="settings-card">
-          <div class="settings-head">
-            <h2 class="font-semibold text-gray-900 text-sm">Minha conta</h2>
-            <p class="text-xs text-gray-400 mt-1">Informacoes basicas do usuario logado.</p>
-          </div>
-          <div class="settings-body">
-            <div class="info-grid">
-              <div class="info-tile">
-                <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Nome</div>
-                <div id="profileName" class="text-sm font-semibold text-gray-900 mt-1.5">-</div>
-              </div>
-              <div class="info-tile">
-                <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">CPF</div>
-                <div id="profileCpf" class="text-sm font-semibold text-gray-900 mt-1.5">-</div>
-              </div>
-              <div class="info-tile">
-                <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Email</div>
-                <div id="profileEmail" class="text-sm font-semibold text-gray-900 mt-1.5">-</div>
-              </div>
-              <div class="info-tile">
-                <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Funcao</div>
-                <div id="profileRole" class="text-sm font-semibold text-gray-900 mt-1.5">-</div>
-              </div>
-              <div class="info-tile">
-                <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Unidade</div>
-                <div id="profileUnit" class="text-sm font-semibold text-gray-900 mt-1.5">-</div>
-              </div>
-              <div class="info-tile">
-                <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Setor</div>
-                <div id="profileSector" class="text-sm font-semibold text-gray-900 mt-1.5">-</div>
-              </div>
-            </div>
-            <form id="passwordForm" class="mt-5 space-y-4">
-              <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Troca de senha</div>
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <input id="currentPassword" type="password" maxlength="30" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50" placeholder="Senha atual">
-                <input id="newPassword" type="password" maxlength="30" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50" placeholder="Nova senha">
-                <input id="confirmPassword" type="password" maxlength="30" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50" placeholder="Confirmar nova senha">
-              </div>
-              <div class="flex items-center justify-end gap-3">
-                <button id="passwordSubmitButton" type="submit" class="px-4 py-2.5 rounded-xl bg-black text-white text-sm font-semibold">Trocar senha</button>
-              </div>
-              <p id="passwordFeedback" class="text-sm text-gray-500"></p>
-            </form>
-          </div>
-        </article>
-
-        <article class="settings-card">
-          <div class="settings-head">
-            <h2 class="font-semibold text-gray-900 text-sm">Meta manual do mes</h2>
-            <p class="text-xs text-gray-400 mt-1">Disponivel para desenvolvedor ajustar o painel de metas.</p>
-          </div>
-          <div class="settings-body">
-            <div id="goalNotice" class="notice-card text-sm text-gray-600">
-              Esta area mostra a meta manual salva para o mes selecionado.
-            </div>
-            <form id="goalForm" class="space-y-4 mt-4">
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <select id="goalMonth" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50">
-                  <option value="1">Janeiro</option>
-                  <option value="2">Fevereiro</option>
-                  <option value="3">Marco</option>
-                  <option value="4">Abril</option>
-                  <option value="5">Maio</option>
-                  <option value="6">Junho</option>
-                  <option value="7">Julho</option>
-                  <option value="8">Agosto</option>
-                  <option value="9">Setembro</option>
-                  <option value="10">Outubro</option>
-                  <option value="11">Novembro</option>
-                  <option value="12">Dezembro</option>
-                </select>
-                <input id="goalYear" type="number" min="2020" max="2099" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50" placeholder="Ano">
-                <input id="goalValue" type="number" min="0" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50" placeholder="Meta">
-              </div>
-              <div class="flex items-center justify-end gap-3">
-                <button id="loadGoalButton" type="button" class="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50">Carregar</button>
-                <button id="saveGoalButton" type="submit" class="px-4 py-2.5 rounded-xl bg-black text-white text-sm font-semibold">Salvar meta</button>
-              </div>
-              <p id="goalFeedback" class="text-sm text-gray-500"></p>
-            </form>
-          </div>
-        </article>
-      </section>
-
       <section class="developer-grid mt-4">
       <section id="announcementSection" class="settings-card developer-panel hidden-state">
         <div class="settings-head">
@@ -420,6 +344,95 @@
           <div class="mt-5 panel-scroll-area">
             <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400 mb-3">Avisos cadastrados</div>
             <div id="announcementList" class="space-y-3"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="pushNotificationSection" class="settings-card developer-panel hidden-state">
+        <div class="settings-head">
+          <h2 class="font-semibold text-gray-900 text-sm">Notificacao web push direcionada</h2>
+          <p class="text-xs text-gray-400 mt-1">Envie push para usuarios especificos ou monte um grupo antes de disparar.</p>
+        </div>
+        <div class="settings-body">
+          <div id="pushNotificationNotice" class="notice-card text-sm text-gray-600">
+            Escolha quem deve receber a notificacao e dispare para PC, mobile ou ambos.
+          </div>
+          <form id="pushNotificationForm" class="space-y-4 mt-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label class="text-xs font-semibold uppercase tracking-wider text-gray-400 block mb-2" for="pushNotificationTitle">Titulo</label>
+                <input id="pushNotificationTitle" type="text" maxlength="80" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50" placeholder="Ex: Confira a atualizacao de hoje">
+              </div>
+              <div>
+                <label class="text-xs font-semibold uppercase tracking-wider text-gray-400 block mb-2" for="pushNotificationTarget">Enviar onde</label>
+                <select id="pushNotificationTarget" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50">
+                  <option value="all">PC e mobile</option>
+                  <option value="dashboard">Somente PC</option>
+                  <option value="mobile">Somente mobile</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label class="text-xs font-semibold uppercase tracking-wider text-gray-400 block mb-2" for="pushNotificationMessage">Mensagem</label>
+              <textarea id="pushNotificationMessage" rows="4" class="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50 resize-y" placeholder="Escreva aqui o texto da notificacao push."></textarea>
+            </div>
+            <div class="schema-section">
+              <div class="schema-section-title">Montar grupo de destinatarios</div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label class="text-xs font-semibold uppercase tracking-wider text-gray-400 block mb-2" for="pushRecipientSearch">Buscar usuario</label>
+                  <input id="pushRecipientSearch" type="text" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50" placeholder="Nome, CPF, email, unidade ou setor">
+                </div>
+                <div>
+                  <label class="text-xs font-semibold uppercase tracking-wider text-gray-400 block mb-2" for="pushRecipientRoleFilter">Perfil</label>
+                  <select id="pushRecipientRoleFilter" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50">
+                    <option value="">Todos os perfis</option>
+                    <option value="developer">Desenvolvedor</option>
+                    <option value="admin">Administrador</option>
+                    <option value="observer">Observador</option>
+                    <option value="user">Usuario comum</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="text-xs font-semibold uppercase tracking-wider text-gray-400 block mb-2" for="pushRecipientUnitFilter">Unidade</label>
+                  <select id="pushRecipientUnitFilter" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50">
+                    <option value="">Todas as unidades</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="text-xs font-semibold uppercase tracking-wider text-gray-400 block mb-2" for="pushRecipientSectorFilter">Setor</label>
+                  <select id="pushRecipientSectorFilter" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50">
+                    <option value="">Todos os setores</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="text-xs font-semibold uppercase tracking-wider text-gray-400 block mb-2" for="pushRecipientEmploymentFilter">Categoria</label>
+                  <select id="pushRecipientEmploymentFilter" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50">
+                    <option value="">Todas as categorias</option>
+                    <option value="FUNCIONARIO">Funcionario</option>
+                    <option value="TERCEIRO">Terceiro</option>
+                  </select>
+                </div>
+              </div>
+              <div class="recipient-toolbar mt-4">
+                <div id="pushRecipientCounts" class="recipient-counts">0 usuario(s) filtrado(s) e 0 selecionado(s).</div>
+                <div class="flex items-center gap-3 flex-wrap">
+                  <button id="selectFilteredPushRecipientsButton" type="button" class="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50">Selecionar filtrados</button>
+                  <button id="clearPushRecipientFiltersButton" type="button" class="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50">Limpar filtros</button>
+                  <button id="clearPushRecipientsButton" type="button" class="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50">Limpar selecao</button>
+                </div>
+              </div>
+              <div id="pushRecipientsList" class="recipient-list mt-4"></div>
+            </div>
+            <div class="flex items-center justify-end gap-3">
+              <button id="loadPushNotificationsButton" type="button" class="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50">Atualizar lista</button>
+              <button id="sendPushNotificationButton" type="submit" class="px-4 py-2.5 rounded-xl bg-black text-white text-sm font-semibold">Enviar push</button>
+            </div>
+            <p id="pushNotificationFeedback" class="text-sm text-gray-500"></p>
+          </form>
+          <div class="mt-5 panel-scroll-area">
+            <div class="text-[11px] uppercase tracking-wider font-semibold text-gray-400 mb-3">Pushs enviadas</div>
+            <div id="pushNotificationList" class="space-y-3"></div>
           </div>
         </div>
       </section>
