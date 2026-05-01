@@ -301,6 +301,7 @@
     pushRecipientSectorFilter: document.getElementById("pushRecipientSectorFilter"),
     pushRecipientEmploymentFilter: document.getElementById("pushRecipientEmploymentFilter"),
     pushRecipientCounts: document.getElementById("pushRecipientCounts"),
+    selectAllPushRecipientsButton: document.getElementById("selectAllPushRecipientsButton"),
     selectFilteredPushRecipientsButton: document.getElementById("selectFilteredPushRecipientsButton"),
     clearPushRecipientFiltersButton: document.getElementById("clearPushRecipientFiltersButton"),
     clearPushRecipientsButton: document.getElementById("clearPushRecipientsButton"),
@@ -1525,6 +1526,13 @@
     });
     dom.pushNotificationForm.addEventListener("submit", savePushNotification);
     dom.loadPushNotificationsButton.addEventListener("click", loadPushNotifications);
+    dom.selectAllPushRecipientsButton.addEventListener("click", () => {
+      state.pushAudienceUsers.forEach((user) => {
+        if (user?.id) state.selectedPushRecipientIds.add(String(user.id));
+      });
+      renderPushRecipients();
+      dom.pushNotificationFeedback.textContent = "Todos os usuarios carregados foram adicionados a selecao.";
+    });
     dom.selectFilteredPushRecipientsButton.addEventListener("click", () => {
       getFilteredPushAudienceUsers().forEach((user) => {
         if (user?.id) state.selectedPushRecipientIds.add(String(user.id));
