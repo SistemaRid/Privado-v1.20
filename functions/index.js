@@ -1,8 +1,12 @@
 const admin = require("firebase-admin");
 const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { logger } = require("firebase-functions");
 
 admin.initializeApp();
+
+const REMINDER_TIMEZONE = "America/Araguaina";
+const MONTHLY_REMINDER_DEDUP_COLLECTION = "scheduledNotifications";
 
 function formatRidNumber(value) {
   const digits = String(value ?? "").replace(/\D/g, "");
@@ -72,6 +76,63 @@ function buildAnnouncementNotification(data) {
   };
 }
 
+function getDatePartsInTimeZone(date, timeZone) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric"
+  });
+
+  const parts = formatter.formatToParts(date);
+  const values = {};
+  parts.forEach((part) => {
+    if (part.type !== "literal") {
+      values[part.type] = Number(part.value);
+    }
+  });
+
+  return {
+    year: values.year,
+    month: values.month,
+    day: values.day
+  };
+}
+
+function getMonthlyReminderWindow(date, timeZone) {
+  const { year, month, day } = getDatePartsInTimeZone(date, timeZone);
+  const lastDayOfMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+
+  if (day === 1) {
+    return {
+      key: `${year}-${String(month).padStart(2, "0")}-01`,
+      label: "inicio-do-mes",
+      title: "Inicio do mes: lembrete de RID",
+      body: "Comecou um novo mes. Reserve alguns minutos para registrar os RIDs pendentes."
+    };
+  }
+
+  if (day === 15) {
+    return {
+      key: `${year}-${String(month).padStart(2, "0")}-15`,
+      label: "meio-do-mes",
+      title: "Meio do mes: lembrete de RID",
+      body: "Estamos na metade do mes. Vale conferir se os RIDs do periodo ja foram lancados."
+    };
+  }
+
+  if (day === lastDayOfMonth) {
+    return {
+      key: `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+      label: "fim-do-mes",
+      title: "Fim do mes: lembrete de RID",
+      body: "Hoje fecha o mes. Se faltar algum RID, este e um bom momento para colocar tudo em dia."
+    };
+  }
+
+  return null;
+}
+
 async function collectTokens(query) {
   const snapshot = await query.get();
   if (snapshot.empty) return [];
@@ -132,6 +193,27 @@ async function sendMulticastToPage(db, page, url, notification) {
     successCount: response.successCount,
     failureCount: response.failureCount
   });
+}
+
+async function acquireReminderDispatchLock(db, reminderKey) {
+  const docRef = db.collection(MONTHLY_REMINDER_DEDUP_COLLECTION).doc(`mobile-monthly-reminder-${reminderKey}`);
+
+  const created = await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(docRef);
+    if (snapshot.exists) {
+      return false;
+    }
+
+    transaction.set(docRef, {
+      type: "mobile-monthly-reminder",
+      reminderKey,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    return true;
+  });
+
+  return created;
 }
 
 function getAnnouncementTargets(target) {
@@ -294,3 +376,37 @@ exports.sendGlobalAnnouncementUpdatedPushNotification = onDocumentUpdated("globa
     )
   );
 });
+
+exports.sendMobileMonthlyReminderPushNotification = onSchedule(
+  {
+    schedule: "0 8 * * *",
+    timeZone: REMINDER_TIMEZONE,
+    region: "us-central1"
+  },
+  async () => {
+    const db = admin.firestore();
+    const reminder = getMonthlyReminderWindow(new Date(), REMINDER_TIMEZONE);
+
+    if (!reminder) {
+      logger.info("Hoje nao e uma janela de lembrete mensal mobile.");
+      return;
+    }
+
+    const lockAcquired = await acquireReminderDispatchLock(db, reminder.key);
+    if (!lockAcquired) {
+      logger.info("Lembrete mensal mobile ja foi enviado para esta data.", { reminderKey: reminder.key });
+      return;
+    }
+
+    await sendMulticastToPage(db, "mobile", "./mobile.html", {
+      title: reminder.title,
+      body: reminder.body,
+      tag: `mobile-monthly-reminder-${reminder.label}-${reminder.key}`
+    });
+
+    logger.info("Lembrete mensal mobile enviado com sucesso.", {
+      reminderKey: reminder.key,
+      reminderLabel: reminder.label
+    });
+  }
+);
