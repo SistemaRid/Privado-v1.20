@@ -3364,7 +3364,7 @@
                 <button class="btn btn-danger btn-small" id="logout-btn">Sair</button>
               </div>
               <button class="btn btn-soft btn-small btn-cache" id="offline-cache-btn" ${state.offlineBundleUpdating ? "disabled" : ""}>
-                ${state.offlineBundleUpdating ? "Atualizando offline..." : "Baixar offline"}
+                ${state.offlineBundleUpdating ? "Atualizando..." : "Atualizar"}
               </button>
               <div class="topbar-cache-note">${escapeHtml(lastSyncLabel)}</div>
             </div>
