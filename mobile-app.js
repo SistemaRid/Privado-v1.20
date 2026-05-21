@@ -10,7 +10,9 @@
 
   firebase.initializeApp(firebaseConfig);
   const auth = firebase.auth();
-  auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+  const authPersistenceReady = auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch((error) => {
+    console.warn("Falha ao configurar persistencia local da sessao:", error);
+  });
   const db = firebase.firestore();
   const ANNOUNCEMENTS_COLLECTION = db.collection("globalAnnouncements");
   const RID_FORM_SETTINGS_DOC = db.collection("appSettings").doc("ridFormSchema");
@@ -172,6 +174,8 @@
 
   const PAGE_SIZE = 8;
   const CONNECTIVITY_CHECK_INTERVAL = 30000;
+  const CONNECTIVITY_PROBE_TIMEOUT_MS = 3500;
+  const AUTH_RESTORE_TIMEOUT_MS = 8000;
   const RID_IMAGE_MAX_BYTES = 350 * 1024;
   const RID_IMAGE_MAX_DIMENSION = 1280;
 
@@ -1145,15 +1149,30 @@
   async function detectActualConnectivity() {
     if (!navigator.onLine) return false;
 
+    let timeoutId = null;
     try {
+      const supportsAbort = typeof AbortController !== "undefined";
+      const controller = supportsAbort ? new AbortController() : null;
+      timeoutId = controller
+        ? window.setTimeout(() => controller.abort(), CONNECTIVITY_PROBE_TIMEOUT_MS)
+        : null;
+
       await fetch(`https://www.gstatic.com/generate_204?network-check=1&t=${Date.now()}`, {
         method: "GET",
         mode: "no-cors",
-        cache: "no-store"
+        cache: "no-store",
+        signal: controller?.signal
       });
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
       return true;
     } catch (error) {
-      return false;
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+      console.warn("Teste de conectividade falhou; mantendo status online pelo navegador.", error);
+      return true;
     }
   }
 
@@ -2154,6 +2173,11 @@
     }
 
     try {
+      const authenticated = await hasAuthenticatedOnlineSession();
+      if (!authenticated) {
+        throw new Error("Sua sessao online nao foi restaurada ainda. Entre novamente para sincronizar.");
+      }
+
       if (useOverlay) {
         setActionOverlay("Sincronizando RID", "Aguarde enquanto o envio é concluído.");
       }
@@ -2209,6 +2233,7 @@
     submitButton.disabled = true;
 
     try {
+      await authPersistenceReady;
       await syncConnectivityState();
       const cpf = form.cpf.value;
       const password = form.password.value;
@@ -3568,6 +3593,7 @@
   }
 
   async function bootstrapFromFirebaseSession() {
+    await authPersistenceReady;
     const sessionUser = auth.currentUser;
     if (!sessionUser || !state.online) return false;
 
@@ -3601,20 +3627,45 @@
     return true;
   }
 
-  function waitForInitialAuthState() {
+  function waitForInitialAuthState(timeoutMs = AUTH_RESTORE_TIMEOUT_MS) {
     return new Promise((resolve) => {
+      if (auth.currentUser) {
+        resolve(auth.currentUser);
+        return;
+      }
+
+      let settled = false;
+      let timeoutId = null;
       const unsubscribe = auth.onAuthStateChanged((user) => {
+        if (settled) return;
+        settled = true;
+        if (timeoutId) {
+          window.clearTimeout(timeoutId);
+        }
         unsubscribe();
         resolve(user || null);
       }, () => {
+        if (settled) return;
+        settled = true;
+        if (timeoutId) {
+          window.clearTimeout(timeoutId);
+        }
         unsubscribe();
         resolve(null);
       });
+
+      timeoutId = window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        unsubscribe();
+        resolve(auth.currentUser || null);
+      }, timeoutMs);
     });
   }
 
   async function hasAuthenticatedOnlineSession() {
     if (!state.online || !state.currentUser?.uid) return false;
+    await authPersistenceReady;
     if (auth.currentUser?.uid === state.currentUser.uid) return true;
     const restoredUser = await waitForInitialAuthState();
     return restoredUser?.uid === state.currentUser.uid;
@@ -3636,10 +3687,7 @@
           .then((authenticated) => {
             if (!authenticated) {
               stopRealtimeRidSync();
-              state.currentUser = null;
-              state.currentUserData = null;
-              renderLogin();
-              showToast("Sua sessão expirou. Entre novamente para continuar online.", "error");
+              showToast("Internet voltou, mas a sessao online ainda nao foi restaurada. Tentaremos novamente sem te desconectar.", "info");
               return;
             }
 
@@ -3680,6 +3728,7 @@
     setTimeout(() => {
       if (state.booting) setBooting(false);
     }, 4000);
+    await authPersistenceReady;
     await registerServiceWorker();
     await syncConnectivityState();
 
