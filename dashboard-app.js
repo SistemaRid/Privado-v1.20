@@ -33,6 +33,7 @@
     monthlyGoalMeta: null,
     manualGoalValue: null,
     manualGoalMonthKey: null,
+    sectorBoardMode: "volume",
     shouldAnimateGoalIntro: false,
     hasLoadedRidsOnce: false,
     notificationAudio: null,
@@ -40,8 +41,7 @@
     pushPromptDismissed: false,
     pushMessagingBound: false,
     pushToken: null,
-    pushServiceWorkerRegistration: null,
-    lastDashboardData: null
+    pushServiceWorkerRegistration: null
   };
 
   const dom = {
@@ -73,12 +73,13 @@
     ridMilestoneBanner: document.getElementById("ridMilestoneBanner"),
     statusGoalPanel: document.getElementById("statusGoalPanel"),
     statusBoard: document.getElementById("statusBoard"),
+    sectorBoardTitle: document.getElementById("sectorBoardTitle"),
+    sectorBoardSubtitle: document.getElementById("sectorBoardSubtitle"),
+    toggleSectorBoardMode: document.getElementById("toggleSectorBoardMode"),
     sectorBoard: document.getElementById("sectorBoard"),
     topEmittersList: document.getElementById("topEmittersList"),
     topEmittersSummary: document.getElementById("topEmittersSummary"),
     employeesWithoutRidsList: document.getElementById("employeesWithoutRidsList"),
-    downloadEmployeeRidReportButton: document.getElementById("downloadEmployeeRidReportButton"),
-    exportEmployeesPdfButton: document.getElementById("exportEmployeesPdfButton"),
     deleteRequestsCount: document.getElementById("deleteRequestsCount"),
     deleteRequestsSummary: document.getElementById("deleteRequestsSummary"),
     deleteRequestsList: document.getElementById("deleteRequestsList"),
@@ -371,152 +372,9 @@
     return digits.padStart(5, "0");
   }
 
-  function getRidEventDate(rid) {
-    return toDateSafe(rid?.emissionDate) || toDateSafe(rid?.createdAt);
-  }
-
-  function ridMatchesUser(rid, user) {
-    if (!rid || !user) return false;
-    const sameId = rid.emitterId && user.id && rid.emitterId === user.id;
-    const sameCpf = rid.emitterCpf && user.cpf && String(rid.emitterCpf) === String(user.cpf);
-    const sameName = rid.emitterName && user.name && String(rid.emitterName).trim() === String(user.name).trim();
-    return sameId || sameCpf || sameName;
-  }
-
-  function getMonthPeriod(month, year, sector) {
-    return {
-      showAllMonths: false,
-      month,
-      year,
-      sector: sector || ""
-    };
-  }
-
-  function formatMonthReference(month, year) {
-    return `${String(month).padStart(2, "0")}/${year}`;
-  }
-
-  function calculateMonthlyDropPercent(currentCount, previousCount) {
-    if (previousCount <= 0 || currentCount >= previousCount) return 0;
-    return ((previousCount - currentCount) / previousCount) * 100;
-  }
-
-  function loadImageAsDataUrl(src) {
-    return new Promise((resolve) => {
-      const image = new Image();
-      image.onload = () => {
-        try {
-          const canvas = document.createElement("canvas");
-          canvas.width = image.naturalWidth || image.width;
-          canvas.height = image.naturalHeight || image.height;
-          const context = canvas.getContext("2d");
-          if (!context) {
-            resolve(null);
-            return;
-          }
-          context.drawImage(image, 0, 0);
-          resolve({
-            dataUrl: canvas.toDataURL("image/png"),
-            width: image.naturalWidth || image.width || 0,
-            height: image.naturalHeight || image.height || 0
-          });
-        } catch (error) {
-          resolve(null);
-        }
-      };
-      image.onerror = () => resolve(null);
-      image.src = src;
-    });
-  }
-
-  function drawEmployeeRidReportHeader(doc, context) {
-    const {
-      pageWidth,
-      pageHeight,
-      monthLabel,
-      sectorLabel,
-      reportItems,
-      regularCount,
-      previousMonthLabel,
-      generatedAtLabel,
-      logoData,
-      isFirstPage
-    } = context;
-
-    doc.setFillColor(248, 250, 252);
-    doc.setDrawColor(226, 232, 240);
-    doc.roundedRect(10, 10, pageWidth - 20, 28, 4, 4, "FD");
-
-    doc.setFillColor(239, 246, 255);
-    doc.roundedRect(10, 10, 34, 28, 4, 4, "F");
-
-    if (logoData?.dataUrl && logoData.width > 0 && logoData.height > 0) {
-      const maxWidth = 20;
-      const maxHeight = 20;
-      const scale = Math.min(maxWidth / logoData.width, maxHeight / logoData.height);
-      const drawWidth = logoData.width * scale;
-      const drawHeight = logoData.height * scale;
-      const drawX = 17 + ((maxWidth - drawWidth) / 2);
-      const drawY = 14 + ((maxHeight - drawHeight) / 2);
-      doc.addImage(logoData.dataUrl, "PNG", drawX, drawY, drawWidth, drawHeight);
-    }
-
-    doc.setTextColor(15, 23, 42);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(17);
-    doc.text("Relatorio detalhado de emissores de RID", 48, 20);
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9.5);
-    doc.setTextColor(71, 85, 105);
-    doc.text(`CLUSTER SUL | FORMACAL | GERADO EM ${generatedAtLabel}`, 48, 27);
-    doc.text(`Periodo ${monthLabel} | Setor ${sectorLabel}`, 48, 32);
-
-    if (isFirstPage) {
-      const summaryTop = 43;
-      const boxWidth = (pageWidth - 28) / 4;
-      const summaryBoxes = [
-        { label: "Usuarios listados", value: String(reportItems.length), fill: [255, 255, 255], text: [15, 23, 42], border: [226, 232, 240] },
-        { label: "Regulares", value: String(regularCount), fill: [240, 253, 244], text: [21, 128, 61], border: [187, 247, 208] },
-        { label: "Mes atual", value: monthLabel, fill: [239, 246, 255], text: [29, 78, 216], border: [191, 219, 254] },
-        { label: "Comparativo", value: previousMonthLabel, fill: [255, 247, 237], text: [194, 65, 12], border: [254, 215, 170] }
-      ];
-
-      summaryBoxes.forEach((box, index) => {
-        const x = 10 + index * (boxWidth + 2.5);
-        doc.setFillColor(...box.fill);
-        doc.setDrawColor(...box.border);
-        doc.roundedRect(x, summaryTop, boxWidth, 16, 3, 3, "FD");
-        doc.setTextColor(100, 116, 139);
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(8);
-        doc.text(box.label.toUpperCase(), x + 3, summaryTop + 5.5);
-        doc.setTextColor(...box.text);
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(11);
-        doc.text(box.value, x + 3, summaryTop + 11.8);
-      });
-
-      doc.setTextColor(71, 85, 105);
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8.5);
-      doc.text("Regra de emissor regular: media historica acima de 4 RIDs por mes.", 10, 63.5);
-    }
-
-    doc.setDrawColor(226, 232, 240);
-    doc.line(10, pageHeight - 10, pageWidth - 10, pageHeight - 10);
-    doc.setTextColor(148, 163, 184);
-    doc.setFontSize(8);
-    doc.text(`Pagina ${doc.getNumberOfPages()}`, pageWidth - 25, pageHeight - 6.5);
-  }
-
   function getRidNumericValue(value) {
     const digits = String(value ?? "").replace(/\D/g, "");
     return digits ? Number(digits) : 0;
-  }
-
-  function isActiveRid(rid) {
-    return !!(rid && !rid.deleted && !rid.convertedToMaintenanceId);
   }
 
   function getCurrentRidMilestone(highestRidNumber) {
@@ -869,7 +727,6 @@
   }
 
   function getUserMonthlyGoalBase(user) {
-    if (hasManagementAccess(user)) return 8;
     return 4;
   }
 
@@ -901,6 +758,26 @@
       : baseName;
   }
 
+  function resolveRidEmitterUser(rid) {
+    return state.allUsers.find((user) => {
+      if (!user) return false;
+
+      const sameId = rid?.emitterId && user.id && rid.emitterId === user.id;
+      const sameCpf = rid?.emitterCpf && user.cpf && String(rid.emitterCpf) === String(user.cpf);
+      const sameName = rid?.emitterName && user.name && String(rid.emitterName).trim() === String(user.name).trim();
+
+      return sameId || sameCpf || sameName;
+    }) || null;
+  }
+
+  function isEligibleTopEmitterUser(user) {
+    if (!user) return false;
+    if (isThirdPartyUser(user)) return false;
+    if (isDeveloperUser(user)) return true;
+    if (isAdminUser(user)) return false;
+    return true;
+  }
+
   function clampDate(date, min, max) {
     if (date < min) return min;
     if (date > max) return max;
@@ -923,6 +800,55 @@
       if (sector && user.sector !== sector) return false;
       if (isThirdPartyUser(user)) return false;
       return true;
+    });
+  }
+
+  function getSectorGoalMetrics(period) {
+    const sectorSet = new Set();
+
+    state.allUsers.forEach((user) => {
+      if (!user || isThirdPartyUser(user)) return;
+      const sector = String(user.sector || "").trim();
+      if (!sector) return;
+      if (period.sector && sector !== period.sector) return;
+      sectorSet.add(sector);
+    });
+
+    state.allRids.forEach((rid) => {
+      if (!rid || rid.deleted || isVisitorRid(rid)) return;
+      const sector = getSectorNameForBoard(rid);
+      if (!sector) return;
+      if (period.sector && sector !== period.sector) return;
+      sectorSet.add(sector);
+    });
+
+    return Array.from(sectorSet).map((sector) => {
+      const users = getGoalUsersForContext(state.allUsers, sector);
+      const goalMeta = period.showAllMonths
+        ? null
+        : calcAutoMonthlyGoal(users, period.year, period.month);
+      const achieved = state.allRids
+        .filter((rid) => !rid.deleted)
+        .filter((rid) => !isVisitorRid(rid))
+        .filter((rid) => getSectorNameForBoard(rid) === sector)
+        .filter((rid) => matchesSelectedPeriod(toDateSafe(rid.emissionDate) || toDateSafe(rid.createdAt), period))
+        .length;
+      const goal = goalMeta?.goal ?? null;
+      const percent = goal && goal > 0 ? Math.min((achieved / goal) * 100, 999) : 0;
+      const remaining = goal && goal > 0 ? Math.max(goal - achieved, 0) : null;
+
+      return {
+        sector,
+        goal,
+        achieved,
+        percent,
+        remaining,
+        usersCount: users.length
+      };
+    }).sort((a, b) => {
+      if ((b.percent || 0) !== (a.percent || 0)) return (b.percent || 0) - (a.percent || 0);
+      if ((b.achieved || 0) !== (a.achieved || 0)) return (b.achieved || 0) - (a.achieved || 0);
+      return String(a.sector || "").localeCompare(String(b.sector || ""), "pt-BR");
     });
   }
 
@@ -989,7 +915,7 @@
 
   function getFilteredRids(period) {
     return state.allRids
-      .filter((rid) => isActiveRid(rid))
+      .filter((rid) => !rid.deleted)
       .filter((rid) => !isVisitorRid(rid))
       .filter((rid) => {
         if (period.sector && rid.sector !== period.sector) return false;
@@ -1010,7 +936,7 @@
     weekEnd.setHours(23, 59, 59, 999);
 
     return state.allRids
-      .filter((rid) => isActiveRid(rid))
+      .filter((rid) => !rid.deleted)
       .filter((rid) => !isVisitorRid(rid))
       .filter((rid) => !period.sector || rid.sector === period.sector)
       .filter((rid) => {
@@ -1031,7 +957,7 @@
       .filter((user) => !emitters.has(user.id))
       .map((user) => {
         const lastRid = state.allRids
-          .filter((rid) => isActiveRid(rid) && !isVisitorRid(rid) && rid.emitterId === user.id)
+          .filter((rid) => !rid.deleted && !isVisitorRid(rid) && rid.emitterId === user.id)
           .sort((a, b) => (toDateSafe(b.emissionDate || b.createdAt)?.getTime() || 0) - (toDateSafe(a.emissionDate || a.createdAt)?.getTime() || 0))[0];
         const lastDate = lastRid ? toDateSafe(lastRid.emissionDate || lastRid.createdAt) : null;
         const daysWithout = lastDate ? Math.floor((now - lastDate) / (1000 * 60 * 60 * 24)) : null;
@@ -1049,276 +975,52 @@
     const now = new Date();
     const currentMonth = now.getMonth() + 1;
     const currentYear = now.getFullYear();
-    const monthPeriod = getMonthPeriod(currentMonth, currentYear, period.sector);
+    const monthPeriod = {
+      showAllMonths: false,
+      month: currentMonth,
+      year: currentYear,
+      sector: period.sector || ""
+    };
 
     return state.allUsers
       .filter((user) => !monthPeriod.sector || user.sector === monthPeriod.sector)
       .map((user) => {
         const userRidList = state.allRids
-          .filter((rid) => isActiveRid(rid))
+          .filter((rid) => !rid.deleted)
           .filter((rid) => !isVisitorRid(rid))
           .filter((rid) => {
             if (monthPeriod.sector && rid.sector !== monthPeriod.sector) return false;
-            const ridDate = getRidEventDate(rid);
+            const ridDate = toDateSafe(rid.emissionDate) || toDateSafe(rid.createdAt);
             if (!matchesSelectedPeriod(ridDate, monthPeriod)) return false;
-            return ridMatchesUser(rid, user);
+
+            const sameId = rid.emitterId && user.id && rid.emitterId === user.id;
+            const sameCpf = rid.emitterCpf && user.cpf && String(rid.emitterCpf) === String(user.cpf);
+            const sameName = rid.emitterName && user.name && String(rid.emitterName).trim() === String(user.name).trim();
+            return sameId || sameCpf || sameName;
           });
 
         const lastRid = state.allRids
-          .filter((rid) => isActiveRid(rid))
+          .filter((rid) => !rid.deleted)
           .filter((rid) => !isVisitorRid(rid))
-          .filter((rid) => ridMatchesUser(rid, user))
-          .sort((a, b) => (getRidEventDate(b)?.getTime() || 0) - (getRidEventDate(a)?.getTime() || 0))[0];
-
-        const lastDate = lastRid ? toDateSafe(lastRid.emissionDate || lastRid.createdAt) : null;
-        const daysWithout = lastDate ? Math.floor((now - lastDate) / (1000 * 60 * 60 * 24)) : null;
+          .filter((rid) => {
+            const sameId = rid.emitterId && user.id && rid.emitterId === user.id;
+            const sameCpf = rid.emitterCpf && user.cpf && String(rid.emitterCpf) === String(user.cpf);
+            const sameName = rid.emitterName && user.name && String(rid.emitterName).trim() === String(user.name).trim();
+            return sameId || sameCpf || sameName;
+          })
+          .sort((a, b) => (toDateSafe(b.emissionDate || b.createdAt)?.getTime() || 0) - (toDateSafe(a.emissionDate || a.createdAt)?.getTime() || 0))[0];
 
         return {
           name: getDashboardEmployeeLabel(user),
           sector: user.sector || "",
           count: userRidList.length,
-          lastDate,
-          daysWithout
+          lastDate: lastRid ? toDateSafe(lastRid.emissionDate || lastRid.createdAt) : null
         };
       })
       .sort((a, b) => {
         if (b.count !== a.count) return b.count - a.count;
         return String(a.name || "").localeCompare(String(b.name || ""), "pt-BR");
       });
-  }
-  function getEmployeeRidReportCurrentMonth(period) {
-    const now = new Date();
-    const currentMonth = now.getMonth() + 1;
-    const currentYear = now.getFullYear();
-    const previousDate = new Date(currentYear, currentMonth - 2, 1);
-    const currentMonthPeriod = getMonthPeriod(currentMonth, currentYear, period.sector);
-    const previousMonthPeriod = getMonthPeriod(previousDate.getMonth() + 1, previousDate.getFullYear(), period.sector);
-
-    return state.allUsers
-      .filter((user) => !currentMonthPeriod.sector || user.sector === currentMonthPeriod.sector)
-      .map((user) => {
-        const allUserRids = state.allRids
-          .filter((rid) => isActiveRid(rid))
-          .filter((rid) => !isVisitorRid(rid))
-          .filter((rid) => !currentMonthPeriod.sector || rid.sector === currentMonthPeriod.sector)
-          .filter((rid) => ridMatchesUser(rid, user))
-          .sort((a, b) => (getRidEventDate(b)?.getTime() || 0) - (getRidEventDate(a)?.getTime() || 0));
-
-        const currentMonthRids = allUserRids.filter((rid) => matchesSelectedPeriod(getRidEventDate(rid), currentMonthPeriod));
-        const previousMonthRids = allUserRids.filter((rid) => matchesSelectedPeriod(getRidEventDate(rid), previousMonthPeriod));
-        const monthlyCountMap = new Map();
-
-        allUserRids.forEach((rid) => {
-          const ridDate = getRidEventDate(rid);
-          if (!ridDate) return;
-          const monthKey = `${ridDate.getFullYear()}-${String(ridDate.getMonth() + 1).padStart(2, "0")}`;
-          monthlyCountMap.set(monthKey, (monthlyCountMap.get(monthKey) || 0) + 1);
-        });
-
-        const activeMonths = monthlyCountMap.size;
-        const totalRids = allUserRids.length;
-        const averageMonthlyRids = activeMonths > 0 ? totalRids / activeMonths : 0;
-        const lastRid = allUserRids[0] || null;
-        const lastRidStatus = normalizeStatus(lastRid?.status || "")
-          .toLowerCase()
-          .replace(/\b\w/g, (letter) => letter.toUpperCase());
-
-        return {
-          name: getDashboardEmployeeLabel(user),
-          cpf: String(user.cpf || "").trim(),
-          email: String(user.email || "").trim(),
-          sector: String(user.sector || "").trim(),
-          role: String(user.role || user.function || user.jobTitle || user.position || "").trim(),
-          totalRids,
-          currentMonthCount: currentMonthRids.length,
-          previousMonthCount: previousMonthRids.length,
-          monthlyDropPercent: calculateMonthlyDropPercent(currentMonthRids.length, previousMonthRids.length),
-          isRegularEmitter: averageMonthlyRids > 4,
-          averageMonthlyRids,
-          lastDate: lastRid ? getRidEventDate(lastRid) : null,
-          lastRidNumber: lastRid ? formatRidNumber(lastRid.ridNumber) : "-",
-          lastRidStatus: lastRidStatus || "Sem status"
-        };
-      })
-      .sort((a, b) => {
-        if (b.currentMonthCount !== a.currentMonthCount) return b.currentMonthCount - a.currentMonthCount;
-        if (b.totalRids !== a.totalRids) return b.totalRids - a.totalRids;
-        return String(a.name || "").localeCompare(String(b.name || ""), "pt-BR");
-      });
-  }
-
-  async function downloadEmployeeRidReportPdf() {
-    const jsPdfApi = window.jspdf?.jsPDF;
-    if (!jsPdfApi) {
-      window.alert("A biblioteca de PDF nao foi carregada.");
-      return;
-    }
-
-    const period = getSelectedPeriod();
-    const reportItems = getEmployeeRidReportCurrentMonth(period);
-    const now = new Date();
-    const currentMonth = now.getMonth() + 1;
-    const currentYear = now.getFullYear();
-    const previousDate = new Date(currentYear, currentMonth - 2, 1);
-    const sectorLabel = period.sector || "Todos os setores";
-    const monthLabel = formatMonthReference(currentMonth, currentYear);
-    const previousMonthLabel = formatMonthReference(previousDate.getMonth() + 1, previousDate.getFullYear());
-    const regularCount = reportItems.filter((item) => item.isRegularEmitter).length;
-    const generatedAtLabel = `${now.toLocaleDateString("pt-BR")} ${now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
-    const logoData = await loadImageAsDataUrl("logo.png");
-
-    const doc = new jsPdfApi({ orientation: "landscape", unit: "mm", format: "a4" });
-    const headerContext = {
-      pageWidth: doc.internal.pageSize.getWidth(),
-      pageHeight: doc.internal.pageSize.getHeight(),
-      monthLabel,
-      sectorLabel,
-      reportItems,
-      regularCount,
-      previousMonthLabel,
-      generatedAtLabel,
-      logoData
-    };
-
-    doc.autoTable({
-      startY: 68,
-      head: [[
-        "Colaborador",
-        "Setor",
-        "Funcao",
-        "Total",
-        `Mes ${monthLabel}`,
-        `Mes ${previousMonthLabel}`,
-        "Queda %",
-        "Ultimo RID",
-        "Ultima emissao",
-        "Regular"
-      ]],
-      body: reportItems.map((item) => ([
-        `${item.name || "-"}\nCPF: ${item.cpf || "-"}\nEmail: ${item.email || "-"}`,
-        item.sector || "-",
-        item.role || "-",
-        String(item.totalRids),
-        String(item.currentMonthCount),
-        String(item.previousMonthCount),
-        `${item.monthlyDropPercent.toFixed(1).replace(".", ",")}%`,
-        `${item.lastRidNumber} (${item.lastRidStatus})`,
-        item.lastDate ? formatDate(item.lastDate) : "Nenhum RID",
-        item.isRegularEmitter ? `Sim (${item.averageMonthlyRids.toFixed(1).replace(".", ",")}/mes)` : `Nao (${item.averageMonthlyRids.toFixed(1).replace(".", ",")}/mes)`
-      ])),
-      styles: {
-        font: "helvetica",
-        fontSize: 7.7,
-        cellPadding: 2.4,
-        lineColor: [229, 231, 235],
-        textColor: [51, 65, 85],
-        overflow: "linebreak"
-      },
-      headStyles: {
-        fillColor: [226, 232, 240],
-        textColor: [15, 23, 42],
-        fontStyle: "bold",
-        halign: "center",
-        valign: "middle",
-        lineColor: [203, 213, 225]
-      },
-      columnStyles: {
-        0: { cellWidth: 96 },
-        1: { cellWidth: 21 },
-        2: { cellWidth: 42 },
-        3: { cellWidth: 12, halign: "center" },
-        4: { cellWidth: 14, halign: "center" },
-        5: { cellWidth: 14, halign: "center" },
-        6: { cellWidth: 14, halign: "center" },
-        7: { cellWidth: 24, halign: "center" },
-        8: { cellWidth: 20, halign: "center" },
-        9: { cellWidth: 22, halign: "center" }
-      },
-      alternateRowStyles: {
-        fillColor: [248, 250, 252]
-      },
-      bodyStyles: {
-        fillColor: [255, 255, 255]
-      },
-      margin: { top: 42, left: 6, right: 6, bottom: 16 },
-      didParseCell: (hookData) => {
-        if (hookData.section === "body" && hookData.column.index === 9) {
-          const isPositive = String(hookData.cell.raw || "").trim().toLowerCase().startsWith("sim");
-          hookData.cell.styles.fillColor = isPositive ? [240, 253, 244] : [255, 247, 237];
-          hookData.cell.styles.textColor = isPositive ? [21, 128, 61] : [194, 65, 12];
-          hookData.cell.styles.fontStyle = "bold";
-        }
-        if (hookData.section === "body" && hookData.column.index === 6) {
-          const dropValue = parseFloat(String(hookData.cell.raw || "").replace("%", "").replace(",", "."));
-          if (Number.isFinite(dropValue) && dropValue > 0) {
-            hookData.cell.styles.textColor = [185, 28, 28];
-            hookData.cell.styles.fontStyle = "bold";
-          } else {
-            hookData.cell.styles.textColor = [22, 101, 52];
-          }
-        }
-      },
-      didDrawPage: (hookData) => {
-        drawEmployeeRidReportHeader(doc, {
-          ...headerContext,
-          isFirstPage: hookData.pageNumber === 1
-        });
-      }
-    });
-
-    const fileDate = `${currentYear}-${String(currentMonth).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    doc.save(`relatorio-emissores-rid-${fileDate}.pdf`);
-    void registerDashboardReportHistory({
-      exportType: "PDF",
-      reportName: "Relatorio detalhado de emissores de RID",
-      periodLabel: monthLabel,
-      sectorLabel,
-      totalCurrent: reportItems.length,
-      totalLate: 0,
-      metadata: {
-        usersListed: reportItems.length,
-        regularEmitters: regularCount,
-        currentMonthLabel: monthLabel,
-        previousMonthLabel
-      }
-    });
-  }
-
-  async function registerDashboardReportHistory({
-    exportType,
-    reportName,
-    periodLabel,
-    sectorLabel,
-    totalCurrent,
-    totalLate,
-    metadata
-  }) {
-    if (!canManageDashboard()) return;
-    if (!state.currentUser || !state.currentUserData) return;
-
-    const exportedAt = new Date();
-
-    try {
-      await db.collection("reportsHistory").add({
-        generatedById: state.currentUser.uid,
-        generatedByName: state.currentUserData.name || state.currentUser.email || "Usuario",
-        generatedByEmail: state.currentUser.email || state.currentUserData.email || "",
-        exportType: exportType || "PDF",
-        reportName: reportName || "Relatorio do dashboard",
-        reportSource: "dashboard",
-        periodLabel: periodLabel || "Mes atual",
-        sectorLabel: sectorLabel || "Todos os setores",
-        totalCurrent: Number(totalCurrent || 0),
-        totalLate: Number(totalLate || 0),
-        metadata: metadata || {},
-        exportedDate: exportedAt.toLocaleDateString("pt-BR"),
-        exportedTime: exportedAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-        exportedAtMs: exportedAt.getTime(),
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-      });
-    } catch (error) {
-      console.warn("Nao foi possivel registrar o historico de relatorios do dashboard.", error);
-    }
   }
 
   function getTopEmitterStreaks(topEmitters, period) {
@@ -1339,9 +1041,10 @@
         const year = date.getFullYear();
 
         const monthRids = state.allRids
-          .filter((rid) => isActiveRid(rid))
+          .filter((rid) => !rid.deleted)
           .filter((rid) => !isVisitorRid(rid))
           .filter((rid) => !period.sector || rid.sector === period.sector)
+          .filter((rid) => isEligibleTopEmitterUser(resolveRidEmitterUser(rid)))
           .filter((rid) => {
             const ridDate = toDateSafe(rid.emissionDate) || toDateSafe(rid.createdAt);
             return ridDate && ridDate.getMonth() + 1 === month && ridDate.getFullYear() === year;
@@ -1374,7 +1077,7 @@
     const ridMilestone = getRidMilestoneInfo();
     const filteredRids = getFilteredRids(period);
     const goalProgressRids = state.allRids
-      .filter((rid) => isActiveRid(rid))
+      .filter((rid) => !rid.deleted)
       .filter((rid) => {
         if (period.sector && rid.sector !== period.sector) return false;
         const date = toDateSafe(rid.emissionDate) || toDateSafe(rid.createdAt);
@@ -1382,7 +1085,7 @@
       });
 
     const openRids = state.allRids
-      .filter((rid) => isActiveRid(rid))
+      .filter((rid) => !rid.deleted)
       .filter((rid) => {
         const status = normalizeStatus(rid.status);
         return status === "EM ANDAMENTO" || status === "PENDENTE";
@@ -1391,7 +1094,7 @@
     const overdueRids = filteredRids.filter((rid) => normalizeStatus(rid.status) === "VENCIDO").length;
 
     const correctedInMonthList = state.allRids
-      .filter((rid) => isActiveRid(rid))
+      .filter((rid) => !rid.deleted)
       .filter((rid) => !isVisitorRid(rid))
       .filter((rid) => {
         if (period.sector && rid.sector !== period.sector) return false;
@@ -1405,7 +1108,7 @@
     }).length;
 
     const lateRids = state.allRids
-      .filter((rid) => isActiveRid(rid))
+      .filter((rid) => !rid.deleted)
       .filter((rid) => !isVisitorRid(rid))
       .filter((rid) => {
         if (period.sector && rid.sector !== period.sector) return false;
@@ -1416,7 +1119,7 @@
       }).length;
 
     const closedRids = state.allRids
-      .filter((rid) => isActiveRid(rid))
+      .filter((rid) => !rid.deleted)
       .filter((rid) => !isVisitorRid(rid))
       .filter((rid) => {
         if (period.sector && rid.sector !== period.sector) return false;
@@ -1433,7 +1136,7 @@
       .filter((rid) => matchesSelectedPeriod(toDateSafe(rid.deletedAt), period)).length;
 
     const statusBase = state.allRids
-      .filter((rid) => isActiveRid(rid))
+      .filter((rid) => !rid.deleted)
       .filter((rid) => !isVisitorRid(rid))
       .filter((rid) => {
         if (period.sector && rid.sector !== period.sector) return false;
@@ -1447,11 +1150,13 @@
     ];
 
     const emittersMap = {};
-    filteredRids.forEach((rid) => {
+    filteredRids
+      .filter((rid) => isEligibleTopEmitterUser(resolveRidEmitterUser(rid)))
+      .forEach((rid) => {
       const key = rid.emitterId || rid.emitterName || rid.id;
       if (!emittersMap[key]) emittersMap[key] = { name: rid.emitterName || "Sem nome", count: 0 };
       emittersMap[key].count += 1;
-    });
+      });
 
     const topEmitters = Object.values(emittersMap).sort((a, b) => b.count - a.count).slice(0, 5);
     const topEmitterStreaks = getTopEmitterStreaks(topEmitters, period);
@@ -1465,6 +1170,7 @@
     const sectors = Object.entries(sectorMap)
       .map(([sector, count]) => ({ sector, count }))
       .sort((a, b) => b.count - a.count);
+    const sectorGoals = getSectorGoalMetrics(period);
 
     return {
       period,
@@ -1483,6 +1189,7 @@
         streak: topEmitterStreaks.get(item.name) || 0
       })),
       sectors,
+      sectorGoals,
       ridMilestone,
       deleteRequests: getFilteredDeleteRequests(period),
       employeesWithoutRids: getEmployeesWithoutRids(period, filteredRids),
@@ -1960,7 +1667,22 @@
     `;
   }
 
-  function renderSectorBoard(items) {
+  function updateSectorBoardHeader(mode) {
+    if (!dom.sectorBoardTitle || !dom.sectorBoardSubtitle || !dom.toggleSectorBoardMode) return;
+
+    if (mode === "goals") {
+      dom.sectorBoardTitle.textContent = "Metas mensais por setor";
+      dom.sectorBoardSubtitle.textContent = "Meta, percentual de atingimento e saldo restante por setor";
+      dom.toggleSectorBoardMode.textContent = "Ver volume";
+      return;
+    }
+
+    dom.sectorBoardTitle.textContent = "Setores com mais RIDs";
+    dom.sectorBoardSubtitle.textContent = "Distribuicao dos setores com maior volume no recorte";
+    dom.toggleSectorBoardMode.textContent = "Ver metas";
+  }
+
+  function renderSectorVolumeBoard(items) {
     if (!items.length) {
       dom.sectorBoard.innerHTML = '<div class="text-sm text-gray-400">Nenhum setor encontrado para esse recorte.</div>';
       return;
@@ -2064,6 +1786,140 @@
     `;
 
     bindSectorBoardInteractions(segments, total);
+  }
+
+  function renderSectorGoalBoard(items, period) {
+    if (period.showAllMonths) {
+      dom.sectorBoard.innerHTML = `
+        <div class="sector-goal-layout">
+          <div class="sector-goal-main">
+            <div class="sector-goal-hero">
+              <div class="text-[11px] font-semibold uppercase tracking-wider text-amber-500">Visao mensal</div>
+              <div class="text-2xl font-bold text-gray-900 mt-2">Selecione um mes especifico</div>
+              <div class="text-sm text-gray-500 mt-2">A meta por setor e mensal, entao essa visao fica disponivel apenas quando um mes estiver selecionado.</div>
+            </div>
+            <div class="sector-goal-chart">
+              <div class="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-4">
+                <div class="text-sm font-semibold text-amber-800">Filtro necessario</div>
+                <div class="text-xs text-amber-700 mt-1">Escolha um mes no dashboard para comparar as metas dos setores no mesmo tamanho de card.</div>
+              </div>
+            </div>
+          </div>
+          <div class="sector-goal-side">
+            <div class="sector-goal-side-card">
+              <div class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Meta por setor</div>
+              <div class="text-sm text-gray-600 mt-2">Aqui vamos comparar meta, atingimento e saldo restante sem alterar a altura do card.</div>
+            </div>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    if (!items.length) {
+      dom.sectorBoard.innerHTML = '<div class="text-sm text-gray-400">Nenhum setor encontrado para esse recorte.</div>';
+      return;
+    }
+
+    const visibleItems = items.slice(0, 6);
+    const bestItem = visibleItems[0] || null;
+    const totalGoal = visibleItems.reduce((sum, item) => sum + (item.goal || 0), 0);
+    const totalAchieved = visibleItems.reduce((sum, item) => sum + (item.achieved || 0), 0);
+    const totalRemaining = visibleItems.reduce((sum, item) => sum + (item.remaining || 0), 0);
+    const averagePercent = visibleItems.length
+      ? visibleItems.reduce((sum, item) => sum + (item.percent || 0), 0) / visibleItems.length
+      : 0;
+
+    dom.sectorBoard.innerHTML = `
+      <div class="sector-goal-layout">
+        <div class="sector-goal-main">
+          <div class="sector-goal-hero">
+            <div class="text-[11px] font-semibold uppercase tracking-wider text-sky-500">Radar de metas</div>
+            <div class="flex items-end justify-between gap-4 mt-2">
+              <div>
+                <div class="text-3xl font-bold text-gray-900">${averagePercent.toFixed(0)}%</div>
+                <div class="text-sm text-gray-500 mt-1">media de atingimento dos setores exibidos</div>
+              </div>
+              <div class="text-right">
+                <div class="text-sm font-semibold text-gray-900">${visibleItems.length}</div>
+                <div class="text-[11px] uppercase tracking-wider text-gray-400">setores no grafico</div>
+              </div>
+            </div>
+            <div class="sector-goal-metrics">
+              <div class="sector-goal-metric">
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Meta total</div>
+                <div class="text-xl font-bold text-gray-900 mt-1">${totalGoal}</div>
+              </div>
+              <div class="sector-goal-metric">
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Emitidos</div>
+                <div class="text-xl font-bold text-gray-900 mt-1">${totalAchieved}</div>
+              </div>
+              <div class="sector-goal-metric">
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Faltando</div>
+                <div class="text-xl font-bold text-gray-900 mt-1">${totalRemaining}</div>
+              </div>
+            </div>
+          </div>
+          <div class="sector-goal-chart">
+            <div class="flex items-center justify-between gap-3">
+              <div class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Atingimento por setor</div>
+              <div class="text-[11px] text-gray-400">Porcentagem</div>
+            </div>
+            ${visibleItems.map((item) => {
+              const safePercent = Math.max(item.percent || 0, 0);
+              const barPercent = Math.min(safePercent, 100);
+              const progressTone = safePercent >= 100 ? "#16a34a" : safePercent >= 75 ? "#2563eb" : safePercent >= 50 ? "#d97706" : "#dc2626";
+              return `
+                <div class="sector-goal-row">
+                  <div class="min-w-0">
+                    <div class="text-xs font-semibold text-gray-900 truncate">${escapeHtml(item.sector)}</div>
+                    <div class="text-[10px] text-gray-400">${item.achieved}/${item.goal ?? 0}</div>
+                  </div>
+                  <div class="sector-goal-track">
+                    <div class="sector-goal-fill" style="width:${barPercent}%;background:${progressTone};"></div>
+                  </div>
+                  <div class="text-right">
+                    <div class="text-xs font-bold" style="color:${progressTone};">${safePercent.toFixed(0)}%</div>
+                    <div class="text-[10px] text-gray-400">${item.remaining === 0 ? "ok" : `-${item.remaining ?? 0}`}</div>
+                  </div>
+                </div>
+              `;
+            }).join("")}
+          </div>
+        </div>
+        <div class="sector-goal-side">
+          <div class="sector-goal-side-card">
+            <div class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Melhor resultado</div>
+            <div class="text-lg font-bold text-gray-900 mt-2">${escapeHtml(bestItem?.sector || "-")}</div>
+            <div class="text-sm text-gray-500 mt-1">${bestItem ? `${bestItem.percent.toFixed(0)}% da meta atingida` : "Sem dados no periodo"}</div>
+          </div>
+          <div class="sector-goal-side-card">
+            <div class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Leitura rapida</div>
+            <div class="text-sm text-gray-600 mt-2">
+              ${bestItem
+                ? `${escapeHtml(bestItem.sector)} lidera no recorte com ${bestItem.achieved} RIDs emitidos, meta de ${bestItem.goal ?? 0} e saldo restante de ${bestItem.remaining ?? 0}.`
+                : "Sem dados suficientes para gerar insight."}
+            </div>
+          </div>
+          <div class="sector-goal-side-card">
+            <div class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Base da meta</div>
+            <div class="text-sm text-gray-600 mt-2">A meta continua usando o calculo automatico mensal do sistema por setor.</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderSectorBoard(data, period) {
+    const mode = state.sectorBoardMode === "goals" ? "goals" : "volume";
+    updateSectorBoardHeader(mode);
+
+    if (mode === "goals") {
+      renderSectorGoalBoard(data?.sectorGoals || [], period);
+      return;
+    }
+
+    renderSectorVolumeBoard(data?.sectors || []);
   }
 
   function bindSectorBoardInteractions(segments, total) {
@@ -2188,7 +2044,6 @@
             <p class="text-sm font-medium text-gray-900 break-words">${escapeHtml(item.name)}</p>
           </div>
           <p class="text-xs text-gray-500 mt-1">${item.lastDate ? `Ultimo RID em ${escapeHtml(formatDate(item.lastDate))}` : "Nenhum RID emitido"}</p>
-          <p class="text-[11px] text-gray-400 mt-1">${item.daysWithout == null ? "Sem historico de emissao" : `${item.daysWithout} dia${item.daysWithout === 1 ? "" : "s"} sem emitir`}</p>
         </div>
         <div class="text-left sm:text-right">
           <div class="text-xl font-bold text-gray-900 leading-none">${item.count}</div>
@@ -2196,343 +2051,6 @@
         </div>
       </div>
     `).join("");
-  }
-
-  function getDashboardPeriodLabel(period) {
-    if (!period) return "Recorte atual";
-    if (period.showAllMonths) {
-      return period.sector ? `Todos os meses · ${period.sector}` : "Todos os meses";
-    }
-    const monthDate = new Date(period.year, Math.max(0, (period.month || 1) - 1), 1);
-    const base = monthDate.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
-    return period.sector ? `${base} · ${period.sector}` : base;
-  }
-
-  function formatDecimalLabel(value, digits = 1) {
-    return Number(value || 0).toFixed(digits).replace(".", ",");
-  }
-
-  function getMonthLabel(month, year) {
-    return `${String(month).padStart(2, "0")}/${year}`;
-  }
-
-  function getPreviousMonthPeriod(period) {
-    const baseDate = new Date(period.year, Math.max(0, (period.month || 1) - 2), 1);
-    return {
-      showAllMonths: false,
-      month: baseDate.getMonth() + 1,
-      year: baseDate.getFullYear(),
-      sector: period.sector || ""
-    };
-  }
-
-  function getComparableUserRids(user, period, options = {}) {
-    return state.allRids
-      .filter((rid) => !rid.deleted)
-      .filter((rid) => !isVisitorRid(rid))
-      .filter((rid) => {
-        if (options.sector && rid.sector !== options.sector) return false;
-        if (period && !matchesSelectedPeriod(toDateSafe(rid.emissionDate) || toDateSafe(rid.createdAt), period)) return false;
-
-        const sameId = rid.emitterId && user.id && rid.emitterId === user.id;
-        const sameCpf = rid.emitterCpf && user.cpf && String(rid.emitterCpf) === String(user.cpf);
-        const sameName = rid.emitterName && user.name && String(rid.emitterName).trim() === String(user.name).trim();
-        return sameId || sameCpf || sameName;
-      });
-  }
-
-  function getDetailedEmployeeReport(period) {
-    const previousPeriod = getPreviousMonthPeriod(period);
-    const sectorFilter = period.sector || "";
-    const users = state.allUsers
-      .filter((user) => !sectorFilter || user.sector === sectorFilter)
-      .filter((user) => !isThirdPartyUser(user));
-
-    const items = users.map((user) => {
-      const allMatchedRids = getComparableUserRids(user, null, { sector: sectorFilter });
-      const currentRids = getComparableUserRids(user, period, { sector: sectorFilter });
-      const previousRids = getComparableUserRids(user, previousPeriod, { sector: sectorFilter });
-      const lastRid = allMatchedRids
-        .slice()
-        .sort((a, b) => (toDateSafe(b.emissionDate || b.createdAt)?.getTime() || 0) - (toDateSafe(a.emissionDate || a.createdAt)?.getTime() || 0))[0] || null;
-
-      const firstRidDate = allMatchedRids
-        .map((rid) => toDateSafe(rid.emissionDate || rid.createdAt))
-        .filter(Boolean)
-        .sort((a, b) => a.getTime() - b.getTime())[0] || null;
-
-      const referenceDate = new Date(period.year, (period.month || 1) - 1, 1);
-      const monthsActive = firstRidDate
-        ? Math.max(1, ((referenceDate.getFullYear() - firstRidDate.getFullYear()) * 12) + (referenceDate.getMonth() - firstRidDate.getMonth()) + 1)
-        : 1;
-      const historicalAverage = allMatchedRids.length / monthsActive;
-      const isRegular = historicalAverage > 4;
-      const previousCount = previousRids.length;
-      const currentCount = currentRids.length;
-      const dropPercent = previousCount > 0
-        ? Math.max(0, ((previousCount - currentCount) / previousCount) * 100)
-        : 0;
-
-      return {
-        name: getDashboardEmployeeLabel(user),
-        cpf: user.cpf || "-",
-        email: user.email || "-",
-        sector: user.sector || "-",
-        role: user.role || user.function || "-",
-        total: allMatchedRids.length,
-        currentCount,
-        previousCount,
-        dropPercent,
-        lastRidNumber: lastRid ? formatRidNumber(lastRid.ridNumber) : "-",
-        lastRidStatus: lastRid ? normalizeStatus(lastRid.status || "PENDENTE") : "",
-        lastEmissionDate: lastRid ? formatDate(lastRid.emissionDate || lastRid.createdAt) : "-",
-        historicalAverage,
-        isRegular
-      };
-    }).sort((a, b) => {
-      if (b.currentCount !== a.currentCount) return b.currentCount - a.currentCount;
-      if (b.total !== a.total) return b.total - a.total;
-      return String(a.name || "").localeCompare(String(b.name || ""), "pt-BR");
-    });
-
-    return {
-      items,
-      regularCount: items.filter((item) => item.isRegular).length,
-      currentLabel: getMonthLabel(period.month, period.year),
-      previousLabel: getMonthLabel(previousPeriod.month, previousPeriod.year)
-    };
-  }
-
-  function drawPdfPageFooter(doc, pageWidth, pageHeight, margin) {
-    doc.setDrawColor(226, 232, 240);
-    doc.line(margin, pageHeight - 8, pageWidth - margin, pageHeight - 8);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    doc.setTextColor(148, 163, 184);
-    doc.text(`Pagina ${doc.getCurrentPageInfo().pageNumber}`, pageWidth - margin, pageHeight - 4, { align: "right" });
-  }
-
-  function loadPdfLogo() {
-    return new Promise((resolve) => {
-      const image = new Image();
-      image.crossOrigin = "anonymous";
-      image.onload = () => {
-        try {
-          const canvas = document.createElement("canvas");
-          canvas.width = image.width;
-          canvas.height = image.height;
-          const context = canvas.getContext("2d");
-          if (!context) {
-            resolve(null);
-            return;
-          }
-          context.drawImage(image, 0, 0);
-          resolve(canvas.toDataURL("image/png"));
-        } catch (error) {
-          resolve(null);
-        }
-      };
-      image.onerror = () => resolve(null);
-      image.src = "icon-192.png";
-    });
-  }
-
-  async function exportEmployeesPdf() {
-    const period = state.lastDashboardData?.period || getSelectedPeriod();
-    const report = getDetailedEmployeeReport(period);
-    const items = report.items;
-    const jsPdfCtor = window.jspdf?.jsPDF;
-
-    if (!jsPdfCtor) {
-      window.alert("A biblioteca de PDF nao carregou. Atualize a pagina e tente novamente.");
-      return;
-    }
-
-    if (!items.length) {
-      window.alert("Nao ha funcionarios no recorte atual para exportar.");
-      return;
-    }
-
-    dom.exportEmployeesPdfButton.disabled = true;
-    const previousButtonText = dom.exportEmployeesPdfButton.innerHTML;
-    dom.exportEmployeesPdfButton.innerHTML = '<span>Gerando PDF...</span>';
-
-    try {
-      const logoDataUrl = await loadPdfLogo();
-      const doc = new jsPdfCtor({ unit: "mm", format: "legal", orientation: "landscape" });
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      const margin = 7;
-      let cursorY = margin;
-
-      doc.setFillColor(247, 250, 252);
-      doc.roundedRect(margin, cursorY, pageWidth - margin * 2, 28, 5, 5, "F");
-      if (logoDataUrl) {
-        doc.addImage(logoDataUrl, "PNG", margin + 4, cursorY + 4, 16, 16);
-      }
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(18);
-      doc.setTextColor(15, 23, 42);
-      doc.text("Relatorio detalhado de emissores de RID", margin + 26, cursorY + 10);
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(9);
-      doc.setTextColor(71, 85, 105);
-      doc.text(`CLUSTER SUL | FORMACAL | GERADO EM ${new Date().toLocaleString("pt-BR")}`, margin + 26, cursorY + 17);
-      doc.text(`Periodo ${report.currentLabel} | Setor ${period.sector || "Todos os setores"}`, margin + 26, cursorY + 23);
-      cursorY += 34;
-
-      const cards = [
-        { title: "USUARIOS LISTADOS", value: String(items.length), fill: [248, 250, 252], stroke: [226, 232, 240], text: [71, 85, 105], valueText: [15, 23, 42] },
-        { title: "REGULARES", value: String(report.regularCount), fill: [240, 253, 244], stroke: [187, 247, 208], text: [100, 116, 139], valueText: [22, 163, 74] },
-        { title: "MES ATUAL", value: report.currentLabel, fill: [239, 246, 255], stroke: [191, 219, 254], text: [100, 116, 139], valueText: [37, 99, 235] },
-        { title: "COMPARATIVO", value: report.previousLabel, fill: [255, 247, 237], stroke: [253, 230, 138], text: [100, 116, 139], valueText: [234, 88, 12] }
-      ];
-      const cardGap = 3;
-      const cardWidth = (pageWidth - margin * 2 - cardGap * 3) / 4;
-      cards.forEach((card, index) => {
-        const x = margin + index * (cardWidth + cardGap);
-        doc.setFillColor(...card.fill);
-        doc.setDrawColor(...card.stroke);
-        doc.roundedRect(x, cursorY, cardWidth, 18, 4, 4, "FD");
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(8);
-        doc.setTextColor(...card.text);
-        doc.text(card.title, x + 3, cursorY + 6);
-        doc.setFontSize(12);
-        doc.setTextColor(...card.valueText);
-        doc.text(card.value, x + 3, cursorY + 13);
-      });
-      cursorY += 24;
-
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8.5);
-      doc.setTextColor(71, 85, 105);
-      doc.text("Regra de emissor regular: media historica acima de 4 RIDs por mes.", margin, cursorY);
-      cursorY += 6;
-
-      const availableWidth = pageWidth - margin * 2;
-      const columnWeights = {
-        collaborator: 27,
-        sector: 9,
-        role: 18,
-        total: 5,
-        current: 5,
-        previous: 5,
-        drop: 7,
-        lastRid: 12,
-        lastEmission: 8,
-        regular: 9
-      };
-      const weightSum = Object.values(columnWeights).reduce((sum, value) => sum + value, 0);
-      const columns = [
-        { key: "collaborator", label: "Colaborador" },
-        { key: "sector", label: "Setor" },
-        { key: "role", label: "Funcao" },
-        { key: "total", label: "Total" },
-        { key: "current", label: `Mes ${report.currentLabel}` },
-        { key: "previous", label: `Mes ${report.previousLabel}` },
-        { key: "drop", label: "Queda" },
-        { key: "lastRid", label: "Ultimo RID" },
-        { key: "lastEmission", label: "Ultima emissao" },
-        { key: "regular", label: "Regular" }
-      ].map((column) => ({
-        ...column,
-        width: availableWidth * (columnWeights[column.key] / weightSum)
-      }));
-
-      const rowHeight = 15;
-      const headerHeight = 11;
-
-      const drawTableHeader = () => {
-        let currentX = margin;
-        doc.setFillColor(226, 232, 240);
-        doc.rect(margin, cursorY, pageWidth - margin * 2, headerHeight, "F");
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(7.8);
-        doc.setTextColor(31, 41, 55);
-        columns.forEach((column) => {
-          const headerLines = doc.splitTextToSize(column.label, column.width - 1.5);
-          doc.text(headerLines, currentX + column.width / 2, cursorY + 4.5, { align: "center" });
-          currentX += column.width;
-        });
-        cursorY += headerHeight;
-      };
-
-      const addNewPage = () => {
-        drawPdfPageFooter(doc, pageWidth, pageHeight, margin);
-        doc.addPage();
-        cursorY = margin;
-        drawTableHeader();
-      };
-
-      drawTableHeader();
-
-      items.forEach((item, index) => {
-        if (cursorY + rowHeight > pageHeight - 12) {
-          addNewPage();
-        }
-
-        const rowFill = index % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
-        doc.setFillColor(...rowFill);
-        doc.rect(margin, cursorY, availableWidth, rowHeight, "F");
-
-        const regularLabel = `${item.isRegular ? "Sim" : "Nao"} (${formatDecimalLabel(item.historicalAverage)}/mes)`;
-        const dropLabel = `${formatDecimalLabel(item.dropPercent)}%`;
-        const collaboratorLines = [
-          item.name,
-          `CPF: ${item.cpf}`,
-          `Email: ${item.email}`
-        ];
-        const rowData = {
-          collaborator: collaboratorLines,
-          sector: [item.sector],
-          role: doc.splitTextToSize(item.role, columns[2].width - 2).slice(0, 2),
-          total: [String(item.total)],
-          current: [String(item.currentCount)],
-          previous: [String(item.previousCount)],
-          drop: [dropLabel],
-          lastRid: [item.lastRidNumber, item.lastRidStatus ? `(${item.lastRidStatus})` : ""].filter(Boolean),
-          lastEmission: [item.lastEmissionDate],
-          regular: doc.splitTextToSize(regularLabel, columns[9].width - 2).slice(0, 2)
-        };
-
-        let currentX = margin;
-        columns.forEach((column) => {
-          const lines = rowData[column.key] || [""];
-          doc.setFont("helvetica", column.key === "collaborator" ? "bold" : "normal");
-          doc.setFontSize(column.key === "collaborator" ? 8.2 : 7.8);
-          let textColor = [51, 65, 85];
-          if (column.key === "drop") {
-            textColor = item.dropPercent > 0 ? [220, 38, 38] : [22, 163, 74];
-          }
-          if (column.key === "regular") {
-            textColor = item.isRegular ? [22, 163, 74] : [220, 38, 38];
-          }
-          doc.setTextColor(...textColor);
-          const baseY = cursorY + 4.2;
-          lines.forEach((line, lineIndex) => {
-            doc.text(String(line), currentX + 1.5, baseY + lineIndex * 3.7);
-          });
-          currentX += column.width;
-        });
-        cursorY += rowHeight;
-      });
-
-      drawPdfPageFooter(doc, pageWidth, pageHeight, margin);
-
-      const periodSlug = getDashboardPeriodLabel(period)
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-zA-Z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .toLowerCase();
-
-      doc.save(`relatorio-emissores-rid-${periodSlug || "atual"}.pdf`);
-    } finally {
-      dom.exportEmployeesPdfButton.disabled = false;
-      dom.exportEmployeesPdfButton.innerHTML = previousButtonText;
-      lucide.createIcons();
-    }
   }
 
   function renderWeeklyRids(items) {
@@ -2573,7 +2091,6 @@
 
   async function renderDashboard() {
     const data = computeDashboard();
-    state.lastDashboardData = data;
     await loadMonthlyGoal(data.period);
     dom.statTotalRids.textContent = String(data.totalRids);
     dom.statOpenRids.textContent = String(data.openRids);
@@ -2588,7 +2105,7 @@
     renderRidMilestoneBanner(data.ridMilestone);
     renderGoalPanel(data);
     renderStatusBoard(data.statusItems);
-    renderSectorBoard(data.sectors);
+    renderSectorBoard(data, data.period);
     renderTopEmitters(data.topEmitters);
     renderEmployeesWithoutRids(data.employeeRidCountsCurrentMonth);
     renderDeleteRequestsBoard(data.deleteRequests);
@@ -2698,15 +2215,14 @@
       void renderDashboard();
     });
 
-    dom.downloadEmployeeRidReportButton?.addEventListener("click", () => {
-      downloadEmployeeRidReportPdf();
+    dom.toggleSectorBoardMode?.addEventListener("click", () => {
+      state.sectorBoardMode = state.sectorBoardMode === "goals" ? "volume" : "goals";
+      void renderDashboard();
     });
 
     dom.logoutButton.addEventListener("click", async () => {
       await auth.signOut();
     });
-
-    dom.exportEmployeesPdfButton?.addEventListener("click", exportEmployeesPdf);
 
     dom.manualGoalForm.addEventListener("submit", async (event) => {
       event.preventDefault();
