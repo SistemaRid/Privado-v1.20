@@ -943,7 +943,7 @@
             <div id="filtersPanel" class="filter-panel">
               <div class="text-xs uppercase tracking-wider font-semibold text-gray-400 mb-4">Filtros do dashboard</div>
               <div class="space-y-3">
-                <select id="dashboardMonth" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50">
+                <select id="dashboardMonth" autocomplete="off" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50">
                   <option value="all">Todos os meses</option>
                   <option value="1">Janeiro</option>
                   <option value="2">Fevereiro</option>
@@ -958,8 +958,8 @@
                   <option value="11">Novembro</option>
                   <option value="12">Dezembro</option>
                 </select>
-                <input id="dashboardYear" type="number" min="2020" max="2100" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50">
-                <select id="dashboardSector" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50"><option value="">Todos os setores</option></select>
+                <input id="dashboardYear" type="number" min="2020" max="2100" autocomplete="off" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50">
+                <select id="dashboardSector" autocomplete="off" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-gray-400 bg-gray-50"><option value="">Todos os setores</option></select>
               </div>
               <div class="flex items-center justify-end gap-3 mt-4">
                 <button id="clearFiltersButton" type="button" class="px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm font-medium text-gray-600">Limpar filtros</button>
@@ -1061,6 +1061,6 @@
       window.setTimeout(() => footer.classList.remove("visible"), 10000);
     })();
   </script>
-  <script src="dashboard-app.js"></script>
+  <script src="dashboard-app.js?v=20260630-formacal-goals"></script>
 </body>
 </html>
