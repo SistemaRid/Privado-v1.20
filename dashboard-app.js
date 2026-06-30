@@ -34,6 +34,8 @@
     manualGoalValue: null,
     manualGoalMonthKey: null,
     sectorBoardMode: "volume",
+    sectorBoardFilterMonth: null,
+    sectorBoardFilterYear: null,
     shouldAnimateGoalIntro: false,
     hasLoadedRidsOnce: false,
     notificationAudio: null,
@@ -73,9 +75,15 @@
     ridMilestoneBanner: document.getElementById("ridMilestoneBanner"),
     statusGoalPanel: document.getElementById("statusGoalPanel"),
     statusBoard: document.getElementById("statusBoard"),
+    statusHeadcountBoard: document.getElementById("statusHeadcountBoard"),
     sectorBoardTitle: document.getElementById("sectorBoardTitle"),
     sectorBoardSubtitle: document.getElementById("sectorBoardSubtitle"),
+    toggleSectorBoardFilters: document.getElementById("toggleSectorBoardFilters"),
     toggleSectorBoardMode: document.getElementById("toggleSectorBoardMode"),
+    sectorBoardFiltersPanel: document.getElementById("sectorBoardFiltersPanel"),
+    sectorBoardMonthFilter: document.getElementById("sectorBoardMonthFilter"),
+    sectorBoardYearFilter: document.getElementById("sectorBoardYearFilter"),
+    sectorBoardPanel: document.getElementById("sectorBoardPanel"),
     sectorBoard: document.getElementById("sectorBoard"),
     topEmittersList: document.getElementById("topEmittersList"),
     topEmittersSummary: document.getElementById("topEmittersSummary"),
@@ -659,10 +667,47 @@
     dom.dashboardMonth.value = String(now.getMonth() + 1);
     dom.dashboardYear.value = String(now.getFullYear());
     dom.dashboardSector.value = "";
+    state.sectorBoardFilterMonth = now.getMonth() + 1;
+    state.sectorBoardFilterYear = now.getFullYear();
+    syncSectorBoardFiltersToInputs();
   }
 
   function closeFiltersPanel() {
     dom.filtersPanel.classList.remove("visible");
+  }
+
+  function syncSectorBoardFiltersToInputs() {
+    const now = new Date();
+    const month = Number(state.sectorBoardFilterMonth) || (Number(dom.dashboardMonth.value) || (now.getMonth() + 1));
+    const year = Number(state.sectorBoardFilterYear) || (Number(dom.dashboardYear.value) || now.getFullYear());
+
+    if (dom.sectorBoardMonthFilter) {
+      dom.sectorBoardMonthFilter.value = String(month);
+    }
+    if (dom.sectorBoardYearFilter) {
+      dom.sectorBoardYearFilter.value = String(year);
+    }
+  }
+
+  function closeSectorBoardFilters() {
+    dom.sectorBoardFiltersPanel?.classList.add("hidden-state");
+  }
+
+  function toggleSectorBoardFilters() {
+    if (!dom.sectorBoardFiltersPanel) return;
+    syncSectorBoardFiltersToInputs();
+    dom.sectorBoardFiltersPanel.classList.toggle("hidden-state");
+  }
+
+  function getSectorBoardSelectedPeriod() {
+    const basePeriod = getSelectedPeriod();
+    const now = new Date();
+    return {
+      showAllMonths: false,
+      month: Number(state.sectorBoardFilterMonth) || now.getMonth() + 1,
+      year: Number(state.sectorBoardFilterYear) || now.getFullYear(),
+      sector: basePeriod.sector || ""
+    };
   }
 
   function getSelectedPeriod() {
@@ -726,7 +771,19 @@
     return countNonSundayDaysBetween(rangeStart, monthEnd);
   }
 
+  function isNatialUnitUser(user) {
+    const normalizedUnit = String(user?.unit || "").trim().toLowerCase();
+    return normalizedUnit === "natial" || normalizedUnit === "natical";
+  }
+
   function getUserMonthlyGoalBase(user) {
+    if (hasManagementAccess(user)) return 8;
+    return 4;
+  }
+
+  function getUserGeneralGoalContribution(user) {
+    if (!isNatialUnitUser(user)) return 0;
+    if (isThirdPartyUser(user)) return 0;
     return 4;
   }
 
@@ -751,6 +808,15 @@
     return getEmploymentType(user) === "TERCEIRO";
   }
 
+  function getUserHeadcountSummary() {
+    const users = (state.allUsers || []).filter((user) => user && typeof user.name === "string");
+    const thirdParties = users.filter((user) => isThirdPartyUser(user)).length;
+    return {
+      total: users.length - thirdParties,
+      thirdParties
+    };
+  }
+
   function getDashboardEmployeeLabel(user) {
     const baseName = String(user?.name || "").trim() || "Funcionario";
     return isThirdPartyUser(user)
@@ -770,11 +836,19 @@
     }) || null;
   }
 
+  function isRidFromUser(rid, user) {
+    if (!rid || !user) return false;
+    const sameId = rid.emitterId && user.id && rid.emitterId === user.id;
+    const sameCpf = rid.emitterCpf && user.cpf && String(rid.emitterCpf) === String(user.cpf);
+    const sameName = rid.emitterName && user.name && String(rid.emitterName).trim() === String(user.name).trim();
+    return sameId || sameCpf || sameName;
+  }
+
   function isEligibleTopEmitterUser(user) {
     if (!user) return false;
     if (isThirdPartyUser(user)) return false;
-    if (isDeveloperUser(user)) return true;
     if (isAdminUser(user)) return false;
+    if (isDeveloperUser(user)) return false;
     return true;
   }
 
@@ -799,6 +873,7 @@
       if (!user || typeof user.name !== "string") return false;
       if (sector && user.sector !== sector) return false;
       if (isThirdPartyUser(user)) return false;
+      if (!isNatialUnitUser(user)) return false;
       return true;
     });
   }
@@ -852,6 +927,26 @@
     });
   }
 
+  function getSectorVolumeMetrics(period) {
+    const sectorMap = {};
+
+    state.allRids
+      .filter((rid) => !rid.deleted)
+      .filter((rid) => {
+        if (period.sector && rid.sector !== period.sector) return false;
+        const date = toDateSafe(rid.emissionDate) || toDateSafe(rid.createdAt);
+        return matchesSelectedPeriod(date, period);
+      })
+      .forEach((rid) => {
+        const sector = getSectorNameForBoard(rid);
+        sectorMap[sector] = (sectorMap[sector] || 0) + 1;
+      });
+
+    return Object.entries(sectorMap)
+      .map(([sector, count]) => ({ sector, count }))
+      .sort((a, b) => b.count - a.count);
+  }
+
   function calcAutoMonthlyGoal(users, year, month1to12) {
     const totalDays = daysInMonthLocal(year, month1to12);
     const monthStart = new Date(year, month1to12 - 1, 1, 0, 0, 0);
@@ -864,7 +959,8 @@
 
     (users || []).forEach((user) => {
       const isLeader = canManageDashboard(user);
-      const base = getUserMonthlyGoalBase(user);
+      const individualBase = getUserMonthlyGoalBase(user);
+      const generalBase = getUserGeneralGoalContribution(user);
       const vacation = user.vacationPeriod || null;
       const start = toDateSafe(vacation?.start);
       const end = toDateSafe(vacation?.end);
@@ -873,11 +969,12 @@
       if (start && end) overlap = countOverlapDaysLocal(start, end, monthStart, monthEnd);
 
       const activeDays = Math.max(0, totalDays - overlap);
-      const effective = base * (activeDays / totalDays);
+      const effective = generalBase * (activeDays / totalDays);
+      const individualEffective = individualBase * (activeDays / totalDays);
       raw += effective;
-      discount += (base - effective);
-      if (isLeader) leaderEff += effective;
-      else empEff += effective;
+      discount += (generalBase - effective);
+      if (isLeader) leaderEff += individualEffective;
+      else empEff += individualEffective;
     });
 
     return {
@@ -1021,6 +1118,217 @@
         if (b.count !== a.count) return b.count - a.count;
         return String(a.name || "").localeCompare(String(b.name || ""), "pt-BR");
       });
+  }
+
+  function getMonthsSpanForPeriod(period) {
+    return period.showAllMonths ? 12 : 1;
+  }
+
+  function getUserAverageMetrics(period) {
+    const monthsSpan = getMonthsSpanForPeriod(period);
+
+    return state.allUsers
+      .filter((user) => user && typeof user.name === "string")
+      .filter((user) => !isThirdPartyUser(user))
+      .filter((user) => !period.sector || user.sector === period.sector)
+      .map((user) => {
+        const matchedRids = state.allRids
+          .filter((rid) => !rid.deleted)
+          .filter((rid) => !isVisitorRid(rid))
+          .filter((rid) => {
+            if (period.sector && rid.sector !== period.sector) return false;
+            const ridDate = toDateSafe(rid.emissionDate) || toDateSafe(rid.createdAt);
+            if (!matchesSelectedPeriod(ridDate, period)) return false;
+
+            const sameId = rid.emitterId && user.id && rid.emitterId === user.id;
+            const sameCpf = rid.emitterCpf && user.cpf && String(rid.emitterCpf) === String(user.cpf);
+            const sameName = rid.emitterName && user.name && String(rid.emitterName).trim() === String(user.name).trim();
+            return sameId || sameCpf || sameName;
+          });
+
+        return {
+          id: user.id || user.cpf || user.name,
+          name: getDashboardEmployeeLabel(user),
+          sector: user.sector || "",
+          totalRids: matchedRids.length,
+          averagePerMonth: matchedRids.length / monthsSpan
+        };
+      })
+      .sort((a, b) => {
+        if (b.averagePerMonth !== a.averagePerMonth) return b.averagePerMonth - a.averagePerMonth;
+        if (b.totalRids !== a.totalRids) return b.totalRids - a.totalRids;
+        return String(a.name || "").localeCompare(String(b.name || ""), "pt-BR");
+      });
+  }
+
+  function getUsersWithRidsInPeriod(period) {
+    return getUserAverageMetrics(period).filter((user) => user.totalRids > 0);
+  }
+
+  function getUserRidStatusMetrics(period) {
+    return state.allUsers
+      .filter((user) => user && typeof user.name === "string")
+      .filter((user) => !isThirdPartyUser(user))
+      .filter((user) => !period.sector || user.sector === period.sector)
+      .map((user) => {
+        const userRids = state.allRids
+          .filter((rid) => !rid.deleted)
+          .filter((rid) => !isVisitorRid(rid))
+          .filter((rid) => !period.sector || rid.sector === period.sector)
+          .filter((rid) => isRidFromUser(rid, user));
+        const emitted = userRids.filter((rid) => matchesSelectedPeriod(toDateSafe(rid.emissionDate) || toDateSafe(rid.createdAt), period));
+        const corrected = emitted.filter((rid) => {
+          const status = normalizeStatus(rid.status);
+          return status === "CORRIGIDO" || status === "ENCERRADO";
+        });
+        const overdue = emitted.filter((rid) => normalizeStatus(rid.status) === "VENCIDO");
+
+        return {
+          id: user.id || user.cpf || user.name,
+          name: getDashboardEmployeeLabel(user),
+          sector: user.sector || "",
+          emitted,
+          corrected,
+          overdue,
+          total: emitted.length
+        };
+      })
+      .sort((a, b) => {
+        if (b.total !== a.total) return b.total - a.total;
+        if (b.emitted.length !== a.emitted.length) return b.emitted.length - a.emitted.length;
+        if (b.corrected.length !== a.corrected.length) return b.corrected.length - a.corrected.length;
+        if (b.overdue.length !== a.overdue.length) return b.overdue.length - a.overdue.length;
+        return String(a.name || "").localeCompare(String(b.name || ""), "pt-BR");
+      });
+  }
+
+  function getPeriodLabel(period) {
+    const monthNames = [
+      "Janeiro",
+      "Fevereiro",
+      "Marco",
+      "Abril",
+      "Maio",
+      "Junho",
+      "Julho",
+      "Agosto",
+      "Setembro",
+      "Outubro",
+      "Novembro",
+      "Dezembro"
+    ];
+    const monthLabel = period.showAllMonths
+      ? "Todos os meses"
+      : monthNames[Math.max(0, Math.min(11, Number(period.month || 1) - 1))];
+    const sectorLabel = period.sector ? ` - Setor: ${period.sector}` : "";
+    return `${monthLabel}/${period.year}${sectorLabel}`;
+  }
+
+  function downloadUserRidStatusPdf(userMetrics, period) {
+    const jsPdfApi = window.jspdf?.jsPDF;
+    if (!jsPdfApi) {
+      window.alert("Nao foi possivel carregar o gerador de PDF. Tente novamente em alguns segundos.");
+      return;
+    }
+
+    const activeMetrics = userMetrics.filter((item) => item.total > 0);
+    const totalEmitted = userMetrics.reduce((sum, item) => sum + item.emitted.length, 0);
+    const totalCorrected = userMetrics.reduce((sum, item) => sum + item.corrected.length, 0);
+    const totalOverdue = userMetrics.reduce((sum, item) => sum + item.overdue.length, 0);
+    const today = new Date();
+    const periodLabel = getPeriodLabel(period);
+    const doc = new jsPdfApi({ orientation: "landscape", unit: "mm", format: "a4" });
+    if (typeof doc.autoTable !== "function") {
+      window.alert("Nao foi possivel carregar a tabela do PDF. Tente novamente em alguns segundos.");
+      return;
+    }
+
+    function formatRidIdList(rids) {
+      if (!rids.length) return "-";
+      return rids
+        .slice()
+        .sort((a, b) => (getRidNumericValue(a.ridNumber) || 0) - (getRidNumericValue(b.ridNumber) || 0))
+        .map((rid) => `RID #${formatRidNumber(rid.ridNumber || rid.id)}`)
+        .join(", ");
+    }
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text("RIDs por usuario", 14, 16);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.text(`Periodo: ${periodLabel}`, 14, 23);
+    doc.text(`Gerado em ${today.toLocaleDateString("pt-BR")}`, 14, 29);
+    doc.text(`Usuarios com movimento: ${activeMetrics.length}/${userMetrics.length}`, 14, 35);
+
+    doc.autoTable({
+      startY: 43,
+      head: [["Indicador", "Quantidade"]],
+      body: [
+        ["Emitidos", String(totalEmitted)],
+        ["Corrigidos", String(totalCorrected)],
+        ["Vencidos", String(totalOverdue)]
+      ],
+      styles: {
+        font: "helvetica",
+        fontSize: 9,
+        cellPadding: 3,
+        lineColor: [229, 231, 235]
+      },
+      headStyles: {
+        fillColor: [17, 24, 39],
+        textColor: [255, 255, 255],
+        fontStyle: "bold"
+      },
+      alternateRowStyles: {
+        fillColor: [249, 250, 251]
+      },
+      margin: { left: 14, right: 14 }
+    });
+
+    doc.autoTable({
+      startY: doc.lastAutoTable.finalY + 10,
+      head: [["N.", "Funcionario", "Setor", "RIDs emitidos", "Emitidos corrigidos", "Emitidos vencidos"]],
+      body: activeMetrics.map((item, index) => [
+        String(index + 1),
+        item.name || "Sem nome",
+        item.sector || "Sem setor",
+        formatRidIdList(item.emitted),
+        formatRidIdList(item.corrected),
+        formatRidIdList(item.overdue)
+      ]),
+      styles: {
+        font: "helvetica",
+        fontSize: 7.5,
+        cellPadding: 2.5,
+        lineColor: [229, 231, 235],
+        overflow: "linebreak"
+      },
+      headStyles: {
+        fillColor: [17, 24, 39],
+        textColor: [255, 255, 255],
+        fontStyle: "bold"
+      },
+      bodyStyles: {
+        textColor: [55, 65, 81]
+      },
+      alternateRowStyles: {
+        fillColor: [249, 250, 251]
+      },
+      columnStyles: {
+        0: { cellWidth: 10, halign: "center" },
+        1: { cellWidth: 48 },
+        2: { cellWidth: 22 },
+        3: { cellWidth: 76 },
+        4: { cellWidth: 58 },
+        5: { cellWidth: 48 }
+      },
+      margin: { left: 14, right: 14 }
+    });
+
+    const fileDate = `${period.year}-${String(period.month || "todos").padStart(2, "0")}`;
+    doc.save(`rids-por-usuario-${fileDate}.pdf`);
   }
 
   function getTopEmitterStreaks(topEmitters, period) {
@@ -1602,6 +1910,33 @@
     state.shouldAnimateGoalIntro = false;
   }
 
+  function renderStatusHeadcountBoard() {
+    if (!dom.statusHeadcountBoard) return;
+
+    const headcount = getUserHeadcountSummary();
+
+    dom.statusHeadcountBoard.innerHTML = `
+      <div class="rounded-xl border border-gray-100 bg-gradient-to-r from-slate-50 to-white px-3 py-2.5">
+        <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Quadro atual</div>
+            <div class="text-[11px] text-gray-500 mt-1">Base de colaboradores do dashboard.</div>
+          </div>
+          <div class="grid grid-cols-2 gap-2 min-w-0 md:min-w-[240px]">
+            <div class="rounded-lg border border-sky-100 bg-sky-50 px-3 py-2">
+              <div class="text-[11px] font-semibold uppercase tracking-wider text-sky-700">Funcionarios</div>
+              <div class="text-xl font-bold text-sky-900 mt-1">${headcount.total}</div>
+            </div>
+            <div class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
+              <div class="text-[11px] font-semibold uppercase tracking-wider text-amber-700">Terceiros</div>
+              <div class="text-xl font-bold text-amber-900 mt-1">${headcount.thirdParties}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   function renderStatusBoard(items) {
     const total = items.reduce((sum, item) => sum + item.count, 0);
     if (!total) {
@@ -1655,31 +1990,34 @@
           ${cardsHtml}
         </div>
       </div>
-      <div class="rounded-2xl border border-gray-100 bg-gray-50 p-3 mt-3">
-        <div class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Distribuicao geral</div>
-        <div class="mt-3 flex h-3 w-full overflow-hidden rounded-full bg-white">
-          ${segments.map((item) => {
-            const width = total > 0 ? Math.max((item.count / total) * 100, item.count > 0 ? 4 : 0) : 0;
-            return `<div class="h-full flex-shrink-0" style="width:${width}%;background:${item.color};"></div>`;
-          }).join("")}
-        </div>
-      </div>
     `;
   }
 
   function updateSectorBoardHeader(mode) {
     if (!dom.sectorBoardTitle || !dom.sectorBoardSubtitle || !dom.toggleSectorBoardMode) return;
 
+    dom.toggleSectorBoardMode.value = mode;
+
     if (mode === "goals") {
       dom.sectorBoardTitle.textContent = "Metas mensais por setor";
       dom.sectorBoardSubtitle.textContent = "Meta, percentual de atingimento e saldo restante por setor";
-      dom.toggleSectorBoardMode.textContent = "Ver volume";
+      return;
+    }
+
+    if (mode === "avg-user") {
+      dom.sectorBoardTitle.textContent = "Medias por usuario";
+      dom.sectorBoardSubtitle.textContent = "Media de emissao no recorte para cada usuario de cada setor";
+      return;
+    }
+
+    if (mode === "user-status") {
+      dom.sectorBoardTitle.textContent = "RIDs por usuario";
+      dom.sectorBoardSubtitle.textContent = "Emitidos, corrigidos e vencidos por funcionario no mes selecionado";
       return;
     }
 
     dom.sectorBoardTitle.textContent = "Setores com mais RIDs";
     dom.sectorBoardSubtitle.textContent = "Distribuicao dos setores com maior volume no recorte";
-    dom.toggleSectorBoardMode.textContent = "Ver metas";
   }
 
   function renderSectorVolumeBoard(items) {
@@ -1821,7 +2159,7 @@
       return;
     }
 
-    const visibleItems = items.slice(0, 6);
+    const visibleItems = items;
     const bestItem = visibleItems[0] || null;
     const totalGoal = visibleItems.reduce((sum, item) => sum + (item.goal || 0), 0);
     const totalAchieved = visibleItems.reduce((sum, item) => sum + (item.achieved || 0), 0);
@@ -1831,7 +2169,7 @@
       : 0;
 
     dom.sectorBoard.innerHTML = `
-      <div class="sector-goal-layout">
+      <div class="sector-goal-layout sector-average-layout">
         <div class="sector-goal-main">
           <div class="sector-goal-hero">
             <div class="text-[11px] font-semibold uppercase tracking-wider text-sky-500">Radar de metas</div>
@@ -1910,12 +2248,337 @@
     `;
   }
 
+  function renderSectorAverageBoard(items, period) {
+    if (!items.length) {
+      dom.sectorBoard.innerHTML = '<div class="text-sm text-gray-400">Nenhum setor encontrado para esse recorte.</div>';
+      return;
+    }
+
+    const userAverages = getUserAverageMetrics(period);
+    const usersBySector = userAverages.reduce((map, user) => {
+      const sectorKey = String(user.sector || "");
+      map[sectorKey] = (map[sectorKey] || 0) + 1;
+      return map;
+    }, {});
+    const rankedItems = items
+      .map((item) => ({
+        ...item,
+        activeUsersCount: usersBySector[String(item.sector || "")] || 0,
+        averagePerUser: (usersBySector[String(item.sector || "")] || 0) > 0
+          ? item.achieved / usersBySector[String(item.sector || "")]
+          : 0
+      }))
+      .sort((a, b) => {
+        if ((b.averagePerUser || 0) !== (a.averagePerUser || 0)) return (b.averagePerUser || 0) - (a.averagePerUser || 0);
+        if ((b.achieved || 0) !== (a.achieved || 0)) return (b.achieved || 0) - (a.achieved || 0);
+        return String(a.sector || "").localeCompare(String(b.sector || ""), "pt-BR");
+      });
+    const visibleItems = rankedItems;
+
+    const bestItem = rankedItems[0] || null;
+    const totalUsers = userAverages.length;
+    const totalAchieved = rankedItems.reduce((sum, item) => sum + (item.achieved || 0), 0);
+    const overallAverage = totalUsers > 0 ? totalAchieved / totalUsers : 0;
+    const userListId = "sectorUserAverageList";
+    const userSearchId = "sectorUserAverageSearch";
+
+    dom.sectorBoard.innerHTML = `
+      <div class="sector-goal-layout">
+        <div class="sector-goal-main">
+          <div class="sector-goal-hero">
+            <div class="text-[11px] font-semibold uppercase tracking-wider text-cyan-500">Media por emissor</div>
+            <div class="flex items-end justify-between gap-4 mt-2">
+              <div>
+                <div class="text-3xl font-bold text-gray-900">${overallAverage.toFixed(1).replace(".", ",")}</div>
+                <div class="text-sm text-gray-500 mt-1">media geral de RIDs por usuario no recorte</div>
+              </div>
+              <div class="text-right">
+              <div class="text-sm font-semibold text-gray-900">${totalUsers}</div>
+                <div class="text-[11px] uppercase tracking-wider text-gray-400">usuarios internos</div>
+              </div>
+            </div>
+            <div class="sector-goal-metrics">
+              <div class="sector-goal-metric">
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Emitidos</div>
+                <div class="text-xl font-bold text-gray-900 mt-1">${totalAchieved}</div>
+              </div>
+              <div class="sector-goal-metric">
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Usuarios internos</div>
+                <div class="text-xl font-bold text-gray-900 mt-1">${totalUsers}</div>
+              </div>
+              <div class="sector-goal-metric">
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Setores</div>
+                <div class="text-xl font-bold text-gray-900 mt-1">${visibleItems.length}</div>
+              </div>
+            </div>
+          </div>
+          <div class="sector-goal-chart">
+            <div class="flex items-center justify-between gap-3">
+              <div class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Media por setor</div>
+              <div class="text-[11px] text-gray-400">RID / usuario</div>
+            </div>
+            ${visibleItems.map((item) => {
+              const maxAverage = Math.max(...visibleItems.map((entry) => entry.averagePerUser || 0), 1);
+              const width = Math.max(Math.min((item.averagePerUser / maxAverage) * 100, 100), item.averagePerUser > 0 ? 8 : 0);
+              return `
+                <div class="sector-goal-row">
+                  <div class="min-w-0">
+                    <div class="text-xs font-semibold text-gray-900 truncate">${escapeHtml(item.sector)}</div>
+                    <div class="text-[10px] text-gray-400">${item.achieved} RIDs / ${item.activeUsersCount} usuarios</div>
+                  </div>
+                  <div class="sector-goal-track">
+                    <div class="sector-goal-fill" style="width:${width}%;background:#06b6d4;"></div>
+                  </div>
+                  <div class="text-right">
+                    <div class="text-xs font-bold text-cyan-600">${item.averagePerUser.toFixed(1).replace(".", ",")}</div>
+                    <div class="text-[10px] text-gray-400">${item.activeUsersCount || 0} usuarios</div>
+                  </div>
+                </div>
+              `;
+            }).join("")}
+          </div>
+        </div>
+        <div class="sector-goal-side">
+          <div class="sector-goal-side-card">
+            <div class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Melhor media</div>
+            <div class="text-lg font-bold text-gray-900 mt-2">${escapeHtml(bestItem?.sector || "-")}</div>
+            <div class="text-sm text-gray-500 mt-1">${bestItem ? `${bestItem.averagePerUser.toFixed(1).replace(".", ",")} RIDs por usuario` : "Sem dados no periodo"}</div>
+          </div>
+          <div class="sector-goal-side-card flex flex-col">
+            <div class="flex items-center justify-between gap-3">
+              <div class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Usuarios</div>
+              <div class="text-[10px] text-gray-400">${userAverages.length} nomes</div>
+            </div>
+            <div class="mt-3">
+              <input
+                type="search"
+                id="${userSearchId}"
+                placeholder="Buscar usuario"
+                class="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700 outline-none placeholder:text-gray-400"
+              >
+            </div>
+            <div id="${userListId}" class="mt-3 space-y-2 h-[332px] overflow-y-auto"></div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const userList = document.getElementById(userListId);
+    const userSearch = document.getElementById(userSearchId);
+
+    function renderUserList(query = "") {
+      if (!userList) return;
+      const normalizedQuery = String(query || "").trim().toLowerCase();
+      const filteredUsers = userAverages.filter((item) => String(item.name || "").toLowerCase().includes(normalizedQuery));
+
+      if (!filteredUsers.length) {
+        userList.innerHTML = '<div class="rounded-xl border border-dashed border-gray-200 px-3 py-4 text-center text-xs text-gray-400">Nenhum usuario encontrado.</div>';
+        return;
+      }
+
+      userList.innerHTML = filteredUsers.map((item) => `
+        <div class="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="text-xs font-semibold text-gray-900 break-words">${escapeHtml(item.name)}</div>
+              <div class="text-[10px] text-gray-400 mt-1">${escapeHtml(item.sector || "Sem setor")} | ${item.totalRids} RIDs</div>
+            </div>
+            <div class="text-right flex-shrink-0">
+              <div class="text-xs font-bold text-cyan-600">${item.averagePerMonth.toFixed(1).replace(".", ",")}</div>
+              <div class="text-[10px] text-gray-400">media/mes</div>
+            </div>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    renderUserList();
+    userSearch?.addEventListener("input", () => {
+      renderUserList(userSearch.value);
+    });
+  }
+
+  function renderUserRidStatusBoard(period) {
+    const userMetrics = getUserRidStatusMetrics(period);
+    const totalEmitted = userMetrics.reduce((sum, item) => sum + item.emitted.length, 0);
+    const totalCorrected = userMetrics.reduce((sum, item) => sum + item.corrected.length, 0);
+    const totalOverdue = userMetrics.reduce((sum, item) => sum + item.overdue.length, 0);
+    const activeUsers = userMetrics.filter((item) => item.total > 0).length;
+    const userListId = "sectorUserRidStatusList";
+    const userSearchId = "sectorUserRidStatusSearch";
+    const downloadPdfButtonId = "downloadUserRidStatusPdf";
+
+    function renderRidChips(rids, tone) {
+      if (!rids.length) {
+        return '<span class="text-[10px] text-gray-400">Nenhum RID</span>';
+      }
+
+      const toneClass = tone === "green"
+        ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+        : tone === "red"
+          ? "bg-red-50 text-red-700 border-red-100"
+          : "bg-sky-50 text-sky-700 border-sky-100";
+
+      return rids
+        .sort((a, b) => (getRidNumericValue(a.ridNumber) || 0) - (getRidNumericValue(b.ridNumber) || 0))
+        .map((rid) => `<span class="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${toneClass}">RID #${escapeHtml(formatRidNumber(rid.ridNumber || rid.id))}</span>`)
+        .join("");
+    }
+
+    dom.sectorBoard.innerHTML = `
+      <div class="sector-goal-layout sector-rid-status-layout">
+        <div class="sector-goal-main">
+          <div class="sector-goal-hero">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="text-[11px] font-semibold uppercase tracking-wider text-indigo-500">Relacao por funcionario</div>
+              <button
+                type="button"
+                id="${downloadPdfButtonId}"
+                class="inline-flex items-center justify-center rounded-xl bg-gray-900 px-4 py-2 text-xs font-semibold text-white hover:bg-gray-800"
+              >
+                Baixar PDF
+              </button>
+            </div>
+            <div class="flex items-end justify-between gap-4 mt-1">
+              <div>
+                <div class="text-2xl font-bold text-gray-900">${activeUsers}</div>
+                <div class="text-xs text-gray-500 mt-0.5">Usuarios com emissoes no periodo</div>
+              </div>
+              <div class="text-right">
+                <div class="text-sm font-semibold text-gray-900">${userMetrics.length}</div>
+                <div class="text-[11px] uppercase tracking-wider text-gray-400">usuarios internos</div>
+              </div>
+            </div>
+            <div class="sector-goal-metrics">
+              <div class="sector-goal-metric">
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Emitidos</div>
+                <div class="text-lg font-bold text-sky-600 mt-0.5">${totalEmitted}</div>
+              </div>
+              <div class="sector-goal-metric">
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Corrigidos</div>
+                <div class="text-lg font-bold text-emerald-600 mt-0.5">${totalCorrected}</div>
+              </div>
+              <div class="sector-goal-metric">
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Vencidos</div>
+                <div class="text-lg font-bold text-red-600 mt-0.5">${totalOverdue}</div>
+              </div>
+            </div>
+          </div>
+          <div class="sector-goal-chart">
+            <div class="flex items-center justify-between gap-3">
+              <div class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Resumo por usuario</div>
+              <div class="text-[11px] text-gray-400">${activeUsers}/${userMetrics.length} com RID</div>
+            </div>
+            <div class="mt-3">
+              <input
+                type="search"
+                id="${userSearchId}"
+                placeholder="Buscar funcionario"
+                class="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700 outline-none placeholder:text-gray-400"
+              >
+            </div>
+            <div id="${userListId}" class="mt-3 space-y-2"></div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const userList = document.getElementById(userListId);
+    const userSearch = document.getElementById(userSearchId);
+    const downloadPdfButton = document.getElementById(downloadPdfButtonId);
+
+    function renderUserList(query = "") {
+      if (!userList) return;
+      const normalizedQuery = String(query || "").trim().toLowerCase();
+      const filteredUsers = userMetrics.filter((item) => {
+        const haystack = `${item.name} ${item.sector}`.toLowerCase();
+        return haystack.includes(normalizedQuery);
+      });
+
+      if (!filteredUsers.length) {
+        userList.innerHTML = '<div class="rounded-xl border border-dashed border-gray-200 px-3 py-4 text-center text-xs text-gray-400">Nenhum funcionario encontrado.</div>';
+        return;
+      }
+
+      userList.innerHTML = filteredUsers.map((item, index) => {
+        const detailId = `userRidStatusDetail_${index}`;
+        return `
+          <div class="rounded-xl border border-gray-100 bg-gray-50 px-3 py-3">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="text-xs font-semibold text-gray-900 break-words">${escapeHtml(item.name)}</div>
+                <div class="text-[10px] text-gray-400 mt-1">${escapeHtml(item.sector || "Sem setor")}</div>
+              </div>
+              <div class="flex items-center gap-2 flex-wrap justify-end">
+                <span class="rounded-full bg-sky-50 px-2 py-1 text-[10px] font-bold text-sky-700">${item.emitted.length} emitidos</span>
+                <span class="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">${item.corrected.length} corrigidos</span>
+                <span class="rounded-full bg-red-50 px-2 py-1 text-[10px] font-bold text-red-700">${item.overdue.length} vencidos</span>
+                <button type="button" data-user-rid-status-toggle="${detailId}" class="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1 text-[10px] font-semibold text-gray-700 hover:bg-gray-100">Ver mais</button>
+              </div>
+            </div>
+            <div id="${detailId}" class="hidden-state mt-3 rounded-xl border border-gray-100 bg-white px-3 py-3">
+              <div class="space-y-3">
+                <div>
+                  <div class="text-[10px] font-semibold uppercase tracking-wider text-sky-600 mb-1">Emitidos</div>
+                  <div class="flex flex-wrap gap-1.5">${renderRidChips(item.emitted, "blue")}</div>
+                </div>
+                <div>
+                  <div class="text-[10px] font-semibold uppercase tracking-wider text-emerald-600 mb-1">Corrigidos</div>
+                  <div class="flex flex-wrap gap-1.5">${renderRidChips(item.corrected, "green")}</div>
+                </div>
+                <div>
+                  <div class="text-[10px] font-semibold uppercase tracking-wider text-red-600 mb-1">Vencidos</div>
+                  <div class="flex flex-wrap gap-1.5">${renderRidChips(item.overdue, "red")}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      userList.querySelectorAll("[data-user-rid-status-toggle]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const detail = document.getElementById(button.dataset.userRidStatusToggle);
+          if (!detail) return;
+          const willShow = detail.classList.contains("hidden-state");
+          detail.classList.toggle("hidden-state");
+          button.textContent = willShow ? "Ver menos" : "Ver mais";
+        });
+      });
+    }
+
+    renderUserList();
+    downloadPdfButton?.addEventListener("click", () => {
+      downloadUserRidStatusPdf(userMetrics, period);
+    });
+    userSearch?.addEventListener("input", () => {
+      renderUserList(userSearch.value);
+    });
+  }
+
   function renderSectorBoard(data, period) {
-    const mode = state.sectorBoardMode === "goals" ? "goals" : "volume";
+    const mode = state.sectorBoardMode === "goals"
+      ? "goals"
+      : state.sectorBoardMode === "avg-user"
+        ? "avg-user"
+        : state.sectorBoardMode === "user-status"
+          ? "user-status"
+          : "volume";
     updateSectorBoardHeader(mode);
+    dom.sectorBoardPanel?.classList.toggle("sector-board-scroll-panel", mode === "user-status");
 
     if (mode === "goals") {
       renderSectorGoalBoard(data?.sectorGoals || [], period);
+      return;
+    }
+
+    if (mode === "avg-user") {
+      renderSectorAverageBoard(data?.sectorGoals || [], period);
+      return;
+    }
+
+    if (mode === "user-status") {
+      renderUserRidStatusBoard(period);
       return;
     }
 
@@ -2091,7 +2754,9 @@
 
   async function renderDashboard() {
     const data = computeDashboard();
+    const sectorBoardPeriod = getSectorBoardSelectedPeriod();
     await loadMonthlyGoal(data.period);
+    syncSectorBoardFiltersToInputs();
     dom.statTotalRids.textContent = String(data.totalRids);
     dom.statOpenRids.textContent = String(data.openRids);
     dom.statOverdueRids.textContent = String(data.overdueRids);
@@ -2105,7 +2770,11 @@
     renderRidMilestoneBanner(data.ridMilestone);
     renderGoalPanel(data);
     renderStatusBoard(data.statusItems);
-    renderSectorBoard(data, data.period);
+    renderStatusHeadcountBoard();
+    renderSectorBoard({
+      sectors: getSectorVolumeMetrics(sectorBoardPeriod),
+      sectorGoals: getSectorGoalMetrics(sectorBoardPeriod)
+    }, sectorBoardPeriod);
     renderTopEmitters(data.topEmitters);
     renderEmployeesWithoutRids(data.employeeRidCountsCurrentMonth);
     renderDeleteRequestsBoard(data.deleteRequests);
@@ -2127,6 +2796,8 @@
     updateAdminNavigation();
     prepareGoalIntroAnimation();
     resetFiltersToCurrentMonth();
+    syncSectorBoardFiltersToInputs();
+    closeSectorBoardFilters();
     dom.welcomeText.textContent = `Bem-vindo, ${state.currentUserData?.name || "gestor"}`;
     populateSectorFilter();
     void renderDashboard();
@@ -2215,8 +2886,25 @@
       void renderDashboard();
     });
 
-    dom.toggleSectorBoardMode?.addEventListener("click", () => {
-      state.sectorBoardMode = state.sectorBoardMode === "goals" ? "volume" : "goals";
+    dom.toggleSectorBoardMode?.addEventListener("change", () => {
+      state.sectorBoardMode = dom.toggleSectorBoardMode.value || "volume";
+      void renderDashboard();
+    });
+
+    dom.toggleSectorBoardFilters?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleSectorBoardFilters();
+    });
+
+    dom.sectorBoardMonthFilter?.addEventListener("change", () => {
+      state.sectorBoardFilterMonth = Number(dom.sectorBoardMonthFilter.value) || state.sectorBoardFilterMonth;
+      void renderDashboard();
+    });
+
+    dom.sectorBoardYearFilter?.addEventListener("change", () => {
+      const numericYear = Number(dom.sectorBoardYearFilter.value);
+      if (!Number.isFinite(numericYear) || numericYear <= 0) return;
+      state.sectorBoardFilterYear = Math.trunc(numericYear);
       void renderDashboard();
     });
 
@@ -2287,6 +2975,14 @@
     document.addEventListener("click", (event) => {
       if (!dom.filtersPanel.contains(event.target) && !dom.toggleFiltersButton.contains(event.target)) {
         closeFiltersPanel();
+      }
+      if (
+        dom.sectorBoardFiltersPanel &&
+        dom.toggleSectorBoardFilters &&
+        !dom.sectorBoardFiltersPanel.contains(event.target) &&
+        !dom.toggleSectorBoardFilters.contains(event.target)
+      ) {
+        closeSectorBoardFilters();
       }
     });
   }

@@ -920,7 +920,7 @@
   }
 
   function downloadEmployeesPdf() {
-    const employees = getFilteredEmployees();
+    const employees = getFilteredEmployees().filter((employee) => !isThirdPartyEmployee(employee));
     const jsPdfApi = window.jspdf?.jsPDF;
     if (!jsPdfApi) return;
 
@@ -939,8 +939,9 @@
 
     doc.autoTable({
       startY: 36,
-      head: [["Nome", "CPF", "Setor", "Funcao"]],
-      body: employees.map((employee) => [
+      head: [["N.", "Nome", "CPF", "Setor", "Funcao"]],
+      body: employees.map((employee, index) => [
+        String(index + 1),
         formatField(employee.name),
         formatField(employee.cpf),
         formatField(employee.sector),
@@ -962,6 +963,9 @@
       },
       alternateRowStyles: {
         fillColor: [249, 250, 251]
+      },
+      columnStyles: {
+        0: { cellWidth: 12, halign: "center" }
       },
       margin: { left: 14, right: 14 }
     });
