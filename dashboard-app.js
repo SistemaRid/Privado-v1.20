@@ -29,6 +29,7 @@
     unsubRids: null,
     unsubRidCounter: null,
     unsubDeleteRequests: null,
+    unsubUsers: null,
     monthlyGoal: null,
     monthlyGoalMeta: null,
     manualGoalValue: null,
@@ -852,8 +853,14 @@
     return getEmploymentType(user) === "TERCEIRO";
   }
 
+  function isActiveUserRecord(user) {
+    if (!user || typeof user.name !== "string") return false;
+    const status = normalizeStatus(user.status);
+    return !user.deleted && !user.deletedAt && status !== "EXCLUIDO" && status !== "DELETED";
+  }
+
   function getUserHeadcountSummary() {
-    const users = (state.allUsers || []).filter((user) => user && typeof user.name === "string");
+    const users = (state.allUsers || []).filter((user) => isActiveUserRecord(user));
     const thirdParties = users.filter((user) => isThirdPartyUser(user)).length;
     return {
       total: users.length - thirdParties,
@@ -870,7 +877,7 @@
 
   function resolveRidEmitterUser(rid) {
     return state.allUsers.find((user) => {
-      if (!user) return false;
+      if (!isActiveUserRecord(user)) return false;
 
       const sameId = rid?.emitterId && user.id && rid.emitterId === user.id;
       const sameCpf = rid?.emitterCpf && user.cpf && String(rid.emitterCpf) === String(user.cpf);
@@ -889,7 +896,7 @@
   }
 
   function isEligibleTopEmitterUser(user) {
-    if (!user) return false;
+    if (!isActiveUserRecord(user)) return false;
     if (isThirdPartyUser(user)) return false;
     if (isAdminUser(user)) return false;
     if (isDeveloperUser(user)) return false;
@@ -914,7 +921,7 @@
 
   function getGoalUsersForContext(users, sector) {
     return (users || []).filter((user) => {
-      if (!user || typeof user.name !== "string") return false;
+      if (!isActiveUserRecord(user)) return false;
       if (sector && user.sector !== sector) return false;
       if (isThirdPartyUser(user)) return false;
       if (!isFormacalUnitUser(user)) return false;
@@ -926,7 +933,7 @@
     const sectorSet = new Set();
 
     state.allUsers.forEach((user) => {
-      if (!user || isThirdPartyUser(user)) return;
+      if (!isActiveUserRecord(user) || isThirdPartyUser(user)) return;
       const sector = String(user.sector || "").trim();
       if (!sector) return;
       if (period.sector && sector !== period.sector) return;
@@ -1034,7 +1041,7 @@
     const monthStart = new Date(year, month1to12 - 1, 1, 0, 0, 0);
     const monthEnd = new Date(year, month1to12 - 1, totalDays, 23, 59, 59);
     const users = (state.allUsers || []).filter((user) => {
-      if (!user || typeof user.name !== "string") return false;
+      if (!isActiveUserRecord(user)) return false;
       return !isThirdPartyUser(user);
     });
 
@@ -1147,6 +1154,7 @@
     const now = new Date();
 
     return state.allUsers
+      .filter((user) => isActiveUserRecord(user))
       .filter((user) => !isThirdPartyUser(user))
       .filter((user) => !period.sector || user.sector === period.sector)
       .filter((user) => !emitters.has(user.id))
@@ -1178,6 +1186,7 @@
     };
 
     return state.allUsers
+      .filter((user) => isActiveUserRecord(user))
       .filter((user) => !monthPeriod.sector || user.sector === monthPeriod.sector)
       .map((user) => {
         const userRidList = state.allRids
@@ -1226,7 +1235,7 @@
     const monthsSpan = getMonthsSpanForPeriod(period);
 
     return state.allUsers
-      .filter((user) => user && typeof user.name === "string")
+      .filter((user) => isActiveUserRecord(user))
       .filter((user) => !isThirdPartyUser(user))
       .filter((user) => !period.sector || user.sector === period.sector)
       .map((user) => {
@@ -1265,7 +1274,7 @@
 
   function getUserRidStatusMetrics(period) {
     return state.allUsers
-      .filter((user) => user && typeof user.name === "string")
+      .filter((user) => isActiveUserRecord(user))
       .filter((user) => !isThirdPartyUser(user))
       .filter((user) => !period.sector || user.sector === period.sector)
       .map((user) => {
@@ -2827,7 +2836,7 @@
 
   function populateSectorFilter() {
     const selected = dom.dashboardSector.value;
-    const sectors = Array.from(new Set(state.allUsers.map((user) => String(user?.sector || "").trim()).filter(Boolean)))
+    const sectors = Array.from(new Set(state.allUsers.filter((user) => isActiveUserRecord(user)).map((user) => String(user?.sector || "").trim()).filter(Boolean)))
       .sort((a, b) => a.localeCompare(b, "pt-BR"));
 
     dom.dashboardSector.innerHTML = '<option value="">Todos os setores</option>' +
@@ -2895,6 +2904,17 @@
   async function loadUsers() {
     const snapshot = await db.collection("users").get();
     state.allUsers = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  }
+
+  function listenUsers() {
+    if (typeof state.unsubUsers === "function") state.unsubUsers();
+    state.unsubUsers = db.collection("users").onSnapshot((snapshot) => {
+      state.allUsers = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      if (hasManagementAccess()) {
+        populateSectorFilter();
+        void renderDashboard();
+      }
+    });
   }
 
   function listenRids() {
@@ -3082,6 +3102,7 @@
       if (typeof state.unsubRids === "function") state.unsubRids();
       if (typeof state.unsubRidCounter === "function") state.unsubRidCounter();
       if (typeof state.unsubDeleteRequests === "function") state.unsubDeleteRequests();
+      if (typeof state.unsubUsers === "function") state.unsubUsers();
       redirectToLogin();
       return;
     }
@@ -3096,6 +3117,7 @@
     }
 
     await loadUsers();
+    listenUsers();
     listenRids();
     listenRidCounter();
     listenDeleteRequests();
