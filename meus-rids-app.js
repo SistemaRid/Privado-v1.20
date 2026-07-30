@@ -17,6 +17,8 @@
   const db = firebase.firestore();
   const RID_IMAGE_MAX_BYTES = 350 * 1024;
   const RID_IMAGE_MAX_DIMENSION = 1280;
+  const BEHAVIORAL_DEVIATION_TYPE = "Desvio Comportamental";
+  const BEHAVIORAL_DEVIATION_FIELD_KEY = "behavioralDeviationEmployeeName";
 
   const state = {
     currentUser: null,
@@ -62,12 +64,6 @@
     newRidSubmit: document.getElementById("newRidSubmit"),
     newRidFeedback: document.getElementById("newRidFeedback")
   };
-
-  function debugLog(step, payload) {
-    try {
-      console.log(`[RID DEBUG] ${step}`, payload ?? "");
-    } catch (error) {}
-  }
 
   function isAdminProfile(user = state.currentUserData) {
     return !!user?.isAdmin;
@@ -122,38 +118,6 @@
     window.location.replace(`login.html?next=${encodeURIComponent(next)}`);
   }
 
-  async function getCurrentUserProfile(user) {
-    if (!user?.uid) return null;
-    debugLog("resolve-profile:start", { uid: user.uid, email: user.email || "" });
-    if (window.ridUserProfileResolver?.resolveUserProfile) {
-      const profile = await window.ridUserProfileResolver.resolveUserProfile(db, user);
-      debugLog("resolve-profile:resolved-via-resolver", profile);
-      return profile;
-    }
-    const userDoc = await db.collection("users").doc(user.uid).get();
-    const profile = userDoc.exists ? { id: user.uid, ...userDoc.data() } : null;
-    debugLog("resolve-profile:resolved-via-doc", profile);
-    return profile;
-  }
-
-  function getEmitterIdentity() {
-    if (window.ridUserProfileResolver?.getEmitterIdentity) {
-      return window.ridUserProfileResolver.getEmitterIdentity(state.currentUserData, state.currentUser);
-    }
-    return {
-      emitterId: state.currentUserData?.id || state.currentUser?.uid || "",
-      emitterUid: state.currentUser?.uid || state.currentUserData?.id || "",
-      emitterCpf: state.currentUserData?.cpf || "",
-      emitterCpfDigits: "",
-      emitterCpfMasked: state.currentUserData?.cpf || "",
-      emitterEmail: state.currentUser?.email || state.currentUserData?.email || "",
-      emitterName: state.currentUserData?.name || state.currentUser?.displayName || "Usuario",
-      sector: state.currentUserData?.sector || "",
-      unit: state.currentUserData?.unit || "",
-      contractType: state.currentUserData?.contractType || ""
-    };
-  }
-
   function escapeHtml(value) {
     return String(value ?? "")
       .replace(/&/g, "&amp;")
@@ -194,10 +158,6 @@
   function getRidSortValue(rid) {
     const digits = String(rid?.ridNumber ?? "").replace(/\D/g, "");
     return digits ? Number(digits) : 0;
-  }
-
-  function isActiveRid(rid) {
-    return !!(rid && !rid.deleted && !rid.convertedToMaintenanceId);
   }
 
   function formatField(value, fallback = "-") {
@@ -275,19 +235,13 @@
 
   async function loadLeaders() {
     try {
-      debugLog("leaders:load:start");
       const snapshot = await db.collection("leaders_public").get();
       state.leaders = snapshot.docs
         .map((doc) => ({ id: doc.id, ...doc.data() }))
         .filter((leader) => leader.isDeveloper !== true)
         .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "pt-BR"));
-      debugLog("leaders:load:success", { count: state.leaders.length });
     } catch (error) {
       state.leaders = [];
-      debugLog("leaders:load:error", {
-        code: error?.code || "",
-        message: error?.message || String(error)
-      });
     }
   }
 
@@ -295,6 +249,18 @@
     const baseOption = '<option value="">Selecione...</option>';
     const options = state.leaders.map((leader) => `<option value="${escapeHtml(leader.id)}">${escapeHtml(leader.name || "Lider")}</option>`).join("");
     dom.newRidResponsibleLeader.innerHTML = baseOption + options;
+  }
+
+  function syncBehavioralDeviationField() {
+    const behavioralDeviationTrigger = dom.newRidForm?.querySelector('[name="incidentType"]');
+    const behavioralDeviationContainer = document.getElementById("behavioralDeviationEmployeeField");
+    const behavioralDeviationInput = dom.newRidForm?.querySelector(`[name="${BEHAVIORAL_DEVIATION_FIELD_KEY}"]`);
+    const shouldShow = String(behavioralDeviationTrigger?.value || "").trim() === BEHAVIORAL_DEVIATION_TYPE;
+    behavioralDeviationContainer?.classList.toggle("hidden-state", !shouldShow);
+    if (behavioralDeviationInput) {
+      behavioralDeviationInput.required = shouldShow;
+      if (!shouldShow) behavioralDeviationInput.value = "";
+    }
   }
 
   function resetNewRidForm() {
@@ -310,6 +276,7 @@
       const contractTypeSelect = dom.newRidForm.querySelector('[name="contractType"]');
       if (contractTypeSelect) contractTypeSelect.value = state.currentUserData.contractType;
     }
+    syncBehavioralDeviationField();
     setNewRidFeedback("");
   }
 
@@ -325,7 +292,6 @@
 
   async function getNextRidNumberSafe() {
     const counterRef = db.collection("counters").doc("rids");
-    debugLog("counter:transaction:start");
     return db.runTransaction(async (transaction) => {
       const snapshot = await transaction.get(counterRef);
       const data = snapshot.exists ? snapshot.data() || {} : {};
@@ -333,19 +299,10 @@
         ? data.lastNumber
         : (typeof data.value === "number" ? data.value : 0);
       const next = current + 1;
-      debugLog("counter:transaction:read", {
-        exists: snapshot.exists,
-        current,
-        raw: data
-      });
       transaction.set(counterRef, {
         lastNumber: next,
         value: typeof data.value === "number" ? data.value : 0
       }, { merge: true });
-      debugLog("counter:transaction:write", {
-        lastNumber: next,
-        value: typeof data.value === "number" ? data.value : 0
-      });
       return String(next).padStart(5, "0");
     });
   }
@@ -354,21 +311,27 @@
     const leaderId = formData.get("responsibleLeader") || "";
     const leader = state.leaders.find((item) => item.id === leaderId);
     const status = String(formData.get("status") || "VENCIDO").toUpperCase();
-    const emitter = getEmitterIdentity();
+    const incidentType = String(formData.get("incidentType") || "").trim();
+    const behavioralDeviationEmployeeName = String(formData.get(BEHAVIORAL_DEVIATION_FIELD_KEY) || "").trim();
+    const customFields = {};
+
+    if (incidentType === BEHAVIORAL_DEVIATION_TYPE && behavioralDeviationEmployeeName) {
+      customFields[BEHAVIORAL_DEVIATION_FIELD_KEY] = {
+        label: "Nome do colaborador do desvio",
+        value: behavioralDeviationEmployeeName,
+        type: "text"
+      };
+    }
 
     return {
-      emitterId: emitter.emitterId,
-      emitterUid: emitter.emitterUid,
-      emitterName: emitter.emitterName,
-      emitterCpf: emitter.emitterCpf,
-      emitterCpfDigits: emitter.emitterCpfDigits,
-      emitterCpfMasked: emitter.emitterCpfMasked,
-      emitterEmail: emitter.emitterEmail,
-      contractType: formData.get("contractType") || emitter.contractType || "",
-      unit: formData.get("unit") || emitter.unit || "",
-      sector: emitter.sector || "",
+      emitterId: state.currentUser.uid,
+      emitterName: state.currentUserData.name,
+      emitterCpf: state.currentUserData.cpf,
+      contractType: formData.get("contractType"),
+      unit: formData.get("unit"),
+      sector: state.currentUserData.sector || "",
       emissionDate: formData.get("emissionDate"),
-      incidentType: formData.get("incidentType"),
+      incidentType,
       detectionOrigin: formData.get("detectionOrigin"),
       location: formData.get("location"),
       description: formData.get("description"),
@@ -377,27 +340,22 @@
       image: null,
       status,
       responsibleLeader: leaderId,
-      responsibleLeaderName: leader?.name || ""
+      responsibleLeaderName: leader?.name || "",
+      customFields
     };
   }
 
   async function submitRidToFirestore(payload) {
-    debugLog("rid-submit:start", payload);
     const ridNumber = await getNextRidNumberSafe();
-    debugLog("rid-submit:counter-ok", { ridNumber });
     const isCorrectedNow = payload.status === "CORRIGIDO";
     const [year, month, day] = String(payload.emissionDate || "").split("-").map(Number);
     const emissionDate = new Date(year, (month || 1) - 1, day || 1, 12, 0, 0);
 
-    const documentPayload = {
+    await db.collection("rids").add({
       ridNumber,
       emitterId: payload.emitterId,
-      emitterUid: payload.emitterUid || payload.emitterId || "",
       emitterName: payload.emitterName,
       emitterCpf: payload.emitterCpf,
-      emitterCpfDigits: payload.emitterCpfDigits || "",
-      emitterCpfMasked: payload.emitterCpfMasked || "",
-      emitterEmail: payload.emitterEmail || "",
       contractType: payload.contractType,
       unit: payload.unit,
       sector: payload.sector,
@@ -411,6 +369,7 @@
       imageDataUrl: payload.image?.dataUrl || null,
       imageContentType: payload.image?.contentType || null,
       imageOriginalName: payload.image?.originalName || null,
+      customFields: payload.customFields || {},
       status: isCorrectedNow ? "CORRIGIDO" : "VENCIDO",
       responsibleLeader: payload.responsibleLeader || "",
       responsibleLeaderName: payload.responsibleLeaderName || "",
@@ -423,11 +382,7 @@
       observations: null,
       conclusionDate: isCorrectedNow ? firebase.firestore.FieldValue.serverTimestamp() : null,
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
-    };
-
-    debugLog("rid-submit:add:start", documentPayload);
-    const docRef = await db.collection("rids").add(documentPayload);
-    debugLog("rid-submit:add:success", { id: docRef.id, ridNumber });
+    });
   }
 
   function getPersonalMonthlyGoal(user) {
@@ -517,7 +472,6 @@
 
   function getMine() {
     return state.allRids
-      .filter((rid) => isActiveRid(rid))
       .filter((rid) => rid.emitterId === state.currentUser?.uid)
       .sort((a, b) => {
         const ridDiff = getRidSortValue(b) - getRidSortValue(a);
@@ -718,28 +672,17 @@
   function listenRids() {
     if (typeof state.unsubRids === "function") state.unsubRids();
     state.unsubRids = db.collection("rids").onSnapshot((snapshot) => {
-      debugLog("rids-listener:success", { count: snapshot.size });
       state.allRids = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       if (state.currentUserData) renderPage();
-    }, (error) => {
-      debugLog("rids-listener:error", {
-        code: error?.code || "",
-        message: error?.message || String(error)
-      });
     });
   }
 
   function listenDeleteRequests() {
     if (typeof state.unsubDeleteRequests === "function") state.unsubDeleteRequests();
     state.unsubDeleteRequests = db.collection("deleteRequests").onSnapshot((snapshot) => {
-      debugLog("deleteRequests-listener:success", { count: snapshot.size });
       state.allDeleteRequests = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       if (state.currentUserData) renderPage();
     }, (error) => {
-      debugLog("deleteRequests-listener:error", {
-        code: error?.code || "",
-        message: error?.message || String(error)
-      });
       if (String(error?.code || "").includes("permission-denied")) {
         console.warn("Sem permissao para ler deleteRequests em Meus RIDs. Seguindo sem essas informacoes.");
       }
@@ -749,6 +692,8 @@
   }
 
   function bindEvents() {
+    const behavioralDeviationTrigger = dom.newRidForm?.querySelector('[name="incidentType"]');
+
     dom.loginCpf.addEventListener("input", () => {
       dom.loginCpf.value = maskCpf(dom.loginCpf.value);
     });
@@ -792,6 +737,8 @@
     dom.newRidModal.addEventListener("click", (event) => {
       if (event.target === dom.newRidModal) closeNewRidModal();
     });
+    behavioralDeviationTrigger?.addEventListener("change", syncBehavioralDeviationField);
+    syncBehavioralDeviationField();
     dom.newRidForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       dom.newRidSubmit.disabled = true;
@@ -799,30 +746,12 @@
       setNewRidFeedback("");
 
       try {
-        debugLog("form-submit:start", {
-          currentUser: state.currentUser ? {
-            uid: state.currentUser.uid,
-            email: state.currentUser.email || ""
-          } : null,
-          currentUserData: state.currentUserData
-        });
         const formData = new FormData(dom.newRidForm);
         const payload = buildRidPayload(formData);
-        debugLog("form-submit:payload-built", payload);
         payload.image = await prepareRidImage(formData.get("imageFile"));
-        debugLog("form-submit:image-ready", {
-          hasImage: !!payload.image,
-          imageSize: payload.image?.dataUrl?.length || 0
-        });
         await submitRidToFirestore(payload);
-        debugLog("form-submit:success");
         closeNewRidModal();
       } catch (error) {
-        debugLog("form-submit:error", {
-          code: error?.code || "",
-          message: error?.message || String(error),
-          stack: error?.stack || ""
-        });
         setNewRidFeedback(error?.message || "Nao foi possivel emitir o RID.");
       } finally {
         dom.newRidSubmit.disabled = false;
@@ -842,10 +771,6 @@
 
   auth.onAuthStateChanged(async (user) => {
     state.currentUser = user;
-    debugLog("auth-state-changed", user ? {
-      uid: user.uid,
-      email: user.email || ""
-    } : null);
 
     if (!user) {
       state.currentUserData = null;
@@ -857,8 +782,8 @@
       return;
     }
 
-    state.currentUserData = await getCurrentUserProfile(user);
-    debugLog("auth-state-profile", state.currentUserData);
+    const userDoc = await db.collection("users").doc(user.uid).get();
+    state.currentUserData = userDoc.exists ? { id: user.uid, ...userDoc.data() } : null;
 
     if (!state.currentUserData) {
       sessionStorage.setItem("ridLoginFeedback", "Sua conta nao foi encontrada.");

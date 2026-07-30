@@ -18,6 +18,8 @@
   const RID_FORM_SETTINGS_DOC = db.collection("appSettings").doc("ridFormSchema");
   const messaging = typeof firebase.messaging === "function" ? firebase.messaging() : null;
   const WEB_PUSH_VAPID_KEY = "BC2FvVfx_PdEvXYqKdMAwZaNetYp_5Ni94FYINhTBxaXZnrhlCFfczJ-ivYtwsErGGcYAIAqUVzRz2HteJSaNuQ";
+  const BEHAVIORAL_DEVIATION_TYPE = "Desvio Comportamental";
+  const BEHAVIORAL_DEVIATION_FIELD_KEY = "behavioralDeviationEmployeeName";
 
   const STORAGE_KEYS = {
     auth: "ridMobileOfflineAuth",
@@ -174,8 +176,6 @@
 
   const PAGE_SIZE = 8;
   const CONNECTIVITY_CHECK_INTERVAL = 30000;
-  const CONNECTIVITY_PROBE_TIMEOUT_MS = 3500;
-  const AUTH_RESTORE_TIMEOUT_MS = 8000;
   const RID_IMAGE_MAX_BYTES = 350 * 1024;
   const RID_IMAGE_MAX_DIMENSION = 1280;
 
@@ -499,6 +499,28 @@
     `;
   }
 
+  function renderBehavioralDeviationEmployeeField(value = "") {
+    return `
+      <div class="field hidden" id="behavioral-deviation-employee-field">
+        <label>Nome do colaborador do desvio</label>
+        <input name="${escapeHtml(BEHAVIORAL_DEVIATION_FIELD_KEY)}" value="${escapeHtml(value)}" placeholder="Digite o nome do colaborador">
+      </div>
+    `;
+  }
+
+  function syncBehavioralDeviationEmployeeField(form) {
+    if (!form) return;
+    const incidentTypeField = form.elements.namedItem("incidentType");
+    const employeeFieldWrapper = form.querySelector("#behavioral-deviation-employee-field");
+    const employeeFieldInput = form.elements.namedItem(BEHAVIORAL_DEVIATION_FIELD_KEY);
+    if (!incidentTypeField || !employeeFieldWrapper || !employeeFieldInput) return;
+
+    const shouldShow = String(incidentTypeField.value || "").trim() === BEHAVIORAL_DEVIATION_TYPE;
+    employeeFieldWrapper.classList.toggle("hidden", !shouldShow);
+    employeeFieldInput.required = shouldShow;
+    if (!shouldShow) employeeFieldInput.value = "";
+  }
+
   function captureFormDraft(form) {
     const formData = new FormData(form);
     const draft = {};
@@ -785,33 +807,6 @@
 
   function cpfToEmail(cpf) {
     return `${normalizeCpf(cpf)}@jdemito.com`;
-  }
-
-  async function getCurrentUserProfile(user) {
-    if (!user?.uid) return null;
-    if (window.ridUserProfileResolver?.resolveUserProfile) {
-      return window.ridUserProfileResolver.resolveUserProfile(db, user);
-    }
-    const userDoc = await db.collection("users").doc(user.uid).get();
-    return userDoc.exists ? { id: user.uid, ...userDoc.data() } : null;
-  }
-
-  function getEmitterIdentity() {
-    if (window.ridUserProfileResolver?.getEmitterIdentity) {
-      return window.ridUserProfileResolver.getEmitterIdentity(state.currentUserData, state.currentUser);
-    }
-    return {
-      emitterId: state.currentUserData?.id || state.currentUser?.uid || "",
-      emitterUid: state.currentUser?.uid || state.currentUserData?.id || "",
-      emitterCpf: state.currentUserData?.cpf || "",
-      emitterCpfDigits: "",
-      emitterCpfMasked: state.currentUserData?.cpf || "",
-      emitterEmail: state.currentUser?.email || state.currentUserData?.email || "",
-      emitterName: state.currentUserData?.name || state.currentUser?.displayName || "Usuario",
-      sector: state.currentUserData?.sector || "",
-      unit: state.currentUserData?.unit || "",
-      contractType: state.currentUserData?.contractType || ""
-    };
   }
 
   async function sha256(text) {
@@ -1149,30 +1144,15 @@
   async function detectActualConnectivity() {
     if (!navigator.onLine) return false;
 
-    let timeoutId = null;
     try {
-      const supportsAbort = typeof AbortController !== "undefined";
-      const controller = supportsAbort ? new AbortController() : null;
-      timeoutId = controller
-        ? window.setTimeout(() => controller.abort(), CONNECTIVITY_PROBE_TIMEOUT_MS)
-        : null;
-
       await fetch(`https://www.gstatic.com/generate_204?network-check=1&t=${Date.now()}`, {
         method: "GET",
         mode: "no-cors",
-        cache: "no-store",
-        signal: controller?.signal
+        cache: "no-store"
       });
-      if (timeoutId) {
-        window.clearTimeout(timeoutId);
-      }
       return true;
     } catch (error) {
-      if (timeoutId) {
-        window.clearTimeout(timeoutId);
-      }
-      console.warn("Teste de conectividade falhou; mantendo status online pelo navegador.", error);
-      return true;
+      return false;
     }
   }
 
@@ -1741,18 +1721,13 @@
     const leaderId = String(formData.get(responsibleLeaderFieldKey) || "").trim();
     const leader = state.leaders.find((item) => item.id === leaderId);
     const status = String(formData.get(statusFieldKey) || "").toUpperCase();
-    const emitter = getEmitterIdentity();
     const payload = {
-      emitterId: emitter.emitterId,
-      emitterUid: emitter.emitterUid,
-      emitterName: emitter.emitterName,
-      emitterCpf: emitter.emitterCpf,
-      emitterCpfDigits: emitter.emitterCpfDigits,
-      emitterCpfMasked: emitter.emitterCpfMasked,
-      emitterEmail: emitter.emitterEmail,
-      contractType: emitter.contractType || "",
-      unit: emitter.unit || "",
-      sector: emitter.sector || "",
+      emitterId: state.currentUser.uid,
+      emitterName: state.currentUserData.name,
+      emitterCpf: state.currentUserData.cpf,
+      contractType: "",
+      unit: "",
+      sector: state.currentUserData.sector || "",
       emissionDate: new Date().toISOString().slice(0, 10),
       incidentType: "",
       detectionOrigin: "",
@@ -1802,6 +1777,19 @@
       }
     });
 
+    if (formData.has(BEHAVIORAL_DEVIATION_FIELD_KEY)) {
+      const employeeName = String(formData.get(BEHAVIORAL_DEVIATION_FIELD_KEY) || "").trim();
+      if (payload.incidentType === BEHAVIORAL_DEVIATION_TYPE && employeeName) {
+        payload.customFields[BEHAVIORAL_DEVIATION_FIELD_KEY] = {
+          label: "Nome do colaborador do desvio",
+          value: employeeName,
+          type: "text"
+        };
+      } else {
+        delete payload.customFields[BEHAVIORAL_DEVIATION_FIELD_KEY];
+      }
+    }
+
     return payload;
   }
 
@@ -1814,12 +1802,8 @@
     await db.collection("rids").add({
       ridNumber,
       emitterId: payload.emitterId,
-      emitterUid: payload.emitterUid || payload.emitterId || "",
       emitterName: payload.emitterName,
       emitterCpf: payload.emitterCpf,
-      emitterCpfDigits: payload.emitterCpfDigits || "",
-      emitterCpfMasked: payload.emitterCpfMasked || "",
-      emitterEmail: payload.emitterEmail || "",
       contractType: payload.contractType,
       unit: payload.unit,
       sector: payload.sector,
@@ -2173,11 +2157,6 @@
     }
 
     try {
-      const authenticated = await hasAuthenticatedOnlineSession();
-      if (!authenticated) {
-        throw new Error("Sua sessao online nao foi restaurada ainda. Entre novamente para sincronizar.");
-      }
-
       if (useOverlay) {
         setActionOverlay("Sincronizando RID", "Aguarde enquanto o envio é concluído.");
       }
@@ -2233,7 +2212,6 @@
     submitButton.disabled = true;
 
     try {
-      await authPersistenceReady;
       await syncConnectivityState();
       const cpf = form.cpf.value;
       const password = form.password.value;
@@ -2241,13 +2219,13 @@
       if (state.online) {
         const email = cpfToEmail(cpf);
         const credential = await auth.signInWithEmailAndPassword(email, password);
-        const profile = await getCurrentUserProfile(credential.user);
-        if (!profile) {
+        const userDoc = await db.collection("users").doc(credential.user.uid).get();
+        if (!userDoc.exists) {
           throw new Error("Usuário não encontrado na base.");
         }
 
         state.currentUser = { uid: credential.user.uid };
-        state.currentUserData = profile;
+        state.currentUserData = { id: credential.user.uid, ...userDoc.data() };
         loadUserCache(credential.user.uid);
 
         setOfflineAuth({
@@ -2711,6 +2689,7 @@
 
     const today = new Date().toISOString().slice(0, 10);
     const fieldsHtml = (state.ridFormSchema || []).map((field) => renderRidModalField(field, today)).join("");
+    const behavioralDeviationFieldHtml = renderBehavioralDeviationEmployeeField(state.ridDraft?.[BEHAVIORAL_DEVIATION_FIELD_KEY] || "");
     return `
       <div class="modal-root" id="rid-modal">
         <div class="modal-card">
@@ -2724,6 +2703,7 @@
               <input value="${escapeHtml(state.currentUserData.name || "")}" readonly>
             </div>
             ${fieldsHtml}
+            ${behavioralDeviationFieldHtml}
             <div class="actions">
               <button class="btn btn-success" type="submit">${state.online ? "Emitir RID" : "Emitir (pendente)"}</button>
               <button class="btn btn-soft" type="button" data-close-modal="true">Cancelar</button>
@@ -3364,7 +3344,7 @@
                 <button class="btn btn-danger btn-small" id="logout-btn">Sair</button>
               </div>
               <button class="btn btn-soft btn-small btn-cache" id="offline-cache-btn" ${state.offlineBundleUpdating ? "disabled" : ""}>
-                ${state.offlineBundleUpdating ? "Atualizando..." : "Atualizar"}
+                ${state.offlineBundleUpdating ? "Atualizando offline..." : "Baixar offline"}
               </button>
               <div class="topbar-cache-note">${escapeHtml(lastSyncLabel)}</div>
             </div>
@@ -3457,6 +3437,12 @@
     document.getElementById("maintenance-form")?.addEventListener("submit", handleMaintenanceSubmit);
     bindDraftPersistence("rid-form", "ridDraft");
     bindDraftPersistence("maintenance-form", "maintenanceDraft");
+    const ridForm = document.getElementById("rid-form");
+    if (ridForm) {
+      const incidentTypeField = ridForm.elements.namedItem("incidentType");
+      incidentTypeField?.addEventListener("change", () => syncBehavioralDeviationEmployeeField(ridForm));
+      syncBehavioralDeviationEmployeeField(ridForm);
+    }
 
     document.querySelectorAll("[data-sync-rid]").forEach((button) => {
       button.addEventListener("click", (event) => {
@@ -3593,15 +3579,14 @@
   }
 
   async function bootstrapFromFirebaseSession() {
-    await authPersistenceReady;
     const sessionUser = auth.currentUser;
     if (!sessionUser || !state.online) return false;
 
-    const profile = await getCurrentUserProfile(sessionUser);
-    if (!profile) return false;
+    const userDoc = await db.collection("users").doc(sessionUser.uid).get();
+    if (!userDoc.exists) return false;
 
     state.currentUser = { uid: sessionUser.uid };
-    state.currentUserData = profile;
+    state.currentUserData = { id: sessionUser.uid, ...userDoc.data() };
     loadUserCache(sessionUser.uid);
     await loadRidFormSchema();
     const announcementPromise = maybeShowGlobalAnnouncement();
@@ -3627,45 +3612,20 @@
     return true;
   }
 
-  function waitForInitialAuthState(timeoutMs = AUTH_RESTORE_TIMEOUT_MS) {
+  function waitForInitialAuthState() {
     return new Promise((resolve) => {
-      if (auth.currentUser) {
-        resolve(auth.currentUser);
-        return;
-      }
-
-      let settled = false;
-      let timeoutId = null;
       const unsubscribe = auth.onAuthStateChanged((user) => {
-        if (settled) return;
-        settled = true;
-        if (timeoutId) {
-          window.clearTimeout(timeoutId);
-        }
         unsubscribe();
         resolve(user || null);
       }, () => {
-        if (settled) return;
-        settled = true;
-        if (timeoutId) {
-          window.clearTimeout(timeoutId);
-        }
         unsubscribe();
         resolve(null);
       });
-
-      timeoutId = window.setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        unsubscribe();
-        resolve(auth.currentUser || null);
-      }, timeoutMs);
     });
   }
 
   async function hasAuthenticatedOnlineSession() {
     if (!state.online || !state.currentUser?.uid) return false;
-    await authPersistenceReady;
     if (auth.currentUser?.uid === state.currentUser.uid) return true;
     const restoredUser = await waitForInitialAuthState();
     return restoredUser?.uid === state.currentUser.uid;
@@ -3687,7 +3647,10 @@
           .then((authenticated) => {
             if (!authenticated) {
               stopRealtimeRidSync();
-              showToast("Internet voltou, mas a sessao online ainda nao foi restaurada. Tentaremos novamente sem te desconectar.", "info");
+              state.currentUser = null;
+              state.currentUserData = null;
+              renderLogin();
+              showToast("Sua sessão expirou. Entre novamente para continuar online.", "error");
               return;
             }
 
@@ -3728,7 +3691,6 @@
     setTimeout(() => {
       if (state.booting) setBooting(false);
     }, 4000);
-    await authPersistenceReady;
     await registerServiceWorker();
     await syncConnectivityState();
 
@@ -3791,3 +3753,5 @@
 
   init();
 })();
+
+

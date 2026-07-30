@@ -15,6 +15,7 @@
   const auth = firebase.auth();
   auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
   const db = firebase.firestore();
+  const BEHAVIORAL_DEVIATION_FIELD_KEY = "behavioralDeviationEmployeeName";
 
   const state = {
     currentUser: null,
@@ -159,6 +160,11 @@
     return text || fallback;
   }
 
+  function getBehavioralDeviationEmployeeName(rid) {
+    const customField = rid?.customFields?.[BEHAVIORAL_DEVIATION_FIELD_KEY];
+    return formatField(customField?.value ?? rid?.[BEHAVIORAL_DEVIATION_FIELD_KEY]);
+  }
+
   function normalizeStatus(status) {
     return String(status || "")
       .normalize("NFD")
@@ -224,6 +230,7 @@
           rid.location,
           rid.description,
           rid.sector,
+          getBehavioralDeviationEmployeeName(rid),
           rid.status
         ].join(" ").toLowerCase();
         return haystack.includes(search);
@@ -254,6 +261,7 @@
           rid.location,
           rid.description,
           rid.sector,
+          getBehavioralDeviationEmployeeName(rid),
           rid.status
         ].join(" ").toLowerCase();
         return haystack.includes(search);
@@ -272,6 +280,7 @@
         <td class="px-4 py-3 text-sm text-gray-700">${escapeHtml(formatField(rid.sector))}</td>
         <td class="px-4 py-3 text-sm text-gray-700">${escapeHtml(formatField(rid.location))}</td>
         <td class="px-4 py-3 text-sm text-gray-700">${escapeHtml(formatField(rid.incidentType))}</td>
+        <td class="px-4 py-3 text-sm text-gray-700">${escapeHtml(getBehavioralDeviationEmployeeName(rid))}</td>
         <td class="px-4 py-3 text-sm text-gray-700">${escapeHtml(formatField(rid.detectionOrigin))}</td>
         <td class="px-4 py-3 text-sm text-gray-700 max-w-[340px]">${escapeHtml(formatField(rid.description))}</td>
         <td class="px-4 py-3 text-sm text-gray-700">${escapeHtml(formatField(rid.riskClassification))}</td>
@@ -296,7 +305,7 @@
     if (!rows.length) {
       dom.reportTableBody.innerHTML = `
         <tr>
-          <td colspan="17" class="px-4 py-10 text-center text-sm text-gray-500">Nenhum RID encontrado no periodo selecionado.</td>
+          <td colspan="18" class="px-4 py-10 text-center text-sm text-gray-500">Nenhum RID encontrado no periodo selecionado.</td>
         </tr>
       `;
     } else {
@@ -306,7 +315,7 @@
     if (!lateRows.length) {
       dom.lateReportTableBody.innerHTML = `
         <tr>
-          <td colspan="17" class="px-4 py-10 text-center text-sm text-gray-500">Nenhum RID atrasado de meses anteriores para este recorte.</td>
+          <td colspan="18" class="px-4 py-10 text-center text-sm text-gray-500">Nenhum RID atrasado de meses anteriores para este recorte.</td>
         </tr>
       `;
     } else {
@@ -361,19 +370,12 @@
       const createdAt = item.exportedDate || formatDate(item.createdAt);
       const createdHour = item.exportedTime || toDateSafe(item.createdAt)?.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) || "--:--";
       const sectorLabel = formatField(item.sectorLabel, "Todos os setores");
-      const reportName = formatField(item.reportName, item.exportType === "CSV" ? "Relatorio de RIDs" : "Relatorio");
-      const primaryMetricLabel = item.exportType === "PDF" ? "Usuarios" : "Periodo";
-      const secondaryMetricLabel = item.exportType === "PDF" ? "Regulares" : "Atrasados";
-      const secondaryMetricValue = item.exportType === "PDF"
-        ? Number(item.metadata?.regularEmitters || 0)
-        : Number(item.totalLate || 0);
       return `
         <article class="rounded-2xl border border-gray-100 bg-white px-5 py-4">
           <div class="flex items-start justify-between gap-4 flex-wrap">
             <div class="space-y-1">
               <div class="text-sm font-semibold text-gray-900">${escapeHtml(formatField(item.generatedByName, "Usuario nao identificado"))}</div>
               <div class="text-xs text-gray-500">Gerou um relatorio em ${escapeHtml(createdAt)} as ${escapeHtml(createdHour)}</div>
-              <div class="text-xs text-gray-500">${escapeHtml(reportName)}</div>
               <div class="flex items-center gap-2 flex-wrap pt-1">
                 <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-semibold text-gray-600">${escapeHtml(formatField(item.exportType, "CSV"))}</span>
                 <span class="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">${escapeHtml(formatField(item.periodLabel, getPeriodLabel()))}</span>
@@ -382,12 +384,12 @@
             </div>
             <div class="grid grid-cols-2 gap-3 min-w-[220px]">
               <div class="rounded-2xl bg-gray-50 px-3 py-2">
-                <div class="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">${escapeHtml(primaryMetricLabel)}</div>
+                <div class="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Periodo</div>
                 <div class="text-lg font-bold text-gray-900 mt-1">${escapeHtml(String(item.totalCurrent || 0))}</div>
               </div>
               <div class="rounded-2xl bg-red-50 px-3 py-2">
-                <div class="text-[11px] uppercase tracking-wider text-red-400 font-semibold">${escapeHtml(secondaryMetricLabel)}</div>
-                <div class="text-lg font-bold text-red-700 mt-1">${escapeHtml(String(secondaryMetricValue))}</div>
+                <div class="text-[11px] uppercase tracking-wider text-red-400 font-semibold">Atrasados</div>
+                <div class="text-lg font-bold text-red-700 mt-1">${escapeHtml(String(item.totalLate || 0))}</div>
               </div>
             </div>
           </div>
@@ -407,8 +409,6 @@
         generatedByName: state.currentUserData.name || state.currentUser.email || "Usuario",
         generatedByEmail: state.currentUser.email || state.currentUserData.email || "",
         exportType: "CSV",
-        reportName: "Relatorio de RIDs",
-        reportSource: "relatorios",
         periodLabel: getPeriodLabel(),
         sectorLabel,
         totalCurrent: currentCount,
@@ -429,7 +429,7 @@
     const lateRows = getLateRids();
     const lines = [
       "RIDs do periodo",
-      ["Unidade", "RID", "Data Emissao", "Emitente", "Tipo", "Setor", "Local do Incidente", "Genese do Incidente", "Origem da Deteccao", "Descricao", "Classificacao de Risco", "Acao Imediata", "Acoes Corretivas", "Responsavel", "Prazo", "Data Conclusao", "Status"].join(";")
+      ["Unidade", "RID", "Data Emissao", "Emitente", "Tipo", "Setor", "Local do Incidente", "Genese do Incidente", "Nome do Colaborador do Desvio", "Origem da Deteccao", "Descricao", "Classificacao de Risco", "Acao Imediata", "Acoes Corretivas", "Responsavel", "Prazo", "Data Conclusao", "Status"].join(";")
     ];
 
     rows.forEach((rid) => {
@@ -442,6 +442,7 @@
         formatField(rid.sector),
         formatField(rid.location),
         formatField(rid.incidentType),
+        formatField(getBehavioralDeviationEmployeeName(rid)),
         formatField(rid.detectionOrigin),
         `"${String(formatField(rid.description)).replace(/"/g, '""')}"`,
         formatField(rid.riskClassification),
@@ -456,7 +457,7 @@
 
     lines.push("");
     lines.push("RIDs atrasados de meses anteriores");
-    lines.push(["Unidade", "RID", "Data Emissao", "Emitente", "Tipo", "Setor", "Local do Incidente", "Genese do Incidente", "Origem da Deteccao", "Descricao", "Classificacao de Risco", "Acao Imediata", "Acoes Corretivas", "Responsavel", "Prazo", "Data Conclusao", "Status"].join(";"));
+    lines.push(["Unidade", "RID", "Data Emissao", "Emitente", "Tipo", "Setor", "Local do Incidente", "Genese do Incidente", "Nome do Colaborador do Desvio", "Origem da Deteccao", "Descricao", "Classificacao de Risco", "Acao Imediata", "Acoes Corretivas", "Responsavel", "Prazo", "Data Conclusao", "Status"].join(";"));
 
     lateRows.forEach((rid) => {
       lines.push([
@@ -468,6 +469,7 @@
         formatField(rid.sector),
         formatField(rid.location),
         formatField(rid.incidentType),
+        formatField(getBehavioralDeviationEmployeeName(rid)),
         formatField(rid.detectionOrigin),
         `"${String(formatField(rid.description)).replace(/"/g, '""')}"`,
         formatField(rid.riskClassification),

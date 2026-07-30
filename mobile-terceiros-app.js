@@ -16,6 +16,8 @@
   const RID_FORM_SETTINGS_DOC = db.collection("appSettings").doc("ridFormSchema");
   const messaging = typeof firebase.messaging === "function" ? firebase.messaging() : null;
   const WEB_PUSH_VAPID_KEY = "BC2FvVfx_PdEvXYqKdMAwZaNetYp_5Ni94FYINhTBxaXZnrhlCFfczJ-ivYtwsErGGcYAIAqUVzRz2HteJSaNuQ";
+  const BEHAVIORAL_DEVIATION_TYPE = "Desvio Comportamental";
+  const BEHAVIORAL_DEVIATION_FIELD_KEY = "behavioralDeviationEmployeeName";
 
   const STORAGE_KEYS = {
     auth: "ridThirdPartyMobileOfflineAuth",
@@ -456,6 +458,28 @@
     `;
   }
 
+  function renderBehavioralDeviationEmployeeField(value = "") {
+    return `
+      <div class="field hidden" id="behavioral-deviation-employee-field">
+        <label>Nome do colaborador do desvio</label>
+        <input name="${escapeHtml(BEHAVIORAL_DEVIATION_FIELD_KEY)}" value="${escapeHtml(value)}" placeholder="Digite o nome do colaborador">
+      </div>
+    `;
+  }
+
+  function syncBehavioralDeviationEmployeeField(form) {
+    if (!form) return;
+    const incidentTypeField = form.elements.namedItem("incidentType");
+    const employeeFieldWrapper = form.querySelector("#behavioral-deviation-employee-field");
+    const employeeFieldInput = form.elements.namedItem(BEHAVIORAL_DEVIATION_FIELD_KEY);
+    if (!incidentTypeField || !employeeFieldWrapper || !employeeFieldInput) return;
+
+    const shouldShow = String(incidentTypeField.value || "").trim() === BEHAVIORAL_DEVIATION_TYPE;
+    employeeFieldWrapper.classList.toggle("hidden", !shouldShow);
+    employeeFieldInput.required = shouldShow;
+    if (!shouldShow) employeeFieldInput.value = "";
+  }
+
   function captureFormDraft(form) {
     const formData = new FormData(form);
     const draft = {};
@@ -742,33 +766,6 @@
 
   function cpfToEmail(cpf) {
     return `${normalizeCpf(cpf)}@jdemito.com`;
-  }
-
-  async function getCurrentUserProfile(user) {
-    if (!user?.uid) return null;
-    if (window.ridUserProfileResolver?.resolveUserProfile) {
-      return window.ridUserProfileResolver.resolveUserProfile(db, user);
-    }
-    const userDoc = await db.collection("users").doc(user.uid).get();
-    return userDoc.exists ? { id: user.uid, ...userDoc.data() } : null;
-  }
-
-  function getEmitterIdentity() {
-    if (window.ridUserProfileResolver?.getEmitterIdentity) {
-      return window.ridUserProfileResolver.getEmitterIdentity(state.currentUserData, state.currentUser);
-    }
-    return {
-      emitterId: state.currentUserData?.id || state.currentUser?.uid || "",
-      emitterUid: state.currentUser?.uid || state.currentUserData?.id || "",
-      emitterCpf: state.currentUserData?.cpf || "",
-      emitterCpfDigits: "",
-      emitterCpfMasked: state.currentUserData?.cpf || "",
-      emitterEmail: state.currentUser?.email || state.currentUserData?.email || "",
-      emitterName: state.currentUserData?.name || state.currentUser?.displayName || "Usuario",
-      sector: state.currentUserData?.sector || "",
-      unit: state.currentUserData?.unit || "",
-      contractType: state.currentUserData?.contractType || ""
-    };
   }
 
   function getUserTypeLabel(userData) {
@@ -1744,18 +1741,13 @@
     const leaderId = String(formData.get(responsibleLeaderFieldKey) || "").trim();
     const leader = state.leaders.find((item) => item.id === leaderId);
     const status = String(formData.get(statusFieldKey) || "").toUpperCase();
-    const emitter = getEmitterIdentity();
     const payload = {
-      emitterId: emitter.emitterId,
-      emitterUid: emitter.emitterUid,
-      emitterName: emitter.emitterName,
-      emitterCpf: emitter.emitterCpf,
-      emitterCpfDigits: emitter.emitterCpfDigits,
-      emitterCpfMasked: emitter.emitterCpfMasked,
-      emitterEmail: emitter.emitterEmail,
-      contractType: emitter.contractType || "",
-      unit: emitter.unit || "",
-      sector: emitter.sector || "",
+      emitterId: state.currentUser.uid,
+      emitterName: state.currentUserData.name,
+      emitterCpf: state.currentUserData.cpf,
+      contractType: "",
+      unit: "",
+      sector: state.currentUserData.sector || "",
       emissionDate: new Date().toISOString().slice(0, 10),
       incidentType: "",
       detectionOrigin: "",
@@ -1805,6 +1797,19 @@
       }
     });
 
+    if (formData.has(BEHAVIORAL_DEVIATION_FIELD_KEY)) {
+      const employeeName = String(formData.get(BEHAVIORAL_DEVIATION_FIELD_KEY) || "").trim();
+      if (payload.incidentType === BEHAVIORAL_DEVIATION_TYPE && employeeName) {
+        payload.customFields[BEHAVIORAL_DEVIATION_FIELD_KEY] = {
+          label: "Nome do colaborador do desvio",
+          value: employeeName,
+          type: "text"
+        };
+      } else {
+        delete payload.customFields[BEHAVIORAL_DEVIATION_FIELD_KEY];
+      }
+    }
+
     return payload;
   }
 
@@ -1817,12 +1822,8 @@
     await db.collection("rids").add({
       ridNumber,
       emitterId: payload.emitterId,
-      emitterUid: payload.emitterUid || payload.emitterId || "",
       emitterName: payload.emitterName,
       emitterCpf: payload.emitterCpf,
-      emitterCpfDigits: payload.emitterCpfDigits || "",
-      emitterCpfMasked: payload.emitterCpfMasked || "",
-      emitterEmail: payload.emitterEmail || "",
       contractType: payload.contractType,
       unit: payload.unit,
       sector: payload.sector,
@@ -2115,12 +2116,12 @@
       if (state.online) {
         const email = cpfToEmail(cpf);
         const credential = await auth.signInWithEmailAndPassword(email, password);
-        const profile = await getCurrentUserProfile(credential.user);
-        if (!profile) {
+        const userDoc = await db.collection("users").doc(credential.user.uid).get();
+        if (!userDoc.exists) {
           throw new Error("Usuário não encontrado na base.");
         }
 
-        const userData = profile;
+        const userData = { id: credential.user.uid, ...userDoc.data() };
         ensureThirdPartyMobileUser(userData);
 
         state.currentUser = { uid: credential.user.uid };
@@ -2588,6 +2589,7 @@
 
     const today = new Date().toISOString().slice(0, 10);
     const fieldsHtml = (state.ridFormSchema || []).map((field) => renderRidModalField(field, today)).join("");
+    const behavioralDeviationFieldHtml = renderBehavioralDeviationEmployeeField(state.ridDraft?.[BEHAVIORAL_DEVIATION_FIELD_KEY] || "");
     return `
       <div class="modal-root" id="rid-modal">
         <div class="modal-card">
@@ -2601,6 +2603,7 @@
               <input value="${escapeHtml(state.currentUserData.name || "")}" readonly>
             </div>
             ${fieldsHtml}
+            ${behavioralDeviationFieldHtml}
             <div class="actions">
               <button class="btn btn-success" type="submit">${state.online ? "Emitir RID" : "Emitir (pendente)"}</button>
               <button class="btn btn-soft" type="button" data-close-modal="true">Cancelar</button>
@@ -3225,6 +3228,12 @@
     document.getElementById("maintenance-form")?.addEventListener("submit", handleMaintenanceSubmit);
     bindDraftPersistence("rid-form", "ridDraft");
     bindDraftPersistence("maintenance-form", "maintenanceDraft");
+    const ridForm = document.getElementById("rid-form");
+    if (ridForm) {
+      const incidentTypeField = ridForm.elements.namedItem("incidentType");
+      incidentTypeField?.addEventListener("change", () => syncBehavioralDeviationEmployeeField(ridForm));
+      syncBehavioralDeviationEmployeeField(ridForm);
+    }
 
     document.querySelectorAll("[data-sync-rid]").forEach((button) => {
       button.addEventListener("click", (event) => {
@@ -3364,10 +3373,10 @@
     const sessionUser = auth.currentUser;
     if (!sessionUser || !state.online) return false;
 
-    const profile = await getCurrentUserProfile(sessionUser);
-    if (!profile) return false;
+    const userDoc = await db.collection("users").doc(sessionUser.uid).get();
+    if (!userDoc.exists) return false;
 
-    const userData = profile;
+    const userData = { id: sessionUser.uid, ...userDoc.data() };
     ensureThirdPartyMobileUser(userData);
 
     state.currentUser = { uid: sessionUser.uid };
