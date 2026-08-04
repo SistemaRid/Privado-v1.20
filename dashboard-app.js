@@ -898,8 +898,7 @@
   function isEligibleTopEmitterUser(user) {
     if (!isActiveUserRecord(user)) return false;
     if (isThirdPartyUser(user)) return false;
-    if (isAdminUser(user)) return false;
-    if (isDeveloperUser(user)) return false;
+    if (isAdminUser(user) && !isDeveloperUser(user)) return false;
     return true;
   }
 
